@@ -78,6 +78,16 @@ type Incident = {
   status: "active" | "resolved";
 };
 
+type OrderInterpretation = {
+  objective: string;
+  method: string;
+  resources: string;
+  secrecy: string;
+  prohibitions: string;
+  retreat: string;
+  autonomy: string;
+};
+
 type Order = {
   id: string;
   type: string;
@@ -85,6 +95,8 @@ type Order = {
   districtId: string;
   brief: string;
   useAbility: boolean;
+  interpretation: OrderInterpretation;
+  narrativeFocus: boolean;
 };
 
 type ChronicleEntry = {
@@ -116,6 +128,7 @@ type TurnResult = {
   findings: string[];
   consequence: string;
   followUp: string;
+  interpretation: OrderInterpretation;
 };
 
 type TurnReport = {
@@ -128,6 +141,12 @@ type TurnReport = {
   prelude: string[];
   worldMoves: { title: string; districtName: string; text: string; severity: "watch" | "danger" }[];
   closing: string;
+  chapter: {
+    title: string;
+    sections: { heading: string; paragraphs: string[] }[];
+    source: "local" | "ai";
+    editorNote: string;
+  };
 };
 
 type GameState = {
@@ -326,7 +345,20 @@ function normalizeGameState(saved: GameState): GameState {
       opportunity: district.opportunity,
       warning: district.warning,
     })),
-    orders: (saved.orders ?? []).map((order) => ({ ...order, useAbility: order.useAbility ?? false })),
+    orders: (saved.orders ?? []).map((order, index) => ({
+      ...order,
+      useAbility: order.useAbility ?? false,
+      narrativeFocus: order.narrativeFocus ?? index === 0,
+      interpretation: order.interpretation ?? {
+        objective: order.brief,
+        method: "由执行成员依据现场情况选择具体方法",
+        resources: "组织常规经费与执行者个人专长",
+        secrecy: "维持组织掩护身份，不主动暴露非凡背景",
+        prohibitions: "不得擅自扩大冲突",
+        retreat: "身份暴露或出现未知高位威胁时立即中止",
+        autonomy: "未明确事项由执行成员在目标与红线内判断",
+      },
+    })),
   };
 }
 
@@ -486,6 +518,137 @@ function worldMovementFor(incident: Incident, district: District) {
   };
 }
 
+function interpretOrder(
+  briefText: string,
+  actionType: string,
+  district: District,
+  member: Member,
+  organizationName: string,
+  abilityName?: string,
+): OrderInterpretation {
+  const sentences = briefText.split(/[。！？；\n]/).map((item) => item.trim()).filter(Boolean);
+  const findSentence = (pattern: RegExp) => sentences.find((sentence) => pattern.test(sentence));
+  const methods: Record<string, string> = {
+    调查: "走访、跟踪与交叉核对证词，优先取得可复核的时间和地点信息",
+    交涉: "通过关系、筹码与有限承诺换取合作，不主动暴露组织底线",
+    研究: "整理档案、样本与神秘学痕迹，分离传闻、误导和可靠事实",
+    采购: "使用掩护身份和中间渠道取得物资，避免留下完整交易记录",
+    仪式: "在可控边界内举行仪式，出现污染或未知注视时立即切断联系",
+    休整: "检查据点安全、成员状态与内部流程，修复最紧迫的风险",
+  };
+  const explicitBan = findSentence(/不要|不得|禁止|避免|不可/);
+  const explicitRetreat = findSentence(/撤退|撤离|中止|求援|暴露|危险/);
+  const secret = /暗中|秘密|隐蔽|不要惊动|不惊动|低调/.test(briefText);
+  return {
+    objective: sentences[0] ?? `${actionType}${district.name}的当前异常`,
+    method: methods[actionType] ?? "由执行成员根据现场信息选择稳妥方法",
+    resources: `${member.name}的“${member.specialty}”、${organizationName}的常规经费${abilityName ? `，以及主动能力“${abilityName}”` : ""}`,
+    secrecy: secret ? "按秘密行动处理，不向无关人员透露组织身份、据点和非凡背景" : "维持合法掩护；如需公开接触，只使用当前组织身份",
+    prohibitions: explicitBan ?? "不得擅自伤害无关人员，不得在证据不足时公开指控重要势力",
+    retreat: explicitRetreat ?? "身份可能暴露、遭遇未知中序列威胁或失去安全撤离路线时中止行动",
+    autonomy: "路线、接触顺序与小额支出由执行成员自行判断；不得改变核心目标和上述红线",
+  };
+}
+
+function buildLocalChapter(args: {
+  week: number;
+  prelude: string[];
+  results: TurnResult[];
+  worldMoves: TurnReport["worldMoves"];
+  closing: string;
+  focusOrderId?: string;
+}): TurnReport["chapter"] {
+  const focus = args.results.find((result) => result.id === args.focusOrderId) ?? args.results[0];
+  const secondary = args.results.filter((result) => result.id !== focus?.id);
+  const sections: TurnReport["chapter"]["sections"] = [
+    { heading: "雾都一周", paragraphs: args.prelude },
+  ];
+  if (focus) {
+    sections.push({ heading: focus.sceneTitle, paragraphs: focus.narrative });
+    if (focus.testimony) sections.push({ heading: `现场证言 · ${focus.testimony.speaker}`, paragraphs: [`“${focus.testimony.words}”`] });
+  }
+  if (secondary.length > 0) {
+    sections.push({
+      heading: "送回据点的其他消息",
+      paragraphs: secondary.map((result) => `${result.memberName}从${result.districtName}返回时，只用了几句话交代经过。${result.detail}${result.newClue ? ` 那份单独封存的记录写着：${result.newClue}。` : " 现有材料已经归档，但还不足以形成新的结论。"}`),
+    });
+  }
+  if (args.worldMoves.length > 0) {
+    sections.push({ heading: "没有等待你的城市", paragraphs: args.worldMoves.slice(0, 2).map((movement) => `${movement.districtName}传来消息：${movement.text}`) });
+  }
+  sections.push({ heading: "本周终记", paragraphs: [args.closing] });
+  return {
+    title: focus ? `第${args.week}周 · ${focus.sceneTitle}` : `第${args.week}周 · 雾中的静默`,
+    sections,
+    source: "local",
+    editorNote: "本地规则叙事已完成；配置模型后将自动启用文学模式三阶段生成。",
+  };
+}
+
+function extractJsonObject(raw: string) {
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? raw;
+  const start = fenced.indexOf("{");
+  const end = fenced.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("模型没有返回可解析的JSON");
+  return JSON.parse(fenced.slice(start, end + 1)) as Record<string, unknown>;
+}
+
+async function callCompatibleModel(config: { endpoint: string; apiKey: string; model: string }, system: string, user: string) {
+  const base = config.endpoint.trim().replace(/\/$/, "");
+  const url = /\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiKey}` },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+  if (!response.ok) throw new Error(`模型接口返回 ${response.status}`);
+  const payload = await response.json() as { choices?: { message?: { content?: string } }[] };
+  const content = payload.choices?.[0]?.message?.content;
+  if (!content) throw new Error("模型没有返回正文");
+  return content;
+}
+
+function validateChapter(value: Record<string, unknown>, lockedTerms: string[]) {
+  const title = typeof value.title === "string" ? value.title.trim() : "";
+  const sections = Array.isArray(value.sections) ? value.sections.flatMap((section) => {
+    if (!section || typeof section !== "object") return [];
+    const candidate = section as { heading?: unknown; paragraphs?: unknown };
+    if (typeof candidate.heading !== "string" || !Array.isArray(candidate.paragraphs)) return [];
+    const paragraphs = candidate.paragraphs.filter((paragraph): paragraph is string => typeof paragraph === "string" && paragraph.trim().length > 0);
+    return paragraphs.length ? [{ heading: candidate.heading.trim(), paragraphs }] : [];
+  }) : [];
+  const fullText = sections.flatMap((section) => section.paragraphs).join("");
+  if (!title || sections.length < 3 || fullText.length < 500 || fullText.length > 1800) throw new Error("文学正文未达到篇幅或结构要求");
+  if (lockedTerms.some((term) => term && !fullText.includes(term))) throw new Error("文学正文遗漏了锁定事实");
+  return { title, sections };
+}
+
+async function generateLiteraryChapter(args: {
+  config: { endpoint: string; apiKey: string; model: string };
+  factPack: Record<string, unknown>;
+  localChapter: TurnReport["chapter"];
+  lockedTerms: string[];
+  onStage: (stage: string) => void;
+}): Promise<TurnReport["chapter"]> {
+  const sharedRules = `你为原创维多利亚神秘主义互动小说《灰雾纪事》工作。使用第三人称有限视角，不模仿或复制任何现有小说句子。规则事实不可更改；不得新增线索、物品、伤势、关系或玩家内心决定。普通章节700到1200个中文字符，有且只有一个重点场景，必须包含负责人锚点。只返回JSON。`;
+  args.onStage("叙事导演正在编排视角与场景");
+  const directorRaw = await callCompatibleModel(args.config, `${sharedRules}\n你是叙事导演。`, `根据事实包制定章节提纲。返回JSON：{"focus":"重点场景","viewpoint":"视角","outline":["六段以内提纲"],"mustInclude":["事实"],"forbidden":["禁止内容"]}。\n事实包：${JSON.stringify(args.factPack)}`);
+  const director = extractJsonObject(directorRaw);
+
+  args.onStage("正文作者正在完成本周章节");
+  const writerRaw = await callCompatibleModel(args.config, `${sharedRules}\n你是正文作者。对话克制，环境描写必须服务于行动与悬念。`, `根据导演提纲和事实包写完整章节，分为3至5个有标题的分节。返回JSON：{"title":"章名","sections":[{"heading":"分节名","paragraphs":["完整段落"]}]}。锁定词必须原样出现：${args.lockedTerms.join("、")}。\n导演提纲：${JSON.stringify(director)}\n事实包：${JSON.stringify(args.factPack)}\n本地事实叙事参考：${JSON.stringify(args.localChapter)}`);
+  const writer = extractJsonObject(writerRaw);
+
+  args.onStage("连续性编辑正在校对世界事实");
+  const editorRaw = await callCompatibleModel(args.config, `${sharedRules}\n你是连续性编辑。删除重复、修正视角越界和人物失真，绝不改变事实。`, `校订初稿并返回相同JSON结构。所有锁定词必须原样出现在正文：${args.lockedTerms.join("、")}。\n事实包：${JSON.stringify(args.factPack)}\n初稿：${JSON.stringify(writer)}`);
+  const edited = validateChapter(extractJsonObject(editorRaw), args.lockedTerms);
+  return { ...edited, source: "ai", editorNote: "文学模式已完成叙事导演、正文作者与连续性编辑三阶段生成。" };
+}
+
 export default function Home() {
   const [game, setGame] = useState<GameState>(() => createInitialState());
   const [hydrated, setHydrated] = useState(false);
@@ -508,6 +671,12 @@ export default function Home() {
   const [turnReport, setTurnReport] = useState<TurnReport | null>(null);
   const [showDistrictDetail, setShowDistrictDetail] = useState(false);
   const [showOrderComposer, setShowOrderComposer] = useState(false);
+  const [orderPreview, setOrderPreview] = useState<OrderInterpretation | null>(null);
+  const [narrativeFocusDraft, setNarrativeFocusDraft] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationStage, setGenerationStage] = useState("");
+  const [generationError, setGenerationError] = useState("");
+  const [readerFontScale, setReaderFontScale] = useState(1);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -621,8 +790,21 @@ export default function Home() {
     };
   }, [abilityIsActive, actionType, activeMember, brief, pathway, selectedDistrict]);
 
-  function queueOrder() {
+  function prepareOrderPreview() {
     if (!brief.trim() || game.actionPoints <= 0 || !activeMemberId) return;
+    setOrderPreview(interpretOrder(
+      brief.trim(),
+      actionType,
+      selectedDistrict,
+      activeMember,
+      organization.name,
+      abilityIsActive ? pathway.activeName : undefined,
+    ));
+    setNarrativeFocusDraft(!game.orders.some((order) => order.narrativeFocus));
+  }
+
+  function confirmOrder() {
+    if (!orderPreview || !brief.trim() || game.actionPoints <= 0 || !activeMemberId) return;
     const order: Order = {
       id: `order-${Date.now()}`,
       type: actionType,
@@ -630,27 +812,41 @@ export default function Home() {
       districtId: selectedDistrict.id,
       brief: brief.trim(),
       useAbility: abilityIsActive,
+      interpretation: orderPreview,
+      narrativeFocus: narrativeFocusDraft,
     };
     setGame((current) => ({
       ...current,
       actionPoints: current.actionPoints - 1,
       spirituality: abilityIsActive ? Math.max(0, current.spirituality - 1) : current.spirituality,
-      orders: [...current.orders, order],
+      orders: [...current.orders.map((item) => narrativeFocusDraft ? { ...item, narrativeFocus: false } : item), order],
     }));
     setBrief("");
     setAbilityArmed(false);
+    setOrderPreview(null);
     setUndoOrderId(order.id);
-    setToast("指令已加入本周计划");
+    setToast(narrativeFocusDraft ? "重点叙事指令已加入本周计划" : "指令已加入本周计划");
+  }
+
+  function queueOrder() {
+    if (orderPreview) confirmOrder();
+    else prepareOrderPreview();
   }
 
   function removeOrder(orderId: string) {
     const removedOrder = game.orders.find((order) => order.id === orderId);
-    setGame((current) => ({
-      ...current,
-      actionPoints: Math.min(3, current.actionPoints + 1),
-      spirituality: removedOrder?.useAbility ? Math.min(3, current.spirituality + 1) : current.spirituality,
-      orders: current.orders.filter((order) => order.id !== orderId),
-    }));
+    setGame((current) => {
+      const remaining = current.orders.filter((order) => order.id !== orderId);
+      const normalized = removedOrder?.narrativeFocus && remaining.length > 0
+        ? remaining.map((order, index) => ({ ...order, narrativeFocus: index === 0 }))
+        : remaining;
+      return {
+        ...current,
+        actionPoints: Math.min(3, current.actionPoints + 1),
+        spirituality: removedOrder?.useAbility ? Math.min(3, current.spirituality + 1) : current.spirituality,
+        orders: normalized,
+      };
+    });
     if (undoOrderId === orderId) setUndoOrderId(null);
   }
 
@@ -658,12 +854,15 @@ export default function Home() {
     setSelectedDistrictId(incident.districtId);
     setActionType(nextAction);
     setBrief(suggestedBrief);
+    setOrderPreview(null);
     setView("situation");
     setShowDistrictDetail(false);
     setShowOrderComposer(true);
   }
 
-  function resolveWeek() {
+  async function resolveWeek() {
+    if (isGenerating) return;
+    setGenerationError("");
     const orders = game.orders;
     const entries: ChronicleEntry[] = [];
     const results: TurnResult[] = [];
@@ -747,6 +946,7 @@ export default function Home() {
         abilityName: abilityUsed ? pathway.activeName : undefined,
         abilityEffect,
         orderBrief: order.brief,
+        interpretation: order.interpretation,
         incidentTitle: incident?.title,
         ...narrativeResult,
       });
@@ -780,6 +980,29 @@ export default function Home() {
       : successfulActions > 0
         ? "周日的复盘会议持续了一个小时。没有足以改变局势的单一发现，但地图上的铅笔线比上周更清楚；组织至少知道下一次应该把手伸向哪里。"
         : "周日夜里，壁炉中的火提前熄灭。没有人受伤，也没有人失踪，可桌上那些没有得到回答的问题显得比一周前更加沉重。";
+    const focusOrderId = orders.find((order) => order.narrativeFocus)?.id ?? results[0]?.id;
+    const localChapter = buildLocalChapter({
+      week: game.week,
+      prelude,
+      results,
+      worldMoves,
+      closing,
+      focusOrderId,
+    });
+    const localReport: TurnReport = {
+      week: game.week,
+      date: game.date,
+      headline: discoveredClues > 0 ? `发现 ${discoveredClues} 条关键线索` : successfulActions > 0 ? `${successfulActions} 项行动取得进展` : "世界在沉默中继续运转",
+      summary: orders.length === 0
+        ? "组织选择保持低调。隐秘度与稳定有所恢复，但所有未处理事件的紧迫度都在上升。"
+        : `本周执行${orders.length}项重点行动，${successfulActions}项成功。${discoveredClues > 0 ? "新的证据已经写入调查档案。" : "尚未跨过新的证据阈值，但已有进度会被保留。"}`,
+      results,
+      deltas: { money: moneyDelta, intel: intelDelta, concealment: concealmentDelta, stability: stabilityDelta },
+      prelude,
+      worldMoves,
+      closing,
+      chapter: localChapter,
+    };
     setGame((current) => ({
       ...current,
       week: nextWeek,
@@ -807,25 +1030,82 @@ export default function Home() {
       }),
       chronicle: [...entries, ...current.chronicle].slice(0, 40),
     }));
-    setTurnReport({
-      week: game.week,
-      date: game.date,
-      headline: discoveredClues > 0 ? `发现 ${discoveredClues} 条关键线索` : successfulActions > 0 ? `${successfulActions} 项行动取得进展` : "世界在沉默中继续运转",
-      summary: orders.length === 0
-        ? "组织选择保持低调。隐秘度与稳定有所恢复，但所有未处理事件的紧迫度都在上升。"
-        : `本周执行${orders.length}项重点行动，${successfulActions}项成功。${discoveredClues > 0 ? "新的证据已经写入调查档案。" : "尚未跨过新的证据阈值，但已有进度会被保留。"}`,
-      results,
-      deltas: { money: moneyDelta, intel: intelDelta, concealment: concealmentDelta, stability: stabilityDelta },
-      prelude,
-      worldMoves,
-      closing,
-    });
+    setTurnReport(localReport);
+    setShowOrderComposer(false);
     setToast(`第${game.week}周结算完成`);
+
+    if (endpoint.trim() && apiKey.trim() && model.trim() && orders.length > 0) {
+      setIsGenerating(true);
+      setGenerationError("");
+      setGenerationStage("正在锁定本周事实");
+      const factPack = {
+        timeline: { week: game.week, date: game.date, nextDate: nextDate(game.week) },
+        organization: { name: organization.name, cover: organization.cover, doctrine: "谨慎调查；未知非凡威胁下优先撤退" },
+        player: { pathway: pathway.name, sequence: pathway.sequence, participated: orders.some((order) => order.memberId === PLAYER_MEMBER_ID) },
+        narrativeFocusOrderId: focusOrderId,
+        orders: orders.map((order) => ({
+          id: order.id,
+          focus: order.id === focusOrderId,
+          type: order.type,
+          district: game.districts.find((district) => district.id === order.districtId)?.name,
+          member: operatives.find((member) => member.id === order.memberId)?.name,
+          originalBrief: order.brief,
+          interpretation: order.interpretation,
+          ability: order.useAbility && order.memberId === PLAYER_MEMBER_ID ? pathway.activeName : undefined,
+        })),
+        lockedResults: results.map((result) => ({
+          id: result.id,
+          success: result.success,
+          member: result.memberName,
+          district: result.districtName,
+          action: result.actionType,
+          incident: result.incidentTitle,
+          findings: result.findings,
+          newClue: result.newClue,
+          consequence: result.consequence,
+          followUp: result.followUp,
+          ability: result.abilityName ? { name: result.abilityName, effect: result.abilityEffect } : undefined,
+        })),
+        characters: results.map((result) => {
+          const member = operatives.find((item) => item.name === result.memberName);
+          return member ? { name: member.name, role: member.role, specialty: member.specialty, trust: member.trust } : { name: result.memberName };
+        }),
+        worldMovements: worldMoves,
+        closingFact: closing,
+        forbidden: ["新增幕后真相", "改变检定成败", "擅自判定玩家死亡", "替玩家决定内心信念", "泄露尚未发现的事件线索"],
+      };
+      const lockedTerms = [...new Set(results.flatMap((result) => [
+        result.memberName.replace("你 · ", ""),
+        result.districtName,
+        result.newClue,
+      ].filter((item): item is string => Boolean(item))))];
+      try {
+        const chapter = await generateLiteraryChapter({
+          config: { endpoint, apiKey, model },
+          factPack,
+          localChapter,
+          lockedTerms,
+          onStage: setGenerationStage,
+        });
+        setTurnReport((current) => current && current.week === game.week ? { ...current, chapter } : current);
+        setToast("文学模式章节已完成连续性校对");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "未知接口错误";
+        setGenerationError(`${message}；已保留本地叙事，不影响结算。`);
+        setToast("AI文学生成失败，已使用本地叙事");
+      } finally {
+        setIsGenerating(false);
+        setGenerationStage("");
+      }
+    }
   }
 
   function startNewGame() {
     setGame(createInitialState(draftPathway, draftOrganization));
     setSelectedDistrictId("east");
+    setOrderPreview(null);
+    setTurnReport(null);
+    setGenerationError("");
     setShowNewGame(false);
     setNewGameStep(1);
     setToast("新的历史分支已经建立");
@@ -1152,8 +1432,8 @@ export default function Home() {
               <span><small>本周行动</small><strong>{game.orders.length > 0 ? `已安排 ${game.orders.length} / 3` : "尚未安排指令"}</strong></span><ArrowRight size={18} />
             </button>
 
-            <button className="turn-button" onClick={resolveWeek}>
-              <span><small>世界将同步推进 · ⇧⌘ Enter</small>结束本周</span>
+            <button className="turn-button" onClick={resolveWeek} disabled={isGenerating}>
+              <span><small>{isGenerating ? generationStage : "世界将同步推进 · ⇧⌘ Enter"}</small>{isGenerating ? "正在编写本周纪事" : "结束本周"}</span>
               <ArrowRight size={22} />
             </button>
           </aside>
@@ -1214,8 +1494,8 @@ export default function Home() {
               <div className="action-points" aria-label={`剩余${game.actionPoints}个行动点`}>{[0, 1, 2].map((point) => <i key={point} className={point < game.actionPoints ? "filled" : ""} />)}</div>
             </div>
             <div className="order-controls">
-              <label><span>行动类型</span><select value={actionType} onChange={(event) => setActionType(event.target.value)}>{Object.keys(ACTION_PROFILES).map((type) => <option key={type}>{type}</option>)}</select></label>
-              <label><span>执行成员</span><select value={activeMemberId} onChange={(event) => setSelectedMemberId(event.target.value)} disabled={!availableMembers.length}>{availableMembers.map((member) => <option value={member.id} key={member.id}>{member.name} · {member.role}</option>)}</select></label>
+              <label><span>行动类型</span><select value={actionType} onChange={(event) => { setActionType(event.target.value); setOrderPreview(null); }}>{Object.keys(ACTION_PROFILES).map((type) => <option key={type}>{type}</option>)}</select></label>
+              <label><span>执行成员</span><select value={activeMemberId} onChange={(event) => { setSelectedMemberId(event.target.value); setOrderPreview(null); }} disabled={!availableMembers.length}>{availableMembers.map((member) => <option value={member.id} key={member.id}>{member.name} · {member.role}</option>)}</select></label>
             </div>
             <div className={`plan-forecast ${planForecast.threshold >= 70 ? "good" : planForecast.threshold >= 52 ? "warn" : "danger"}`}>
               <div><Search size={15} /><span>{planForecast.profile.label}</span></div>
@@ -1224,11 +1504,33 @@ export default function Home() {
             <div className={`ability-control ${abilityIsActive ? "armed" : ""} ${!canUseAbility ? "locked" : ""}`}>
               <div className="ability-icon"><Zap size={18} /></div>
               <div className="ability-copy"><div><span>途径主动能力</span><strong>{pathway.activeName}</strong></div><p>{pathway.activeDescription}</p><small>擅长：{pathway.favoredActions.join(" / ")} · 灵性 {game.spirituality} / 3</small></div>
-              {activeMemberId === PLAYER_MEMBER_ID ? <button className="ability-toggle" onClick={() => setAbilityArmed((current) => !current)} disabled={!canUseAbility} aria-pressed={abilityIsActive}>{abilityIsActive ? "已启用" : game.spirituality > 0 ? "消耗1灵性" : "灵性耗尽"}</button> : <button className="ability-toggle" onClick={() => { setSelectedMemberId(PLAYER_MEMBER_ID); setAbilityArmed(true); }} disabled={!availableMembers.some((member) => member.id === PLAYER_MEMBER_ID) || game.spirituality <= 0}>负责人亲自出动</button>}
+              {activeMemberId === PLAYER_MEMBER_ID ? <button className="ability-toggle" onClick={() => { setAbilityArmed((current) => !current); setOrderPreview(null); }} disabled={!canUseAbility} aria-pressed={abilityIsActive}>{abilityIsActive ? "已启用" : game.spirituality > 0 ? "消耗1灵性" : "灵性耗尽"}</button> : <button className="ability-toggle" onClick={() => { setSelectedMemberId(PLAYER_MEMBER_ID); setAbilityArmed(true); setOrderPreview(null); }} disabled={!availableMembers.some((member) => member.id === PLAYER_MEMBER_ID) || game.spirituality <= 0}>负责人亲自出动</button>}
             </div>
-            <label className="brief-field"><span>具体计划</span><textarea value={brief} onChange={(event) => setBrief(event.target.value)} placeholder="描述目标、方法、底线和撤退条件……" maxLength={280} /><small>{brief.length}/280 · 计划越具体，准备加成越高</small></label>
-            <button className="primary-button" onClick={queueOrder} disabled={!brief.trim() || game.actionPoints <= 0 || !availableMembers.length}><span className="button-label">下达指令 <small>消耗1行动点</small></span><ArrowRight size={17} /></button>
-            {game.orders.length > 0 && <div className="order-sheet-queue"><div className="drawer-section-heading"><span>待执行计划</span><small>{game.orders.length} / 3</small></div>{game.orders.map((order, index) => { const member = operatives.find((item) => item.id === order.memberId); return <div className="queued-order" key={order.id}><span className="queue-index">0{index + 1}</span><div><strong>{order.type} · {member?.name}{order.useAbility ? ` · ${pathway.activeName}` : ""}</strong><p>{order.brief}</p></div><button onClick={() => removeOrder(order.id)} aria-label="撤销指令"><X size={15} /></button></div>; })}</div>}
+            <label className="brief-field"><span>用自然语言下达指令</span><textarea value={brief} onChange={(event) => { setBrief(event.target.value); setOrderPreview(null); }} placeholder="描述目标、方法、底线和撤退条件……" maxLength={280} /><small>{brief.length}/280 · 系统会先整理你的意图，不会立即消耗行动点</small></label>
+            {!orderPreview ? (
+              <button className="primary-button" onClick={prepareOrderPreview} disabled={!brief.trim() || game.actionPoints <= 0 || !availableMembers.length}><span className="button-label">解析并预览指令 <small>确认后才进入计划</small></span><Search size={17} /></button>
+            ) : (
+              <section className="command-preview" aria-label="指令解释预览">
+                <div className="command-preview-heading"><span><Sparkles size={15} /> 系统理解如下</span><small>可直接修正任何一项</small></div>
+                <div className="command-preview-grid">
+                  <label className="wide"><span>行动目标</span><textarea value={orderPreview.objective} onChange={(event) => setOrderPreview({ ...orderPreview, objective: event.target.value })} /></label>
+                  <label className="wide"><span>执行方法</span><textarea value={orderPreview.method} onChange={(event) => setOrderPreview({ ...orderPreview, method: event.target.value })} /></label>
+                  <label><span>可用资源</span><input value={orderPreview.resources} onChange={(event) => setOrderPreview({ ...orderPreview, resources: event.target.value })} /></label>
+                  <label><span>保密要求</span><input value={orderPreview.secrecy} onChange={(event) => setOrderPreview({ ...orderPreview, secrecy: event.target.value })} /></label>
+                  <label><span>禁止事项</span><input value={orderPreview.prohibitions} onChange={(event) => setOrderPreview({ ...orderPreview, prohibitions: event.target.value })} /></label>
+                  <label><span>撤退条件</span><input value={orderPreview.retreat} onChange={(event) => setOrderPreview({ ...orderPreview, retreat: event.target.value })} /></label>
+                  <label className="wide"><span>临场自主权</span><input value={orderPreview.autonomy} onChange={(event) => setOrderPreview({ ...orderPreview, autonomy: event.target.value })} /></label>
+                </div>
+                <button className={`focus-order-toggle ${narrativeFocusDraft ? "active" : ""}`} onClick={() => setNarrativeFocusDraft((current) => game.orders.some((order) => order.narrativeFocus) ? !current : true)} aria-pressed={narrativeFocusDraft}>
+                  <Target size={17} /><span><strong>本回合重点叙事</strong><small>{narrativeFocusDraft ? "本章将以这项行动为主场景" : "作为次要行动简报呈现"}</small></span><i />
+                </button>
+                <div className="command-preview-actions">
+                  <button className="back-button" onClick={() => setOrderPreview(null)}>返回修改原指令</button>
+                  <button className="primary-button" onClick={confirmOrder}><span className="button-label">确认并加入本周计划 <small>消耗1行动点</small></span><ArrowRight size={17} /></button>
+                </div>
+              </section>
+            )}
+            {game.orders.length > 0 && <div className="order-sheet-queue"><div className="drawer-section-heading"><span>待执行计划</span><small>{game.orders.length} / 3</small></div>{game.orders.map((order, index) => { const member = operatives.find((item) => item.id === order.memberId); return <div className="queued-order" key={order.id}><span className="queue-index">0{index + 1}</span><div><strong>{order.type} · {member?.name}{order.useAbility ? ` · ${pathway.activeName}` : ""}{order.narrativeFocus ? <em className="narrative-focus-tag">重点叙事</em> : ""}</strong><p>{order.brief}</p></div><button onClick={() => removeOrder(order.id)} aria-label="撤销指令"><X size={15} /></button></div>; })}</div>}
           </section>
         </div>
       )}
@@ -1293,60 +1595,50 @@ export default function Home() {
         <div className="modal-backdrop report-backdrop" role="presentation" onMouseDown={() => setTurnReport(null)}>
           <section className="modal turn-report-modal" role="dialog" aria-modal="true" aria-labelledby="turn-report-title" onMouseDown={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setTurnReport(null)} aria-label="关闭结算报告"><X size={18} /></button>
-            <header className="report-header">
-              <span className="report-week">第 {turnReport.week} 周 · {turnReport.date}</span>
-              <p className="eyebrow">组织行动结算</p>
-              <h2 id="turn-report-title">{turnReport.headline}</h2>
-              <p>{turnReport.summary}</p>
+            <header className="reader-toolbar">
+              <div><span className="report-week">第 {turnReport.week} 周 · {turnReport.date}</span><small>{turnReport.chapter.source === "ai" ? "文学模式 · 连续性已校对" : "本地叙事 · 事实版"}</small></div>
+              <div className="reader-size-controls" aria-label="阅读字号"><button onClick={() => setReaderFontScale((value) => Math.max(.9, value - .1))} aria-label="减小字号">A−</button><button onClick={() => setReaderFontScale(1)} aria-label="恢复默认字号">A</button><button onClick={() => setReaderFontScale((value) => Math.min(1.25, value + .1))} aria-label="增大字号">A＋</button></div>
             </header>
 
-            <div className="report-prologue">
-              {turnReport.prelude.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-            </div>
+            {isGenerating && <div className="literary-generation-status"><Sparkles size={16} /><span><strong>本地结算已经锁定</strong><small>{generationStage}。你可以先阅读事实版，完成后正文会自动更新。</small></span><i /><i /><i /></div>}
+            {generationError && <div className="literary-generation-error"><ShieldAlert size={15} /><span>{generationError}</span></div>}
 
-            <div className="result-list narrative-results">
-              {turnReport.results.length > 0 ? turnReport.results.map((result, index) => (
-                <article className={`narrative-chapter ${result.success ? "success" : "failure"}`} key={result.id}>
-                  <div className="chapter-marker"><span>指令 {String(index + 1).padStart(2, "0")}</span><i /> <b>{result.success ? <CheckCircle2 size={14} /> : <XCircle size={14} />}{result.success ? "行动取得进展" : "行动遭遇阻力"}</b></div>
-                  <h3>{result.sceneTitle}</h3>
-                  <div className="chapter-meta"><span>{result.districtName}</span><span>{result.memberName} · {result.actionType}</span>{result.incidentTitle && <span>档案：{result.incidentTitle}</span>}</div>
-                  <blockquote className="issued-order"><small>你下达的指令</small><p>{result.orderBrief}</p></blockquote>
-                  <div className="chapter-prose">{result.narrative.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</div>
-                  {result.testimony && <blockquote className="testimony"><span>现场证言 · {result.testimony.speaker}</span><p>“{result.testimony.words}”</p></blockquote>}
-                  <section className="finding-dossier">
-                    <h4><Lightbulb size={14} /> 带回据点的可靠信息</h4>
-                    <ul>{result.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul>
-                  </section>
-                  {result.abilityName && <div className="ability-result"><Zap size={14} /><span><b>{result.abilityName} 已生效</b>{result.abilityEffect}</span></div>}
-                  {result.newClue && <div className="new-clue"><Lightbulb size={15} /><span><b>新证据已归档</b>{result.newClue}</span></div>}
-                  <div className="chapter-outcome"><div><small>显性后果</small><p>{result.consequence}</p></div><div><small>建议追查</small><p>{result.followUp}</p></div></div>
-                  <details className="rules-appendix"><summary>查看规则检定</summary><div><span>检定掷值 <strong>{result.score}</strong></span><span>成功阈值 <strong>{result.threshold}</strong></span><span>证据推进 <strong>+{result.progressDelta}%</strong></span></div></details>
-                </article>
-              )) : (
-                <div className="quiet-result"><CloudFog size={24} /><p>本周没有重点行动。组织保住了表面的平静，而城市替你写下了这一周的其余部分。</p></div>
-              )}
-            </div>
+            <article className="ebook-reader" style={{ "--reader-scale": readerFontScale } as React.CSSProperties}>
+              <div className="ebook-folio"><span>灰雾纪事</span><i /><span>{String(turnReport.week).padStart(2, "0")}</span></div>
+              <header className="ebook-title-page">
+                <p>第 {turnReport.week} 周</p>
+                <h2 id="turn-report-title">{turnReport.chapter.title}</h2>
+                <span>{turnReport.headline}</span>
+              </header>
+              {turnReport.chapter.sections.map((section, sectionIndex) => (
+                <section className="ebook-section" key={`${section.heading}-${sectionIndex}`}>
+                  <h3>{section.heading}</h3>
+                  {section.paragraphs.map((paragraph, paragraphIndex) => <p key={`${sectionIndex}-${paragraphIndex}`}>{paragraph}</p>)}
+                </section>
+              ))}
+              <footer className="ebook-colophon"><BookOpen size={14} /><span>{turnReport.chapter.editorNote}</span></footer>
+            </article>
 
-            {turnReport.worldMoves.length > 0 && <section className="world-movements">
-              <div className="world-movements-heading"><Eye size={15} /><span><small>没有等待你的城市</small><h3>未受干预的暗流</h3></span></div>
-              {turnReport.worldMoves.map((movement) => <article className={movement.severity} key={movement.title}><div><span>{movement.districtName}</span><strong>{movement.title}</strong></div><p>{movement.text}</p></article>)}
-            </section>}
+            <details className="report-dossier">
+              <summary><span><Archive size={16} /><strong>展开本周行动档案与规则结算</strong></span><small>{turnReport.summary}</small></summary>
+              <div className="dossier-body">
+                {turnReport.results.length > 0 ? turnReport.results.map((result, index) => (
+                  <article className={`dossier-order ${result.success ? "success" : "failure"}`} key={result.id}>
+                    <header><span>指令 {String(index + 1).padStart(2, "0")}</span><strong>{result.sceneTitle}</strong><b>{result.success ? <CheckCircle2 size={14} /> : <XCircle size={14} />}{result.success ? "成功" : "受阻"}</b></header>
+                    <div className="dossier-meta"><span>{result.districtName}</span><span>{result.memberName} · {result.actionType}</span>{result.abilityName && <span><Zap size={12} /> {result.abilityName}</span>}</div>
+                    <dl className="interpretation-ledger"><div><dt>目标</dt><dd>{result.interpretation.objective}</dd></div><div><dt>方法</dt><dd>{result.interpretation.method}</dd></div><div><dt>底线</dt><dd>{result.interpretation.prohibitions}；{result.interpretation.retreat}</dd></div></dl>
+                    <section className="finding-dossier"><h4><Lightbulb size={14} /> 带回据点的可靠信息</h4><ul>{result.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul></section>
+                    {result.newClue && <div className="new-clue"><Lightbulb size={15} /><span><b>新证据已归档</b>{result.newClue}</span></div>}
+                    <div className="chapter-outcome"><div><small>显性后果</small><p>{result.consequence}</p></div><div><small>建议追查</small><p>{result.followUp}</p></div></div>
+                    <details className="rules-appendix"><summary>查看规则检定</summary><div><span>检定掷值 <strong>{result.score}</strong></span><span>成功阈值 <strong>{result.threshold}</strong></span><span>证据推进 <strong>+{result.progressDelta}%</strong></span></div></details>
+                  </article>
+                )) : <div className="quiet-result"><CloudFog size={24} /><p>本周没有重点行动，组织恢复了隐秘度与稳定。</p></div>}
 
-            <div className="report-closing"><span>本周终记</span><p>{turnReport.closing}</p></div>
+                {turnReport.worldMoves.length > 0 && <section className="world-movements"><div className="world-movements-heading"><Eye size={15} /><span><small>没有等待你的城市</small><h3>未受干预的暗流</h3></span></div>{turnReport.worldMoves.map((movement) => <article className={movement.severity} key={movement.title}><div><span>{movement.districtName}</span><strong>{movement.title}</strong></div><p>{movement.text}</p></article>)}</section>}
 
-            <section className="turn-ledger">
-              <div className="turn-ledger-heading"><span>组织账目附录</span><small>数值只解释后果，不替代叙事</small></div>
-              <div className="delta-grid" aria-label="本周资源变化">
-                {([[
-                  "资金", turnReport.deltas.money, "£"],
-                  ["情报", turnReport.deltas.intel, ""],
-                  ["隐秘度", turnReport.deltas.concealment, ""],
-                  ["稳定", turnReport.deltas.stability, ""],
-                ] as const).map(([label, value, prefix]) => (
-                  <div key={label} className={value >= 0 ? "positive" : "negative"}><span>{label}</span><strong>{value >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{prefix}{value > 0 ? `+${value}` : value}</strong></div>
-                ))}
+                <section className="turn-ledger"><div className="turn-ledger-heading"><span>组织账目附录</span><small>数值只解释后果，不替代叙事</small></div><div className="delta-grid" aria-label="本周资源变化">{([["资金", turnReport.deltas.money, "£"], ["情报", turnReport.deltas.intel, ""], ["隐秘度", turnReport.deltas.concealment, ""], ["稳定", turnReport.deltas.stability, ""]] as const).map(([label, value, prefix]) => <div key={label} className={value >= 0 ? "positive" : "negative"}><span>{label}</span><strong>{value >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{prefix}{value > 0 ? `+${value}` : value}</strong></div>)}</div></section>
               </div>
-            </section>
+            </details>
 
             <footer className="report-actions">
               <button className="back-button" onClick={() => { setTurnReport(null); setView("archive"); }}><Archive size={16} /> 查看全部档案</button>
@@ -1363,17 +1655,17 @@ export default function Home() {
             <div className="modal-icon"><Settings size={20} /></div>
             <p className="eyebrow">本机配置</p>
             <h2 id="settings-title">AI叙事接口</h2>
-            <p className="modal-copy">不填写也可以游玩。模型只负责人物对话与叙事表达，规则结算始终留在本地。</p>
+            <p className="modal-copy">不填写也可以游玩。配置后启用文学模式：每回合依次调用叙事导演、正文作者和连续性编辑；规则与事实结算始终留在本地。</p>
             <div className={`connection-status ${endpoint && model ? "configured" : "offline"}`}>
               <i />
               <span>{endpoint && model ? "已配置自定义模型" : "当前使用离线叙事"}</span>
-              <small>{endpoint && model ? model : "稳定且不产生调用费用"}</small>
+              <small>{endpoint && model ? `${model} · 每回合 3 次调用` : "稳定且不产生调用费用"}</small>
             </div>
             <label><span>OpenAI兼容端点</span><input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://api.example.com/v1" /></label>
             <label><span>模型名称</span><input value={model} onChange={(event) => setModel(event.target.value)} placeholder="model-name" /></label>
             <label><span>API Key</span><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="仅保存在本机" /></label>
             <button className="primary-button" onClick={saveAiSettings}><span className="button-label">保存设置</span><Check size={17} /></button>
-            <small className="security-note">当前切片使用离线模板叙事；下一阶段接通实际请求与结构化校验。</small>
+            <small className="security-note">密钥仅写入本浏览器的 localStorage，并由浏览器直接请求你的端点。AI只改写本地已结算事实；接口异常时自动保留本地章节。</small>
           </section>
         </div>
       )}

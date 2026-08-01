@@ -61,7 +61,13 @@ test("keeps interaction, persistence, and accessibility in the product source", 
   assert.match(page, /buildNarrativeResult/);
   assert.match(page, /INCIDENT_VOICES/);
   assert.match(page, /未受干预的暗流/);
-  assert.match(page, /你下达的指令/);
+  assert.match(page, /解析并预览指令/);
+  assert.match(page, /confirmOrder/);
+  assert.match(page, /narrativeFocus/);
+  assert.match(page, /generateLiteraryChapter/);
+  assert.match(page, /callCompatibleModel/);
+  assert.match(page, /lockedResults/);
+  assert.match(page, /本地结算已经锁定/);
   assert.match(page, /aria-label="主要页面"/);
   assert.match(page, /Ctrl|ctrlKey/);
   assert.match(css, /min-height:\s*44px/);
@@ -79,6 +85,10 @@ test("keeps interaction, persistence, and accessibility in the product source", 
   assert.match(css, /\.narrative-chapter/);
   assert.match(css, /\.chapter-prose/);
   assert.match(css, /\.world-movements/);
+  assert.match(css, /\.command-preview/);
+  assert.match(css, /\.ebook-reader/);
+  assert.match(css, /\.literary-generation-status/);
+  assert.match(css, /\.report-dossier/);
   assert.match(layout, /灰雾纪事/);
   assert.match(packageJson, /lucide-react/);
 });
