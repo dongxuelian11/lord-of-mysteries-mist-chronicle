@@ -7,8 +7,8 @@
 ---
 
 **Project:** 灰雾纪事
-**Generated:** 2026-08-01 22:03:49
-**Category:** Spatial Computing OS / App
+**Generated:** 2026-08-01 22:21:57
+**Category:** NFT/Web3 Platform
 
 ---
 
@@ -18,25 +18,19 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#FFFFFF` | `--color-primary` |
-| Secondary | `#E5E5E5` | `--color-secondary` |
-| CTA/Accent | `#007AFF` | `--color-cta` |
-| Background | `#888888` | `--color-background` |
-| Text | `#000000` | `--color-text` |
+| Primary | `#1C1917` | `--color-primary` |
+| Secondary | `#44403C` | `--color-secondary` |
+| CTA/Accent | `#CA8A04` | `--color-cta` |
+| Background | `#FAFAF9` | `--color-background` |
+| Text | `#0C0A09` | `--color-text` |
 
-**Color Notes:** Glass white + system blue
+**Color Notes:** Premium dark + gold accent
 
 ### Typography
 
 - **Heading Font:** Inter
 - **Body Font:** Inter
-- **Mood:** spatial, legible, glass, system, clean, neutral
-- **Google Fonts:** [Inter + Inter](https://fonts.google.com/share?selection.family=Inter:wght@300;400;500;600)
-
-**CSS Import:**
-```css
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
-```
+- **Mood:** Bold + Modern typography
 
 ### Spacing Variables
 
@@ -68,7 +62,7 @@
 ```css
 /* Primary Button */
 .btn-primary {
-  background: #007AFF;
+  background: #CA8A04;
   color: white;
   padding: 12px 24px;
   border-radius: 8px;
@@ -85,8 +79,8 @@
 /* Secondary Button */
 .btn-secondary {
   background: transparent;
-  color: #FFFFFF;
-  border: 2px solid #FFFFFF;
+  color: #1C1917;
+  border: 2px solid #1C1917;
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -99,7 +93,7 @@
 
 ```css
 .card {
-  background: #888888;
+  background: #FAFAF9;
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow-md);
@@ -125,9 +119,9 @@
 }
 
 .input:focus {
-  border-color: #FFFFFF;
+  border-color: #1C1917;
   outline: none;
-  box-shadow: 0 0 0 3px #FFFFFF20;
+  box-shadow: 0 0 0 3px #1C191720;
 }
 ```
 
@@ -153,28 +147,28 @@
 
 ## Style Guidelines
 
-**Style:** Spatial UI (VisionOS)
+**Style:** Cyberpunk UI
 
-**Keywords:** Glass, depth, immersion, spatial, translucent, gaze, gesture, apple, vision-pro
+**Keywords:** Neon, dark mode, terminal, HUD, sci-fi, glitch, dystopian, futuristic, matrix, tech noir
 
-**Best For:** Spatial computing apps, VR/AR interfaces, immersive media, futuristic dashboards
+**Best For:** Gaming platforms, tech products, crypto apps, sci-fi applications, developer tools, entertainment
 
-**Key Effects:** Parallax depth, dynamic lighting response, gaze-hover effects, smooth scale on focus
+**Key Effects:** Neon glow (text-shadow), glitch animations (skew/offset), scanlines (::before overlay), terminal fonts
 
 ### Page Pattern
 
-**Pattern Name:** Scroll-Triggered Storytelling
+**Pattern Name:** Immersive/Interactive Experience
 
-- **Conversion Strategy:** Narrative increases time-on-page 3x. Use progress indicator. Mobile: simplify animations.
-- **CTA Placement:** End of each chapter (mini) + Final climax CTA
-- **Section Order:** 1. Intro hook, 2. Chapter 1 (problem), 3. Chapter 2 (journey), 4. Chapter 3 (solution), 5. Climax CTA
+- **Conversion Strategy:** 40% higher engagement. Performance trade-off. Provide skip option. Mobile fallback essential.
+- **CTA Placement:** After interaction complete + Skip option for impatient users
+- **Section Order:** 1. Full-screen interactive element, 2. Guided product tour, 3. Key benefits revealed, 4. CTA after completion
 
 ---
 
 ## Anti-Patterns (Do NOT Use)
 
-- ❌ 2D design
-- ❌ No spatial depth
+- ❌ Light mode default
+- ❌ No transaction status
 
 ### Additional Forbidden Patterns
 

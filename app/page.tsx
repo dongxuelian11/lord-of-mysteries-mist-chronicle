@@ -6,19 +6,26 @@ import {
   ArrowRight,
   Building2,
   Check,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CloudFog,
   Command,
   Eye,
   LayoutDashboard,
+  Lightbulb,
+  MapPin,
   RotateCcw,
+  Search,
   Settings,
   ShieldAlert,
   Sparkles,
+  TrendingDown,
+  TrendingUp,
   Undo2,
   UsersRound,
   X,
+  XCircle,
 } from "lucide-react";
 
 type PathwayId = "seer" | "spectator" | "apprentice" | "hunter" | "mystery";
@@ -43,6 +50,9 @@ type District = {
   influence: number;
   intel: number;
   tone: string;
+  x: number;
+  y: number;
+  size: "small" | "medium" | "large";
 };
 
 type Incident = {
@@ -53,6 +63,11 @@ type Incident = {
   progress: number;
   urgency: number;
   confidence: "传闻" | "线索" | "可信证据" | "已确认";
+  faction: string;
+  deadline: number;
+  clues: string[];
+  revealedClues: number;
+  status: "active" | "resolved";
 };
 
 type Order = {
@@ -69,6 +84,28 @@ type ChronicleEntry = {
   title: string;
   text: string;
   tone: "good" | "warn" | "neutral";
+};
+
+type TurnResult = {
+  id: string;
+  memberName: string;
+  actionType: string;
+  districtName: string;
+  success: boolean;
+  score: number;
+  threshold: number;
+  detail: string;
+  progressDelta: number;
+  newClue?: string;
+};
+
+type TurnReport = {
+  week: number;
+  date: string;
+  headline: string;
+  summary: string;
+  results: TurnResult[];
+  deltas: { money: number; intel: number; concealment: number; stability: number };
 };
 
 type GameState = {
@@ -88,7 +125,16 @@ type GameState = {
   chronicle: ChronicleEntry[];
 };
 
-const STORAGE_KEY = "mist-chronicle-save-v1";
+const STORAGE_KEY = "mist-chronicle-save-v3";
+
+const ACTION_PROFILES: Record<string, { base: number; progress: number; intel: number; cost: number; exposure: number; label: string }> = {
+  调查: { base: 7, progress: 21, intel: 7, cost: 12, exposure: 2, label: "推进证据链，可能解锁新线索" },
+  交涉: { base: 3, progress: 13, intel: 4, cost: 20, exposure: 3, label: "争取证人、盟友或临时通行" },
+  研究: { base: 10, progress: 17, intel: 8, cost: 10, exposure: 0, label: "验证材料、配方与神秘学痕迹" },
+  采购: { base: 5, progress: 8, intel: 2, cost: 35, exposure: 2, label: "获取任务物资与黑市渠道" },
+  仪式: { base: -2, progress: 25, intel: 9, cost: 24, exposure: 6, label: "高收益、高暴露的神秘学手段" },
+  休整: { base: 18, progress: 2, intel: 0, cost: 6, exposure: -3, label: "恢复稳定并降低组织暴露" },
+};
 
 const PATHWAYS: Record<PathwayId, { name: string; sequence: string; ability: string; note: string }> = {
   seer: { name: "占卜家", sequence: "序列9", ability: "灵视 · 占卜", note: "擅长预警、追索与仪式准备" },
@@ -113,9 +159,16 @@ const INITIAL_MEMBERS: Member[] = [
 ];
 
 const INITIAL_DISTRICTS: District[] = [
-  { id: "cherwood", name: "乔伍德区", subtitle: "据点所在", danger: 24, influence: 42, intel: 56, tone: "safe" },
-  { id: "east", name: "东区", subtitle: "失踪案频发", danger: 72, influence: 18, intel: 31, tone: "danger" },
-  { id: "west", name: "西区", subtitle: "贵族与教会", danger: 38, influence: 11, intel: 22, tone: "gold" },
+  { id: "north", name: "北区", subtitle: "大学与圣赛缪尔", danger: 30, influence: 16, intel: 38, tone: "safe", x: 21, y: 15, size: "large" },
+  { id: "empress", name: "皇后区", subtitle: "王室与大贵族", danger: 44, influence: 8, intel: 18, tone: "gold", x: 43, y: 18, size: "medium" },
+  { id: "west", name: "西区", subtitle: "教会与上流社交", danger: 38, influence: 11, intel: 22, tone: "gold", x: 16, y: 39, size: "large" },
+  { id: "hillston", name: "希尔斯顿区", subtitle: "商业与证券", danger: 35, influence: 20, intel: 34, tone: "safe", x: 46, y: 39, size: "medium" },
+  { id: "cherwood", name: "乔伍德区", subtitle: "组织据点所在", danger: 24, influence: 42, intel: 56, tone: "safe", x: 31, y: 53, size: "medium" },
+  { id: "queen", name: "皇后大道", subtitle: "政府与议会", danger: 48, influence: 9, intel: 20, tone: "gold", x: 59, y: 51, size: "small" },
+  { id: "east", name: "东区", subtitle: "工厂与失踪人口", danger: 72, influence: 18, intel: 31, tone: "danger", x: 77, y: 35, size: "large" },
+  { id: "bridge", name: "贝克兰德桥区", subtitle: "交通与灰色交易", danger: 59, influence: 15, intel: 41, tone: "danger", x: 47, y: 68, size: "medium" },
+  { id: "south", name: "南区", subtitle: "工人住宅与诊所", danger: 52, influence: 23, intel: 36, tone: "safe", x: 67, y: 78, size: "medium" },
+  { id: "dock", name: "码头区", subtitle: "仓库、船运与走私", danger: 66, influence: 12, intel: 45, tone: "danger", x: 83, y: 72, size: "large" },
 ];
 
 const INITIAL_INCIDENTS: Incident[] = [
@@ -127,6 +180,11 @@ const INITIAL_INCIDENTS: Incident[] = [
     progress: 18,
     urgency: 68,
     confidence: "线索",
+    faction: "未知 · 疑似人口贩运",
+    deadline: 3,
+    clues: ["三名失踪者都在周四夜班后离开", "纺织厂附近出现甜腻草药气味", "一辆无牌马车固定在凌晨三点出现", "车夫与某个王室承包商存在资金往来"],
+    revealedClues: 0,
+    status: "active",
   },
   {
     id: "black-market-formula",
@@ -136,6 +194,11 @@ const INITIAL_INCIDENTS: Incident[] = [
     progress: 35,
     urgency: 42,
     confidence: "传闻",
+    faction: "地下非凡者聚会",
+    deadline: 5,
+    clues: ["配方墨水来自海上贸易商", "被替换的辅料会显著增加失控概率", "卖家曾在极光会外围活动", "原始配方仍藏在乔伍德区某处"],
+    revealedClues: 1,
+    status: "active",
   },
   {
     id: "noble-salon",
@@ -145,6 +208,41 @@ const INITIAL_INCIDENTS: Incident[] = [
     progress: 10,
     urgency: 35,
     confidence: "线索",
+    faction: "贵族神秘学圈",
+    deadline: 6,
+    clues: ["邀请函只在月相改变时显现地址", "主持人正在寻找真正的占卜家", "参与者中混有教会观察员", "沙龙收藏着一件可疑的罗塞尔遗物"],
+    revealedClues: 0,
+    status: "active",
+  },
+  {
+    id: "university-dreams", districtId: "north", title: "大学里的共同梦境",
+    summary: "五名历史系学生连续梦见同一座倒悬陵墓，其中一人醒来后开始书写无法辨认的赫密斯语。",
+    progress: 12, urgency: 51, confidence: "传闻", faction: "霍伊大学", deadline: 4,
+    clues: ["梦境都始于校史馆地下室", "学生曾共同翻阅第四纪手稿", "手稿缺少的页面出现在黑市", "梦境坐标指向北区一座封闭墓园"], revealedClues: 0, status: "active",
+  },
+  {
+    id: "parliament-whisper", districtId: "queen", title: "议会走廊里的耳语",
+    summary: "两名书记员声称在深夜听见空会议室中有人讨论贫民迁移计划，随后一人突然辞职。",
+    progress: 8, urgency: 57, confidence: "传闻", faction: "政府内部", deadline: 5,
+    clues: ["辞职书记员并未离开贝克兰德", "会议记录被人以合法权限调取", "迁移名单集中指向东区", "名单上的人口与秘密工程存在关联"], revealedClues: 0, status: "active",
+  },
+  {
+    id: "bridge-ghost", districtId: "bridge", title: "桥墩下的无声乘客",
+    summary: "末班公共马车连续三夜多出一名没有影子的乘客，车夫却坚持车上人数从未变化。",
+    progress: 22, urgency: 46, confidence: "线索", faction: "灵界异常", deadline: 4,
+    clues: ["乘客只在驶过第三座桥时出现", "车票印着已停运十年的线路", "桥下残留不属于死者的灵性", "异常与一件被转运的封印物有关"], revealedClues: 0, status: "active",
+  },
+  {
+    id: "south-fever", districtId: "south", title: "没有高烧的热病",
+    summary: "南区诊所接收了七名不断声称身体燃烧的病人，但体温与血液检查全部正常。",
+    progress: 16, urgency: 63, confidence: "线索", faction: "未知污染", deadline: 3,
+    clues: ["患者都购买过同一种廉价止痛药", "药粉中混入微量非凡材料", "供货商使用伪造的海关文件", "污染源来自码头区的密封货箱"], revealedClues: 0, status: "active",
+  },
+  {
+    id: "sealed-cargo", districtId: "dock", title: "拒绝卸货的密封货舱",
+    summary: "一艘因蒂斯货轮进港后，船员集体拒绝打开底层货舱；港务官收到命令要求绕过检查。",
+    progress: 14, urgency: 71, confidence: "线索", faction: "海外贸易公司", deadline: 2,
+    clues: ["货单上的香料重量与吃水线不符", "夜间有人从货舱内部敲击三短两长", "绕检命令来自政府采购部门", "货物与南区异常药品属于同一批次"], revealedClues: 0, status: "active",
   },
 ];
 
@@ -199,6 +297,26 @@ function confidenceFromProgress(progress: number): Incident["confidence"] {
   return "传闻";
 }
 
+function calculateThreshold(member: Member, district: District, actionType: string, briefText: string) {
+  const profile = ACTION_PROFILES[actionType] ?? ACTION_PROFILES.调查;
+  const preparation = Math.min(18, Math.floor(briefText.trim().length / 12));
+  const memberBonus = member.sequence === "普通人" ? 8 : 15;
+  return Math.max(18, Math.min(88, 48 + profile.base + preparation + memberBonus - Math.floor(district.danger / 4)));
+}
+
+function actionDetail(actionType: string, success: boolean, memberName: string, districtName: string) {
+  const details: Record<string, [string, string]> = {
+    调查: [`${memberName}完成了现场走访与交叉核对，排除了一条误导信息。`, `${memberName}的跟踪被临时巡警打断，只带回了零散口供。`],
+    交涉: [`${memberName}找到了对方真正关心的筹码，换得一次持续合作。`, `${memberName}没有暴露底线，但对方拒绝在缺少担保时继续谈判。`],
+    研究: [`${memberName}在档案与神秘学痕迹之间建立了新的对应关系。`, `${memberName}确认现有样本受到干扰，需要更多材料才能得出结论。`],
+    采购: [`${memberName}绕开常规市场，从可靠渠道获得了所需物资。`, `${memberName}发现卖方临时抬价并试图追查买家身份，只能中止交易。`],
+    仪式: [`${memberName}维持住仪式边界，从灵界反馈中截获了有效指向。`, `${memberName}及时切断仪式避免污染，但灵性波动已经引起未知注视。`],
+    休整: [`${memberName}完成据点检查与心理疏导，组织重新恢复秩序。`, `${memberName}虽然没有完全恢复，但及时发现了一处安全流程漏洞。`],
+  };
+  const [good, bad] = details[actionType] ?? details.调查;
+  return `${districtName}：${success ? good : bad}`;
+}
+
 export default function Home() {
   const [game, setGame] = useState<GameState>(() => createInitialState());
   const [hydrated, setHydrated] = useState(false);
@@ -217,6 +335,7 @@ export default function Home() {
   const [model, setModel] = useState("");
   const [toast, setToast] = useState("");
   const [undoOrderId, setUndoOrderId] = useState<string | null>(null);
+  const [turnReport, setTurnReport] = useState<TurnReport | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -279,7 +398,8 @@ export default function Home() {
   });
 
   const selectedDistrict = game.districts.find((district) => district.id === selectedDistrictId) ?? game.districts[0];
-  const selectedIncident = game.incidents.find((incident) => incident.districtId === selectedDistrict.id);
+  const districtIncidents = game.incidents.filter((incident) => incident.districtId === selectedDistrict.id);
+  const selectedIncident = districtIncidents.find((incident) => incident.status === "active") ?? districtIncidents[0];
   const pathway = PATHWAYS[game.pathway];
   const organization = ORGANIZATIONS[game.organization];
   const availableMembers = game.members.filter((member) => !game.orders.some((order) => order.memberId === member.id));
@@ -287,10 +407,21 @@ export default function Home() {
   const activeMemberId = availableMembers.some((member) => member.id === selectedMemberId)
     ? selectedMemberId
     : availableMembers[0]?.id ?? "";
+  const activeMember = game.members.find((member) => member.id === activeMemberId) ?? selectedMember;
 
   const situationScore = useMemo(() => {
     return Math.round((game.intel + game.concealment + game.stability) / 3);
   }, [game.intel, game.concealment, game.stability]);
+
+  const planForecast = useMemo(() => {
+    const profile = ACTION_PROFILES[actionType] ?? ACTION_PROFILES.调查;
+    const threshold = calculateThreshold(activeMember, selectedDistrict, actionType, brief);
+    return {
+      threshold,
+      risk: threshold >= 70 ? "较稳妥" : threshold >= 52 ? "存在风险" : "高风险",
+      profile,
+    };
+  }, [actionType, activeMember, brief, selectedDistrict]);
 
   function queueOrder() {
     if (!brief.trim() || game.actionPoints <= 0 || !activeMemberId) return;
@@ -323,11 +454,13 @@ export default function Home() {
   function resolveWeek() {
     const orders = game.orders;
     const entries: ChronicleEntry[] = [];
+    const results: TurnResult[] = [];
     let moneyDelta = -18;
     let intelDelta = 0;
     let concealmentDelta = 0;
     let stabilityDelta = 0;
     const progressByIncident: Record<string, number> = {};
+    const revealedByIncident: Record<string, number> = Object.fromEntries(game.incidents.map((incident) => [incident.id, incident.revealedClues]));
 
     if (orders.length === 0) {
       entries.push({
@@ -344,31 +477,56 @@ export default function Home() {
     orders.forEach((order, index) => {
       const member = game.members.find((item) => item.id === order.memberId) ?? selectedMember;
       const district = game.districts.find((item) => item.id === order.districtId) ?? selectedDistrict;
-      const incident = game.incidents.find((item) => item.districtId === order.districtId);
+      const incident = game.incidents.find((item) => item.districtId === order.districtId && item.status === "active");
+      const profile = ACTION_PROFILES[order.type] ?? ACTION_PROFILES.调查;
       const roll = numberHash(`${game.week}:${order.memberId}:${order.districtId}:${order.type}:${order.brief}`) % 100;
-      const preparation = Math.min(18, Math.floor(order.brief.length / 12));
-      const memberBonus = member.sequence === "普通人" ? 8 : 15;
-      const threshold = 48 + preparation + memberBonus - Math.floor(district.danger / 4);
+      const threshold = calculateThreshold(member, district, order.type, order.brief);
       const success = roll < threshold;
+      const progressDelta = incident ? (success ? profile.progress : Math.max(2, Math.floor(profile.progress * .3))) : 0;
+      let newClue: string | undefined;
 
-      moneyDelta -= order.type === "采购" ? 35 : order.type === "交涉" ? 20 : 12;
-      intelDelta += success ? 6 : 2;
-      concealmentDelta += success ? -1 : -4;
-      stabilityDelta += success ? 0 : -2;
-      if (incident) progressByIncident[incident.id] = (progressByIncident[incident.id] ?? 0) + (success ? 18 : 7);
+      moneyDelta -= profile.cost;
+      intelDelta += success ? profile.intel : Math.min(2, profile.intel);
+      concealmentDelta -= success ? profile.exposure : profile.exposure + 2;
+      stabilityDelta += order.type === "休整" ? (success ? 5 : 2) : success ? 0 : order.type === "仪式" ? -4 : -2;
+      if (incident) {
+        const previousProgress = incident.progress + (progressByIncident[incident.id] ?? 0);
+        const nextProgress = Math.min(100, previousProgress + progressDelta);
+        progressByIncident[incident.id] = (progressByIncident[incident.id] ?? 0) + progressDelta;
+        const unlockedCount = [25, 50, 75, 95].filter((thresholdValue) => thresholdValue <= nextProgress).length;
+        const previousRevealed = revealedByIncident[incident.id] ?? 0;
+        if (unlockedCount > previousRevealed) {
+          newClue = incident.clues[unlockedCount - 1];
+          revealedByIncident[incident.id] = unlockedCount;
+        }
+      }
+
+      const detail = actionDetail(order.type, success, member.name, district.name);
+      results.push({
+        id: order.id,
+        memberName: member.name,
+        actionType: order.type,
+        districtName: district.name,
+        success,
+        score: roll,
+        threshold,
+        detail,
+        progressDelta,
+        newClue,
+      });
 
       entries.push({
         id: `week-${game.week}-${index}`,
         week: game.week,
         title: `${member.name} · ${order.type}${success ? "取得进展" : "遭遇阻力"}`,
-        text: success
-          ? `${member.name}依照你的计划进入${district.name}。准备工作发挥了作用，组织获得了可交叉验证的新信息。`
-          : `${member.name}在${district.name}遭遇意外阻力。行动没有完全暴露，但有人开始留意组织的动向。`,
+        text: newClue ? `${detail} 新线索：${newClue}` : detail,
         tone: success ? "good" : "warn",
       });
     });
 
     const nextWeek = game.week + 1;
+    const discoveredClues = results.filter((result) => result.newClue).length;
+    const successfulActions = results.filter((result) => result.success).length;
     setGame((current) => ({
       ...current,
       week: nextWeek,
@@ -380,16 +538,31 @@ export default function Home() {
       stability: Math.min(100, Math.max(0, current.stability + stabilityDelta)),
       orders: [],
       incidents: current.incidents.map((incident) => {
-        const progress = Math.min(100, incident.progress + (progressByIncident[incident.id] ?? 0) + (incident.urgency > 60 ? 2 : 0));
+        const wasAddressed = Boolean(progressByIncident[incident.id]);
+        const progress = Math.min(100, incident.progress + (progressByIncident[incident.id] ?? 0));
+        const deadline = incident.status === "resolved" ? incident.deadline : Math.max(0, incident.deadline - 1);
         return {
           ...incident,
           progress,
-          urgency: Math.min(100, incident.urgency + (progressByIncident[incident.id] ? -3 : 4)),
+          deadline,
+          urgency: incident.status === "resolved" ? incident.urgency : Math.min(100, Math.max(0, incident.urgency + (wasAddressed ? -3 : deadline === 0 ? 10 : 4))),
           confidence: confidenceFromProgress(progress),
+          revealedClues: Math.max(incident.revealedClues, revealedByIncident[incident.id] ?? 0),
+          status: progress >= 100 ? "resolved" : incident.status,
         };
       }),
       chronicle: [...entries, ...current.chronicle].slice(0, 40),
     }));
+    setTurnReport({
+      week: game.week,
+      date: game.date,
+      headline: discoveredClues > 0 ? `发现 ${discoveredClues} 条关键线索` : successfulActions > 0 ? `${successfulActions} 项行动取得进展` : "世界在沉默中继续运转",
+      summary: orders.length === 0
+        ? "组织选择保持低调。隐秘度与稳定有所恢复，但所有未处理事件的紧迫度都在上升。"
+        : `本周执行${orders.length}项重点行动，${successfulActions}项成功。${discoveredClues > 0 ? "新的证据已经写入调查档案。" : "尚未跨过新的证据阈值，但已有进度会被保留。"}`,
+      results,
+      deltas: { money: moneyDelta, intel: intelDelta, concealment: concealmentDelta, stability: stabilityDelta },
+    });
     setToast(`第${game.week}周结算完成`);
   }
 
@@ -461,28 +634,38 @@ export default function Home() {
               <span className="weather"><CloudFog size={13} /> 薄雾 · 12°C</span>
             </div>
 
-            <div className="map-field" aria-label="贝克兰德城区地图">
-              <div className="river" />
-              {game.districts.map((district, index) => (
-                <button
-                  key={district.id}
-                  className={`district district-${index + 1} ${district.tone} ${selectedDistrict.id === district.id ? "selected" : ""}`}
-                  onClick={() => setSelectedDistrictId(district.id)}
-                >
-                  <span className="district-pulse" />
-                  <strong>{district.name}</strong>
-                  <small>{district.subtitle}</small>
-                </button>
-              ))}
-              <span className="map-label label-north">北区</span>
-              <span className="map-label label-river">塔索克河</span>
+            <div className="map-field detailed-map" aria-label="贝克兰德十城区交互地图">
+              <div className="map-shade" />
+              {game.districts.map((district) => {
+                const activeCases = game.incidents.filter((incident) => incident.districtId === district.id && incident.status === "active").length;
+                return (
+                  <button
+                    key={district.id}
+                    style={{ left: `${district.x}%`, top: `${district.y}%` } as React.CSSProperties}
+                    className={`district map-district ${district.size} ${district.tone} ${selectedDistrict.id === district.id ? "selected" : ""}`}
+                    onClick={() => setSelectedDistrictId(district.id)}
+                    aria-label={`${district.name}，危险${district.danger}，${activeCases}件调查事件`}
+                  >
+                    <span className="district-pulse" />
+                    <strong>{district.name}</strong>
+                    {activeCases > 0 && <small>{activeCases} 件调查</small>}
+                  </button>
+                );
+              })}
+              <span className="map-river-label">塔索克河</span>
               <span className="map-compass">N<br />↑</span>
+              <div className="map-legend">
+                <span><i className="legend-safe" /> 可控</span>
+                <span><i className="legend-watch" /> 关注</span>
+                <span><i className="legend-danger" /> 高危</span>
+              </div>
             </div>
 
             <div className="district-summary">
               <div>
                 <p className="eyebrow">当前区域</p>
-                <h3>{selectedDistrict.name}</h3>
+                <h3><MapPin size={14} /> {selectedDistrict.name}</h3>
+                <small>{selectedDistrict.subtitle}</small>
               </div>
               <div className="mini-stat"><span>危险</span><strong>{selectedDistrict.danger}</strong></div>
               <div className="mini-stat"><span>影响</span><strong>{selectedDistrict.influence}</strong></div>
@@ -507,10 +690,20 @@ export default function Home() {
                 <div className="track"><i style={{ width: `${selectedIncident?.progress ?? 0}%` }} /></div>
               </div>
               <div className="clue-row">
-                <span>来源：街头线人</span>
+                <span>相关方：{selectedIncident?.faction ?? "尚未识别"}</span>
                 <span>可信度：{selectedIncident?.confidence ?? "未知"}</span>
-                <span>剩余窗口：约3周</span>
+                <span>剩余窗口：{selectedIncident?.deadline ?? "—"} 周</span>
               </div>
+              {selectedIncident && (
+                <div className="revealed-clues">
+                  <div className="clues-heading"><Lightbulb size={14} /><span>已掌握线索</span><strong>{selectedIncident.revealedClues} / {selectedIncident.clues.length}</strong></div>
+                  {selectedIncident.revealedClues > 0 ? (
+                    selectedIncident.clues.slice(0, selectedIncident.revealedClues).map((clue, index) => <p key={clue}><i>0{index + 1}</i>{clue}</p>)
+                  ) : (
+                    <p className="unknown-clue"><i>?</i>推进调查至25%即可获得第一条可靠线索</p>
+                  )}
+                </div>
+              )}
               <button className="disclosure-button" onClick={() => setView("archive")}>
                 查看证据与事件记录 <ChevronRight size={15} />
               </button>
@@ -531,7 +724,7 @@ export default function Home() {
                 <label>
                   <span>行动类型</span>
                   <select value={actionType} onChange={(event) => setActionType(event.target.value)}>
-                    {['调查', '交涉', '研究', '采购', '仪式', '休整'].map((type) => <option key={type}>{type}</option>)}
+                    {Object.keys(ACTION_PROFILES).map((type) => <option key={type}>{type}</option>)}
                   </select>
                 </label>
                 <label>
@@ -540,6 +733,14 @@ export default function Home() {
                     {availableMembers.map((member) => <option value={member.id} key={member.id}>{member.name} · {member.role}</option>)}
                   </select>
                 </label>
+              </div>
+              <div className={`plan-forecast ${planForecast.threshold >= 70 ? "good" : planForecast.threshold >= 52 ? "warn" : "danger"}`}>
+                <div><Search size={15} /><span>{planForecast.profile.label}</span></div>
+                <dl>
+                  <div><dt>预估成功</dt><dd>{planForecast.threshold}% · {planForecast.risk}</dd></div>
+                  <div><dt>预计推进</dt><dd>成功 +{planForecast.profile.progress}%</dd></div>
+                  <div><dt>行动成本</dt><dd>£ {planForecast.profile.cost}</dd></div>
+                </dl>
               </div>
               <label className="brief-field">
                 <span>具体计划</span>
@@ -661,6 +862,62 @@ export default function Home() {
               </button>
             ))}
           </aside>
+        </div>
+      )}
+
+      {turnReport && (
+        <div className="modal-backdrop report-backdrop" role="presentation" onMouseDown={() => setTurnReport(null)}>
+          <section className="modal turn-report-modal" role="dialog" aria-modal="true" aria-labelledby="turn-report-title" onMouseDown={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setTurnReport(null)} aria-label="关闭结算报告"><X size={18} /></button>
+            <header className="report-header">
+              <span className="report-week">第 {turnReport.week} 周 · {turnReport.date}</span>
+              <p className="eyebrow">组织行动结算</p>
+              <h2 id="turn-report-title">{turnReport.headline}</h2>
+              <p>{turnReport.summary}</p>
+            </header>
+
+            <div className="delta-grid" aria-label="本周资源变化">
+              {([
+                ["资金", turnReport.deltas.money, "£"],
+                ["情报", turnReport.deltas.intel, ""],
+                ["隐秘度", turnReport.deltas.concealment, ""],
+                ["稳定", turnReport.deltas.stability, ""],
+              ] as const).map(([label, value, prefix]) => (
+                <div key={label} className={value >= 0 ? "positive" : "negative"}>
+                  <span>{label}</span>
+                  <strong>{value >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{prefix}{value > 0 ? `+${value}` : value}</strong>
+                </div>
+              ))}
+            </div>
+
+            <div className="result-list">
+              {turnReport.results.length > 0 ? turnReport.results.map((result, index) => (
+                <article className={`result-item ${result.success ? "success" : "failure"}`} key={result.id}>
+                  <div className="result-status">{result.success ? <CheckCircle2 size={20} /> : <XCircle size={20} />}</div>
+                  <div className="result-copy">
+                    <div className="result-title">
+                      <span>0{index + 1}</span>
+                      <h3>{result.memberName} · {result.actionType}</h3>
+                      <small>{result.districtName}</small>
+                    </div>
+                    <p>{result.detail}</p>
+                    <div className="resolution-line">
+                      <span>判定 {result.score} / {result.threshold}</span>
+                      <span>证据推进 +{result.progressDelta}%</span>
+                    </div>
+                    {result.newClue && <div className="new-clue"><Lightbulb size={15} /><span><b>发现新线索</b>{result.newClue}</span></div>}
+                  </div>
+                </article>
+              )) : (
+                <div className="quiet-result"><CloudFog size={24} /><p>本周没有重点行动。未处理事件仍在各自的时间窗口中推进。</p></div>
+              )}
+            </div>
+
+            <footer className="report-actions">
+              <button className="back-button" onClick={() => { setTurnReport(null); setView("archive"); }}><Archive size={16} /> 查看全部档案</button>
+              <button className="primary-button compact-button" onClick={() => setTurnReport(null)}><span className="button-label">进入第 {game.week} 周</span><ArrowRight size={17} /></button>
+            </footer>
+          </section>
         </div>
       )}
 
