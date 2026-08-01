@@ -203,18 +203,18 @@ function abilityTagsFromText(text: string) {
 
 export function availableAbilities(game: GameState): Ability[] {
   const pathway = PATHWAYS[game.pathwayId];
-  if (game.currentSequence === 9) return pathway.startingAbilities.map((ability) => ({ ...ability, ruleTags: ability.ruleTags ?? abilityTagsFromText(`${ability.name}${ability.verb}${ability.description}`) }));
-  const sequence = pathway.sequences.find((item) => item.rank === game.currentSequence)!;
-  return sequence.capabilities.map((capability, index) => ({
-    id: `${game.pathwayId}-${game.currentSequence}-${index}`,
+  const base = pathway.startingAbilities.map((ability) => ({ ...ability, ruleTags: ability.ruleTags ?? abilityTagsFromText(`${ability.name}${ability.verb}${ability.description}`) }));
+  const gained = pathway.sequences.filter((sequence) => sequence.rank < 9 && sequence.rank >= game.currentSequence).flatMap((sequence) => sequence.capabilities.map((capability, index) => ({
+    id: `${game.pathwayId}-${sequence.rank}-${index}`,
     name: capability.split("：")[0],
     verb: capability.split("：")[0],
-    description: capability,
-    cost: index === 0 ? 2 : 3,
-    risk: "能力规模越大，灵性痕迹、精神负担与高位注视风险越高。",
+    description: `序列${sequence.rank}·${sequence.name}：${capability}`,
+    cost: Math.max(1, Math.min(6, 2 + Math.floor((8 - sequence.rank) / 2))),
+    risk: sequence.rank <= 4 ? "圣者层次能力会改变现场规则并留下可被高位存在辨认的痕迹。" : "能力规模越大，灵性痕迹、精神负担与反调查风险越高。",
     passive: false,
     ruleTags: abilityTagsFromText(capability),
-  }));
+  })));
+  return [...base, ...gained];
 }
 
 function abilityRules(game: GameState, contract: ActionContract, abilities: Ability[]) {
@@ -268,6 +268,16 @@ const EVIDENCE_RULES: { id: string; pattern: RegExp; abilityPaths?: GameState["p
   { id: "ev-carriage", pattern: /信使|马车|追踪|货运|路线/, abilityPaths: ["hunter", "apprentice", "seer"] },
   { id: "ev-factory", pattern: /纺织厂|工厂|地下层|东区|潜入/ },
   { id: "ev-population", pattern: /人口|迁移|失踪|招工|秘密工程|王室/ },
+  { id: "ev-gas-map", pattern: /煤气|管网|蓝图|压力表|调压站/ },
+  { id: "ev-valve", pattern: /阀门|设备|机械|调压|释放装置/ },
+  { id: "ev-engineer-order", pattern: /销毁|工程师|承包公司|蓝图命令/ },
+  { id: "ev-mirror-guest", pattern: /镜子|倒影|贵客|侍女|仆役|皇后区/ },
+  { id: "ev-perfume", pattern: /香水|灾祸|疾病|魔女|残留/ , abilityPaths: ["seer", "spectator", "mystery"] },
+  { id: "ev-banquet-list", pattern: /晚宴|名单|贵族|仆役网络|社交/ },
+  { id: "ev-returned-ship", pattern: /沉船|旧船|货轮|领航员|吃水线/ },
+  { id: "ev-sealed-cargo", pattern: /密封箱|货物|报关|走私|旧船/ },
+  { id: "ev-victim-register", pattern: /病例|诊所|受害者|救援|工棚名册/ },
+  { id: "ev-ritual-site", pattern: /核心仪式|坐标|交点|远距离验证/ },
 ];
 
 function discoverEvidence(game: GameState, contract: ActionContract, outcome: ActionResult["outcome"], extraDiscovery: number) {
@@ -317,16 +327,56 @@ function timelineAfterWeek(timeline: TimelineEvent[], nextWeek: number, evidence
 function factionTurn(factions: FactionState[], game: GameState, evidence: EvidenceNode[]) {
   const knowsPopulation = evidence.find((item) => item.id === "ev-population")?.discovered;
   const moves: WorldMove[] = [];
+  const observedActions = game.schedule.map((item) => item.rawIntent).join("；");
+  const behavior: Record<string, { delta: number; detail: string }> = {
+    "royal-project": { delta: knowsPopulation ? 7 : 4, detail: knowsPopulation ? "王室承包商连夜废弃一条运输线，并把临时工转移到新的封闭工棚。" : "新的采购批次绕过公开招标，转入一间封闭仓库。" },
+    "witch-sect": { delta: /魔女|香水|镜子|贵族/.test(observedActions) ? 6 : 3, detail: /魔女|香水|镜子|贵族/.test(observedActions) ? "一名假身份女性离开住所前焚毁了香水账单，并开始调查是谁询问过她。" : "一名使用假身份的中间人清理了临时住所。" },
+    "night-church": { delta: knowsPopulation ? 6 : 2, detail: knowsPopulation ? "值夜者把人口、煤气与仪式异常合并成内部专案，同时核验玩家提供的证据。" : "值夜者把新的失踪报告并入内部卷宗。" },
+    "steam-church": { delta: evidence.find((item) => item.id === "ev-gas-map")?.discovered ? 6 : 2, detail: evidence.find((item) => item.id === "ev-gas-map")?.discovered ? "机械之心封存了一座调压站，并开始追查被销毁的管网蓝图。" : "机械之心复核本周煤气事故和异常设备记录。" },
+    "aurora-order": { delta: 2, detail: "极光会外围尝试接触一名被官方忽视的失踪者家属。" },
+    police: { delta: game.influence >= 35 ? 3 : 1, detail: game.secrecy < 50 ? "警察厅把事务所的出入记录列入例行检查，并向房东询问租约。" : "警察把新报案继续归入普通治安卷宗。" },
+    press: { delta: game.influence >= 30 ? 3 : 2, detail: knowsPopulation ? "晚报编辑留下了人口异常的备份稿，却暂时拒绝刊登未经保护的证人姓名。" : "报社继续收集东区事故短讯和被撤下的讣告。" },
+    "black-market": { delta: 2, detail: /材料|配方|采购/.test(observedActions) ? "黑市抬高了玩家所需材料的报价，并有人打听组织的真实买家。" : "桥区掮客重新核对本周危险材料买家。" },
+  };
   const next = factions.map((faction) => {
-    let delta = faction.id === "royal-project" ? 4 : faction.id === "witch-sect" ? 3 : 1;
+    let delta = behavior[faction.id]?.delta ?? 1;
     if (faction.id === "night-church" && knowsPopulation) delta += 5;
     const planProgress = Math.min(100, faction.planProgress + delta);
     const visible = faction.visibility !== "未知" || faction.suspicion >= 25 || faction.interest >= 25;
-    const detail = faction.id === "royal-project" ? "新的采购批次绕过公开招标，转入一间封闭仓库。" : faction.id === "witch-sect" ? "一名使用假身份的中间人清理了临时住所。" : faction.id === "night-church" ? "值夜者把新的失踪报告并入内部卷宗。" : `${faction.name}继续推进“${faction.currentPlan}”。`;
+    const detail = behavior[faction.id]?.detail ?? `${faction.name}继续推进“${faction.currentPlan}”。`;
     if (visible) moves.push({ id: `move-${game.week}-${faction.id}`, factionId: faction.id, title: `${faction.name}的本周动向`, detail, week: game.week, visibility: faction.visibility === "持续往来" ? "确认" : "迹象" });
     return { ...faction, planProgress, lastMove: detail };
   });
   return { factions: next, moves };
+}
+
+function canonTurn(game: GameState, nextWeek: number) {
+  return game.canonActors.map((actor) => {
+    if (actor.id === "klein" && nextWeek >= 10) return { ...actor, location: "贝克兰德", publicIdentity: "夏洛克·莫里亚蒂", state: "以私人侦探身份进入首都，并独立追查新的委托。", awareness: game.influence >= 45 ? "间接听闻" as const : actor.awareness, lastMove: "在桥区接下了一宗看似普通的调查；他的行动有自己的目标，不受玩家调度。" };
+    if (actor.id === "klein" && nextWeek >= 6) return { ...actor, state: "廷根事件改变了他的身份与行动方式。", lastMove: "离开熟悉的城市，为进入贝克兰德做准备。" };
+    if (actor.id === "audrey" && nextWeek >= 9) return { ...actor, state: "已经接触真正的神秘学圈层。", awareness: game.factions.find((item) => item.id === "press")?.interest && game.influence >= 35 ? "间接听闻" as const : actor.awareness, lastMove: "从贵族社交与心理观察中察觉人口议题的不协调。" };
+    if (actor.id === "dunn" && nextWeek >= 7) return { ...actor, state: "廷根事件已经完成结算；他的命运取决于那条未受玩家直接控制的历史线。", lastMove: "原著锚点已越过，只有此前足够强的远程偏转才能改变其结果。" };
+    return { ...actor };
+  });
+}
+
+function buildPivots(game: GameState, nextWeek: number, evidence: EvidenceNode[], factions: FactionState[], deviation: number) {
+  const pivots = [...game.pivots];
+  const discovered = new Set(evidence.filter((item) => item.discovered).map((item) => item.id));
+  if (!pivots.some((item) => item.id === "pivot-evidence") && discovered.has("ev-population") && discovered.size >= 9) pivots.push({ id: "pivot-evidence", week: nextWeek, title: "不可见人口有了姓名", cause: "组织在官方收口前建立了跨案件的人口证据链。", effects: ["王室工程提前更换运输路线", "教会开始独立核验", "大雾霾不再能够完全按原计划隐蔽准备"], magnitude: 9 });
+  if (!pivots.some((item) => item.id === "pivot-church") && (factions.find((item) => item.id === "night-church")?.trust ?? 0) >= 45) pivots.push({ id: "pivot-church", week: nextWeek, title: "非法组织进入教会协作名单", cause: "连续提供可核验证据，使值夜者选择有限合作而非立即取缔。", effects: ["终局可请求教会支援", "组织合法化路线开放", "密教开始把玩家视为明确阻碍"], magnitude: 7 });
+  if (!pivots.some((item) => item.id === "pivot-sabotage") && ["ev-valve", "ev-sealed-cargo", "ev-ritual-site"].filter((id) => discovered.has(id)).length >= 2) pivots.push({ id: "pivot-sabotage", week: nextWeek, title: "原定仪式失去冗余", cause: "组织定位并干预了两项以上终局基础设施。", effects: ["大雾霾规模下降", "敌方计划提前", "部分原著角色会面对新的战场"], magnitude: 12 });
+  const pivotMagnitude = pivots.filter((pivot) => !game.pivots.some((old) => old.id === pivot.id)).reduce((sum, pivot) => sum + pivot.magnitude, 0);
+  return { pivots, deviation: Math.min(100, deviation + pivotMagnitude) };
+}
+
+function updateCases(game: GameState, evidence: EvidenceNode[], nextWeek: number) {
+  return game.cases.map((caseFile) => {
+    const nodes = evidence.filter((item) => item.caseId === caseFile.id);
+    const discoveredCount = nodes.filter((item) => item.discovered && !item.compromised).length;
+    const state = discoveredCount >= Math.max(2, nodes.length) ? "resolved" as const : discoveredCount > 0 ? "active" as const : caseFile.state === "resolved" ? "resolved" as const : nextWeek >= 8 && caseFile.id !== "black-knock" ? "active" as const : caseFile.state;
+    return { ...caseFile, discoveredCount, totalCount: nodes.length, state, pressure: Math.min(100, caseFile.pressure + (state === "resolved" ? -8 : 4)) };
+  });
 }
 
 function organizationConditions(secrecy: number, stability: number, influence: number, money: number) {
@@ -350,10 +400,14 @@ function resultFindings(contract: ActionContract, game: GameState, outcome: Acti
     successText,
     "研究结果只确认组织能够验证的材料信息，未知项仍保留为未知。",
   ];
+  const methodDetail = contract.methodTags?.includes("document") ? `档案员核对了登记时间、签章和纸张来源；其中一项记录在${game.week > 8 ? "本月" : "上月"}被人以补录名义覆盖。` : contract.methodTags?.includes("track") ? `追踪组记录了三处固定停留点，最稳定的一处靠近${district.landmarks[hash(contract.target) % district.landmarks.length]}，并确认目标会主动绕开有警察值守的路口。` : contract.methodTags?.includes("social") ? "接触对象没有直接承认推测，却在人员数量、时间和付款来源三个问题上先后改变说法；其中时间矛盾可以由第三方复核。" : contract.methodTags?.includes("occult") ? "灵性观察只确认残留的性质与方向：它来自近期反复使用，而不是偶然接触；更高层来源仍被反占卜或污染遮蔽。" : `执行者按契约记录了进入、观察与撤离三个时间点，现场变化发生在目标被问及“${contract.target}”之后。`;
+  const limitDetail = outcome === "成功" ? "报告已经区分亲眼所见、他人证词与分析推断；当前结论可以支持下一步行动，但仍不足以单独公开指控重要人物。" : outcome === "部分成功" ? "唯一来源仍可能说谎或受到胁迫；档案室已经列出第二来源和重新接触窗口。" : "对方的警戒已经提高，原方法短期内不可重复；下一次应更换人员、入口或以盟友名义核验。";
   return [
-    `${district.name}的行动围绕“${contract.target}”展开，${successText}。`,
-    `已确认目标与${district.landmarks[hash(contract.id) % district.landmarks.length]}存在一条可追查的人员或物流联系。`,
-    outcome === "受阻" ? "执行者按撤退条件中止接触，没有把失败包装成发现。" : `一条新的局部事实已经登记：目标近期改变过原有安排，并在回避来自${district.name}的常规查问。`,
+    `${district.name}的行动围绕“${contract.target}”展开，${successText}；报告注明了具体时间、来源和无法验证的部分。`,
+    methodDetail,
+    `目标与${district.landmarks[hash(contract.id) % district.landmarks.length]}之间存在一条可继续复核的人员或物流联系，最早可追溯到本周行动前${1 + hash(contract.id) % 5}日。`,
+    outcome === "受阻" ? "执行者在第一项撤退条件成立后中止接触，没有把失败包装成发现；撤离路线中的一个观察点已经暴露。" : `目标在得知有人查问后改变了原有安排；这既是新迹象，也是敌方反调查开始的信号。`,
+    limitDetail,
   ];
 }
 
@@ -399,6 +453,8 @@ export function resolveWeek(game: GameState) {
   let digestion = game.digestion;
   let spirituality = game.spirituality;
   let formulaKnowledge = game.formulaKnowledge;
+  let ritualReadiness = game.ritualReadiness;
+  let instability = game.instability;
   let materials = game.materials.map((item) => ({ ...item }));
   const facilities = game.facilities.map((item) => ({ ...item }));
   let members = game.members.map((item) => ({ ...item }));
@@ -409,6 +465,7 @@ export function resolveWeek(game: GameState) {
   let evidenceLinks = game.evidenceLinks.map((item) => ({ ...item }));
   let opportunities = game.opportunities.map((item) => ({ ...item, requirements: [...item.requirements] }));
   let factions = game.factions.map((item) => ({ ...item }));
+  let recruitPool = game.recruitPool.map((item) => ({ ...item }));
   let contractIncome = 0;
   const results: ActionResult[] = game.schedule.map((contract) => {
     const leader = contract.leaderId === "player" ? undefined : members.find((member) => member.id === contract.leaderId);
@@ -450,10 +507,14 @@ export function resolveWeek(game: GameState) {
       const interest = member.interest ?? member.loyalty;
       return { ...member, trust, ideology, interest, loyalty: Math.round((trust + ideology + interest) / 3) };
     });
-    if (leader) leader.fatigue = Math.min(100, leader.fatigue + contract.days * 4 + (contract.risk === "高" ? 6 : 0));
+    if (contract.kind === "交涉" && outcome !== "受阻") members = members.map((member) => contract.rawIntent.includes(member.name) && member.personalEventState === "active" ? { ...member, personalEventState: "resolved" as const, trust: Math.min(100, (member.trust ?? member.loyalty) + (outcome === "成功" ? 8 : 3)), loyalty: Math.min(100, member.loyalty + (outcome === "成功" ? 5 : 2)) } : member);
+    if (leader) {
+      leader.fatigue = Math.min(100, leader.fatigue + contract.days * 4 + (contract.risk === "高" ? 6 : 0));
+      if (outcome === "受阻" && ["高", "致命"].includes(contract.risk)) { leader.injury = contract.risk === "致命" ? "严重灵性创伤，必须休养" : "外勤负伤"; leader.status = "受伤休养"; }
+    }
 
     if (contract.kind === "休整") {
-      members = members.map((member) => ({ ...member, fatigue: Math.max(0, member.fatigue - 18) }));
+      members = members.map((member) => ({ ...member, fatigue: Math.max(0, member.fatigue - 18), injury: member.injury && outcome === "成功" ? undefined : member.injury, status: member.injury && outcome === "成功" ? "可安排" : member.status }));
       spirituality = Math.min(game.spiritualityMax, spirituality + 3);
     }
     if (contract.kind === "研究" && /配方|材料|晋升/.test(contract.rawIntent)) {
@@ -463,6 +524,10 @@ export function resolveWeek(game: GameState) {
         const missing = materials.find((item) => item.known && !item.obtained);
         if (missing && /寻找|采购|交换|猎取|获得|材料/.test(contract.rawIntent)) missing.obtained = true;
       }
+    }
+    if (contract.kind === "仪式" && /晋升|魔药|扮演|仪式/.test(contract.rawIntent)) {
+      ritualReadiness = Math.min(100, ritualReadiness + (outcome === "成功" ? 42 : outcome === "部分成功" ? 20 : 6));
+      instability = Math.min(100, instability + (outcome === "受阻" ? 8 : 1));
     }
     if (contract.kind === "建设" && outcome !== "受阻") {
       const workshop = facilities.find((facility) => facility.id === "workshop");
@@ -476,10 +541,20 @@ export function resolveWeek(game: GameState) {
         workshop.risk = contract.redLines;
       }
     }
-    if (contract.kind === "招募" && outcome === "成功") {
-      const suffix = hash(contract.target) % 3;
-      const recruit = { id: `recruit-${Date.now()}-${suffix}`, name: ["艾尔莎·莫恩", "维克托·莱恩", "诺拉·贝尔"][suffix], role: "新接触者", specialty: contract.target, loyalty: 45, trust: 38, interest: 62, ideology: 35, fatigue: 0, status: "观察期", background: "通过一次正式接触进入组织观察期，完整背景仍需验证。", core: "首先确认组织是否兑现承诺。", voice: "保留而务实，不主动交出全部信息。", arc: "正在决定成为线人、长期盟友还是正式成员。" };
-      members.push(recruit);
+    if (contract.kind === "招募" && outcome !== "受阻" && recruitPool.length) {
+      const recruit = recruitPool.find((item) => contract.rawIntent.includes(item.name) || contract.target.includes(item.name)) ?? recruitPool[hash(contract.target) % recruitPool.length];
+      const stages = ["接触", "临时合作", "长期盟友或线人", "正式成员"] as const;
+      const currentIndex = stages.indexOf(recruit.relationshipStage ?? "接触");
+      const gain = outcome === "成功" ? 1 : 0;
+      const nextStage = stages[Math.min(stages.length - 1, currentIndex + gain)];
+      recruit.relationshipStage = nextStage;
+      recruit.status = nextStage === "正式成员" ? "可安排" : nextStage;
+      recruit.trust = Math.min(100, (recruit.trust ?? recruit.loyalty) + (outcome === "成功" ? 12 : 5));
+      recruit.loyalty = Math.round(((recruit.trust ?? 0) + (recruit.interest ?? 0) + (recruit.ideology ?? 0)) / 3);
+      if (nextStage === "正式成员") {
+        members.push({ ...recruit, role: recruit.role.replace(/线人|助手/, "成员") });
+        recruitPool = recruitPool.filter((item) => item.id !== recruit.id);
+      }
     }
     const evidenceResult = discoverEvidence({ ...game, evidenceNodes, opportunities, factions }, contract, outcome, abilityRule.extraDiscovery);
     evidenceNodes = evidenceResult.evidence;
@@ -534,6 +609,13 @@ export function resolveWeek(game: GameState) {
   if (overAutonomous.length) secrecy -= overAutonomous.length * 2;
   const factionResolution = factionTurn(factions, game, evidenceNodes);
   factions = factionResolution.factions;
+  const hostileSuspicion = Math.max(...factions.map((item) => item.suspicion), 0);
+  evidenceNodes = evidenceNodes.map((item) => {
+    if (!item.discovered || item.compromised) return item;
+    if (item.expiresWeek && game.week > item.expiresWeek) return { ...item, compromised: true, certainty: "传闻" as const, summary: `${item.summary} 原始窗口已经关闭，必须重新核验。` };
+    if (hostileSuspicion >= 60 && item.weekDiscovered && item.weekDiscovered < game.week - 2 && hash(`${game.week}:${item.id}:counter`) % 100 < 18) return { ...item, compromised: true, certainty: "推断" as const, summary: `${item.summary} 对方已经修改相关记录，这份证据只能证明曾经存在过异常。` };
+    return item;
+  });
   const departmentMoves: WorldMove[] = [
     ...(autoVerified ? [{ id: `move-${game.week}-field`, factionId: "organization", title: "外勤部门完成外围核验", detail: `${autoVerified.label}从推断提升为可信证据；这是部门自主权带来的自动产出。`, week: game.week, visibility: "确认" as const }] : []),
     ...overAutonomous.map((department) => ({ id: `move-${game.week}-${department.id}-autonomy`, factionId: "organization", title: `${department.name}越权行动`, detail: `部门以${department.autonomy}%自主权绕过了一次完整汇报，效率提高，但留下额外行动痕迹。`, week: game.week, visibility: "迹象" as const })),
@@ -560,13 +642,32 @@ export function resolveWeek(game: GameState) {
   const chapter = buildLocalChapter(game, results, worldText);
   const nextWeek = game.week + 1;
   const coverIncome = 48 + Math.floor(game.influence / 5);
-  const facilityCost = facilities.filter((item) => item.status === "运转中").reduce((sum, item) => sum + (item.maintenance ?? Math.max(2, item.level * 3)), 0);
+  const facilityCost = facilities.filter((item) => item.status === "运转中").reduce((sum, item) => sum + (item.maintenance ?? Math.max(2, item.level * 3)), 0) + game.organizationProfile.satellites.reduce((sum, item) => sum + item.upkeep, 0);
   const departmentCost = game.departments.reduce((sum, item) => sum + item.budget, 0);
   const actionCost = results.reduce((sum, item) => sum + item.contract.budget, 0);
   money += coverIncome + contractIncome - facilityCost - departmentCost;
   const economyEntry = { week: game.week, coverIncome, contractIncome, facilityCost, departmentCost, actionCost, balance: money };
-  const timeline = timelineAfterWeek(game.timeline, nextWeek, evidenceNodes);
+  const baseDeviation = Math.min(100, game.deviation + results.filter((result) => result.outcome === "成功").length * .55 + results.reduce((sum, item) => sum + (item.unlockedEvidenceIds?.length ?? 0), 0) * .32);
+  const pivotResolution = buildPivots(game, nextWeek, evidenceNodes, factions, baseDeviation);
+  let timeline = timelineAfterWeek(game.timeline, nextWeek, evidenceNodes);
+  if (pivotResolution.pivots.some((item) => item.id === "pivot-sabotage")) timeline = timeline.map((event) => ["tl-procurement", "tl-smog-eve"].includes(event.id) ? { ...event, status: "diverted" as const, revealed: true, summary: `${event.summary} 该事件已因组织破坏基础设施而改走新的因果分支。` } : event);
   const conditions = organizationConditions(secrecy, stability, influence, money);
+  const dangerousPlayerResult = results.find((result) => result.contract.leaderId === "player" && ["高", "致命"].includes(result.contract.risk) && result.outcome !== "成功");
+  const fatalSituation = dangerousPlayerResult ? {
+    id: `fatal-${dangerousPlayerResult.id}`,
+    actionId: dangerousPlayerResult.id,
+    title: "现场撤离窗口正在闭合",
+    threat: dangerousPlayerResult.contract.risk === "致命" ? "超出当前序列的非凡力量已经锁定现场；继续停留可能导致死亡。" : "队伍的身份与撤离路线同时受到威胁，错误选择会把伤势升级为致命局面。",
+    knownThreats: [dangerousPlayerResult.contract.unknowns, dangerousPlayerResult.contract.retreat, `当前生命 ${game.playerCondition.health}，污染 ${game.playerCondition.pollution}`],
+    stage: "decision" as const,
+    odds: { retreat: Math.min(92, 70 + Math.floor(secrecy / 8)), help: Math.min(90, 52 + Math.floor((factions.find((item) => item.id === "night-church")?.trust ?? 0) / 2)), continue: Math.min(68, 24 + (10 - game.currentSequence) * 5 + dangerousPlayerResult.contract.abilityIds.length * 4) },
+  } : null;
+  const occultUses = results.reduce((sum, result) => sum + (result.contract.methodTags?.includes("occult") ? result.contract.abilityIds.length : 0), 0);
+  const playerCondition = { ...game.playerCondition, pollution: Math.min(100, game.playerCondition.pollution + occultUses + (dangerousPlayerResult ? 3 : 0)), health: Math.min(100, game.playerCondition.health + (results.some((item) => item.contract.kind === "休整") ? 8 : 0)), injuries: [...game.playerCondition.injuries] };
+  members = members.map((member) => ({ ...member, personalEventState: member.personalEventState === "dormant" && (member.fatigue >= 45 || nextWeek >= 8 + hash(member.id) % 8) ? "active" as const : member.personalEventState }));
+  const canonActors = canonTurn(game, nextWeek);
+  const cases = updateCases(game, evidenceNodes, nextWeek);
+  const ending = game.ending.phase === "running" && nextWeek >= 24 ? { ...game.ending, phase: "finale" as const } : game.ending;
   const nextState: GameState = {
     ...game,
     week: nextWeek,
@@ -575,13 +676,16 @@ export function resolveWeek(game: GameState) {
     secrecy: Math.max(0, Math.min(100, secrecy)),
     stability: Math.max(0, Math.min(100, stability)),
     influence: Math.max(0, Math.min(100, influence)),
-    deviation: Math.min(100, game.deviation + results.filter((result) => result.outcome === "成功").length * .35 + results.reduce((sum, item) => sum + (item.unlockedEvidenceIds?.length ?? 0), 0) * .18),
+    deviation: pivotResolution.deviation,
     digestion,
     spirituality: Math.min(game.spiritualityMax, spirituality + 2),
     formulaKnowledge,
+    ritualReadiness,
+    instability,
     materials,
     facilities,
     members,
+    recruitPool,
     inventory,
     facts: facts.slice(-80),
     missions,
@@ -595,6 +699,12 @@ export function resolveWeek(game: GameState) {
     worldMoves: [...factionResolution.moves, ...departmentMoves, ...game.worldMoves].slice(0, 80),
     economyHistory: [economyEntry, ...game.economyHistory].slice(0, 60),
     organizationConditions: conditions,
+    cases,
+    pivots: pivotResolution.pivots,
+    canonActors,
+    fatalSituation,
+    playerCondition,
+    ending,
   };
   return { state: nextState, chapter };
 }
@@ -636,8 +746,51 @@ export async function generateLiteraryChapter(config: AiConfig, game: GameState,
   return { ...local, ...chapter, source: "ai" };
 }
 
+export async function generateAiWorldDelta(config: AiConfig, game: GameState, chapter: ChronicleChapter, onStage: (value: string) => void): Promise<GameState> {
+  onStage("世界推演器正在生成受约束的势力回应");
+  const payload = {
+    week: game.week,
+    chapter: chapter.results.map((item) => ({ outcome: item.outcome, contract: item.contract.rawIntent, findings: item.findings, futureChanges: item.futureChanges })),
+    factions: game.factions.map((item) => ({ id: item.id, name: item.name, currentPlan: item.currentPlan, trust: item.trust, suspicion: item.suspicion, planProgress: item.planProgress, lastMove: item.lastMove })),
+    canonActors: game.canonActors.map((item) => ({ id: item.id, name: item.name, location: item.location, agenda: item.agenda, awareness: item.awareness, state: item.state })),
+    pivots: game.pivots,
+    knownEvidence: game.evidenceNodes.filter((item) => item.discovered).map((item) => ({ label: item.label, certainty: item.certainty, summary: item.summary })),
+  };
+  const raw = extractJson(await callModel(config, "你是回合制世界状态推演器。不得新增核心幕后真相，不改变已结算成败，不杀死玩家，不控制玩家意志。只返回严格JSON。", `根据可见状态生成本周后续回应。返回：{"factionMoves":[{"factionId":"已有id","title":"短标题","detail":"可被玩家观察到的具体行动","visibility":"迹象|获知|确认","suspicionDelta":-4到6,"progressDelta":0到5}],"canonMoves":[{"actorId":"已有id","lastMove":"自主行动","awareness":"未知|间接听闻|注意|直接接触"}],"emergentPressure":{"title":"可选的新压力","premise":"由玩家行动后果产生","consequence":"放任后果","deadline":2到6}|null}。最多3个势力行动、2个原著人物行动；只能从事实推断局部回应。\n${JSON.stringify(payload)}`));
+  const moves = Array.isArray(raw.factionMoves) ? raw.factionMoves.slice(0, 3) : [];
+  const factions = game.factions.map((item) => ({ ...item }));
+  const worldMoves: WorldMove[] = [];
+  for (const [index, move] of moves.entries()) {
+    if (!move || typeof move !== "object") continue;
+    const value = move as Record<string, unknown>;
+    const faction = factions.find((item) => item.id === value.factionId);
+    if (!faction || typeof value.detail !== "string" || typeof value.title !== "string") continue;
+    const visibility = ["迹象", "获知", "确认"].includes(String(value.visibility)) ? value.visibility as WorldMove["visibility"] : "迹象";
+    const suspicionDelta = Math.max(-4, Math.min(6, Number(value.suspicionDelta) || 0));
+    const progressDelta = Math.max(0, Math.min(5, Number(value.progressDelta) || 0));
+    faction.suspicion = Math.max(0, Math.min(100, faction.suspicion + suspicionDelta));
+    faction.planProgress = Math.min(100, faction.planProgress + progressDelta);
+    faction.lastMove = value.detail.slice(0, 240);
+    worldMoves.push({ id: `ai-move-${game.week}-${index}-${faction.id}`, factionId: faction.id, title: value.title.slice(0, 40), detail: value.detail.slice(0, 240), week: game.week, visibility });
+  }
+  const canonMoves = Array.isArray(raw.canonMoves) ? raw.canonMoves.slice(0, 2) : [];
+  const canonActors = game.canonActors.map((actor) => {
+    const move = canonMoves.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).actorId === actor.id) as Record<string, unknown> | undefined;
+    if (!move || typeof move.lastMove !== "string") return actor;
+    const awareness = ["未知", "间接听闻", "注意", "直接接触"].includes(String(move.awareness)) ? move.awareness as typeof actor.awareness : actor.awareness;
+    return { ...actor, lastMove: move.lastMove.slice(0, 220), awareness };
+  });
+  let missions = game.missions;
+  const pressure = raw.emergentPressure;
+  if (pressure && typeof pressure === "object" && !Array.isArray(pressure)) {
+    const value = pressure as Record<string, unknown>;
+    if (typeof value.title === "string" && typeof value.premise === "string" && typeof value.consequence === "string") missions = [...missions, { id: `ai-pressure-${game.week}-${hash(value.title)}`, title: value.title.slice(0, 45), premise: value.premise.slice(0, 280), deadline: Math.max(2, Math.min(6, Number(value.deadline) || 3)), urgency: 58, progress: 0, consequence: value.consequence.slice(0, 240), hints: ["自由调查其来源", "与相关成员讨论", "寻求一项外部合作", "暂不处理并承担后果"], state: "active" as const }];
+  }
+  return { ...game, factions, canonActors, missions, worldMoves: [...worldMoves, ...game.worldMoves].slice(0, 80) };
+}
+
 export function canAdvance(game: GameState) {
-  return game.currentSequence > 0 && game.digestion >= 100 && game.formulaKnowledge >= 100 && game.materials.every((item) => item.obtained);
+  return game.currentSequence > 0 && game.digestion >= 100 && game.formulaKnowledge >= 100 && game.ritualReadiness >= 100 && game.instability < 70 && game.materials.every((item) => item.obtained);
 }
 
 export function advanceSequence(game: GameState) {
@@ -650,8 +803,99 @@ export function advanceSequence(game: GameState) {
     spirituality: game.spiritualityMax + 2,
     spiritualityMax: game.spiritualityMax + 2,
     formulaKnowledge: nextRank > 0 ? 18 : 100,
+    ritualReadiness: 0,
+    instability: Math.min(100, game.instability + Math.max(5, 14 - nextRank)),
     materials: nextRank > 0 ? materialsFor(game.pathwayId, nextRank - 1) : [],
     deviation: Math.min(100, game.deviation + 1.2),
     facts: [...game.facts, { id: `advance-${nextRank}-${Date.now()}`, subject: "组织负责人", statement: `已晋升为序列${nextRank}·${PATHWAYS[game.pathwayId].sequences.find((item) => item.rank === nextRank)?.name}。`, certainty: "确认" as const, source: "组织内部记录", week: game.week }],
   };
+}
+
+export function resolveFatalSituation(game: GameState, choice: "retreat" | "help" | "continue") {
+  const crisis = game.fatalSituation;
+  if (!crisis || crisis.stage !== "decision") return game;
+  const odds = crisis.odds[choice];
+  const roll = hash(`${crisis.id}:${choice}:${game.week}`) % 100;
+  const survived = roll < odds;
+  const label = choice === "retreat" ? "按预案撤退" : choice === "help" ? "向盟友求援" : "继续深入";
+  const severe = !survived || choice === "continue";
+  const deathThreshold = choice === "continue" ? 30 : choice === "help" ? 10 : 6;
+  const deathRoll = hash(`${crisis.id}:${choice}:final`) % 100;
+  const died = !survived && deathRoll < deathThreshold;
+  const injury = died ? "致命伤" : severe ? choice === "continue" ? "灵性灼伤与肋骨骨裂" : "撤离时遭受贯穿伤" : "轻微擦伤";
+  const healthLoss = died ? game.playerCondition.health : severe ? 34 : 12;
+  const pollutionGain = choice === "continue" ? 15 : choice === "help" ? 6 : 3;
+  const fact: WorldFact = { id: `crisis-${crisis.id}`, subject: crisis.title, statement: `${label}的最终检定为${survived ? "成功" : died ? "死亡" : "失败但幸存"}；规则掷值${roll}，安全阈值${odds}。`, certainty: "确认", source: "致命处境结算", week: game.week };
+  const ending = died ? { phase: "ended" as const, title: "雾中止步", epilogue: ["负责人的死亡让所有未完成的命令停在密议室桌面上。", "成员按照各自的忠诚、利益与理念带走能带走的东西，组织就此结束。"], grades: { organization: "覆灭", members: "失散", advancement: `序列${game.currentSequence}`, relations: "未竟", history: `${game.deviation.toFixed(1)}%偏转` }, sandboxUnlocked: false } : game.ending;
+  return {
+    ...game,
+    playerCondition: { health: Math.max(0, game.playerCondition.health - healthLoss), pollution: Math.min(100, game.playerCondition.pollution + pollutionGain), injuries: [...game.playerCondition.injuries, injury], alive: !died },
+    fatalSituation: null,
+    ending,
+    stability: Math.max(0, game.stability - (died ? 100 : severe ? 12 : 4)),
+    secrecy: Math.max(0, game.secrecy - (choice === "help" ? 5 : choice === "continue" ? 8 : 2)),
+    facts: [...game.facts, fact],
+  };
+}
+
+export function resolveFinale(game: GameState, route: "阻止" | "利用" | "改变" | "逃离") {
+  if (game.ending.phase !== "finale") return game;
+  const discovered = game.evidenceNodes.filter((item) => item.discovered && !item.compromised).length;
+  const keyEvidence = ["ev-population", "ev-gas-map", "ev-perfume", "ev-sealed-cargo", "ev-ritual-site", "ev-victim-register"].filter((id) => game.evidenceNodes.find((item) => item.id === id)?.discovered).length;
+  const allyPower = game.factions.filter((item) => item.trust >= 35).reduce((sum, item) => sum + item.trust + item.leverage, 0);
+  const orgPower = game.influence + game.stability + game.members.length * 7 + game.facilities.filter((item) => item.status === "运转中").length * 4;
+  const routeModifier = route === "阻止" ? keyEvidence * 10 + allyPower / 5 : route === "改变" ? keyEvidence * 8 + orgPower / 4 : route === "利用" ? game.currentSequence <= 7 ? 24 : -8 : game.secrecy + game.money / 20;
+  const score = Math.round(discovered * 2 + routeModifier + orgPower / 6 - game.playerCondition.pollution / 2 - game.instability / 3);
+  const tier = score >= 115 ? "decisive" : score >= 78 ? "costly" : "failed";
+  const titles = {
+    阻止: tier === "decisive" ? "没有降临的大雾" : tier === "costly" ? "被撕开的雾幕" : "迟到的警报",
+    改变: tier === "decisive" ? "雾向无人之地" : tier === "costly" ? "被改写的灾难" : "偏转失控",
+    利用: tier === "decisive" ? "从灾难中夺火" : tier === "costly" ? "带血的晋身阶" : "觊觎者的代价",
+    逃离: tier === "decisive" ? "带走一座城的名单" : tier === "costly" ? "离城列车" : "身后的灰雾",
+  } as const;
+  const casualties = tier === "decisive" ? "核心仪式被破坏，伤亡被压缩到局部并得到及时救援。" : tier === "costly" ? "大雾仍然降临，但规模与受害区域因提前准备而改变。" : "准备不足使原定灾难大体发生，组织只能保存少数成果。";
+  const routeText = route === "阻止" ? "组织把证据、盟友与破坏行动集中在同一夜，主动冲击仪式结构。" : route === "改变" ? "组织没有幻想完全消灭高位阴谋，而是改变人口、煤气与仪式材料的汇合方式。" : route === "利用" ? "负责人试图从仪式崩解中夺取材料、身份与晋升机会，并承担最重的污染。" : "组织启动分散撤离，把成员、证据与潜在受害者名单带出贝克兰德。";
+  const memberAverage = game.members.reduce((sum, item) => sum + item.loyalty, 0) / Math.max(1, game.members.length);
+  const organizationGrade = game.stability >= 55 && game.money > -50 ? "存续并拥有独立立场" : game.stability >= 25 ? "重创后存续" : "在余波中分裂";
+  const memberGrade = memberAverage >= 65 ? "核心成员选择留下" : memberAverage >= 45 ? "有人留下，也有人离开" : "成员按各自道路散去";
+  return {
+    ...game,
+    ending: {
+      phase: "ended",
+      route,
+      title: titles[route],
+      epilogue: [routeText, casualties, `这条历史最终偏转了${Math.min(100, game.deviation + (tier === "decisive" ? 18 : tier === "costly" ? 9 : 3)).toFixed(1)}%。它不会再被强行修正回原著。`],
+      grades: { organization: organizationGrade, members: memberGrade, advancement: `序列${game.currentSequence}·${PATHWAYS[game.pathwayId].sequences.find((item) => item.rank === game.currentSequence)?.name}`, relations: allyPower >= 150 ? "拥有可靠盟友网" : allyPower >= 70 ? "保留有限合作" : "几乎孤立", history: tier === "decisive" ? "决定性偏转" : tier === "costly" ? "明确偏转" : "局部偏转" },
+      sandboxUnlocked: true,
+    },
+    deviation: Math.min(100, game.deviation + (tier === "decisive" ? 18 : tier === "costly" ? 9 : 3)),
+    playerCondition: route === "利用" ? { ...game.playerCondition, pollution: Math.min(100, game.playerCondition.pollution + (tier === "failed" ? 28 : 14)) } : game.playerCondition,
+    timeline: game.timeline.map((event) => event.id === "tl-great-smog" ? { ...event, status: tier === "decisive" ? "diverted" as const : "resolved" as const, summary: `${titles[route]}：${casualties}` } : event),
+  };
+}
+
+export function enterSandbox(game: GameState) {
+  if (!game.ending.sandboxUnlocked) return game;
+  return { ...game, ending: { ...game.ending, phase: "sandbox" as const }, missions: game.missions.map((mission) => mission.state === "active" ? { ...mission, state: "resolved" as const } : mission) };
+}
+
+export function connectEvidence(game: GameState, from: string, to: string, label: string) {
+  if (from === to || !label.trim()) return game;
+  const valid = [from, to].every((id) => game.evidenceNodes.find((item) => item.id === id)?.discovered);
+  if (!valid) return game;
+  const id = `player-link-${[from, to].sort().join("-")}`;
+  if (game.evidenceLinks.some((item) => item.id === id)) return game;
+  return { ...game, evidenceLinks: [...game.evidenceLinks, { id, from, to, label: label.trim(), discovered: true }], deviation: Math.min(100, game.deviation + .4) };
+}
+
+export function transformOrganization(game: GameState, action: "rename" | "move" | "legalize" | "satellite" | "split" | "merge" | "rebuild", value: string) {
+  const profile = { ...game.organizationProfile, satellites: [...game.organizationProfile.satellites], formerOrganizations: [...game.organizationProfile.formerOrganizations] };
+  if (action === "rename" && value.trim()) return { ...game, organizationName: value.trim().slice(0, 30), secrecy: Math.min(100, game.secrecy + 3) };
+  if (action === "move") { const district = DISTRICTS.find((item) => item.id === value); if (!district || game.money < 120) return game; profile.headquartersDistrictId = district.id; return { ...game, organizationProfile: profile, money: game.money - 120, secrecy: Math.min(100, game.secrecy + 14), schedule: [] } ; }
+  if (action === "legalize") { const trust = Math.max(...game.factions.filter((item) => item.kind === "教会" || item.kind === "官方").map((item) => item.trust), 0); if (trust < 35 || game.influence < 25) return game; profile.legalStatus = trust >= 60 ? "官方协作" : "合法掩护"; return { ...game, organizationProfile: profile, secrecy: Math.min(100, game.secrecy + 8), influence: Math.min(100, game.influence + 6) }; }
+  if (action === "satellite") { const district = DISTRICTS.find((item) => item.id === value); if (!district || game.money < 160 || profile.satellites.some((item) => item.districtId === value)) return game; profile.satellites.push({ id: `sat-${value}`, name: `${district.name}外围据点`, districtId: value, function: "情报、撤离与成员接应", upkeep: 9 }); return { ...game, organizationProfile: profile, money: game.money - 160, influence: Math.min(100, game.influence + 5) }; }
+  if (action === "split") { const departing = game.members.filter((item) => (item.ideology ?? 50) < 45 || (item.trust ?? 50) < 38); profile.formerOrganizations.push(`${game.organizationName}分离派`); return { ...game, organizationProfile: profile, members: game.members.filter((item) => !departing.some((leave) => leave.id === item.id)), facilities: game.facilities.map((item, index) => index === game.facilities.length - 1 ? { ...item, status: "闲置" as const } : item), stability: Math.max(0, game.stability - 18) }; }
+  if (action === "merge") { const allies = game.factions.filter((item) => item.trust >= 55); if (!allies.length) return game; return { ...game, organizationName: value.trim() || `${game.organizationName}联合会`, influence: Math.min(100, game.influence + 14), stability: Math.max(0, game.stability - 6), organizationProfile: profile }; }
+  if (action === "rebuild") { const followers = game.members.filter((item) => (item.trust ?? 0) >= 55 && (item.ideology ?? 0) >= 50); profile.formerOrganizations.push(game.organizationName); return { ...game, organizationName: value.trim() || "无名调查结社", members: followers, facilities: game.facilities.slice(0, 2), departments: [], inventory: game.inventory.filter((item) => followers.some((member) => item.keeper.includes(member.name.split("·")[0]))), money: Math.max(40, Math.floor(game.money * .45)), influence: Math.floor(game.influence * .55), stability: 58, organizationProfile: profile }; }
+  return game;
 }

@@ -2,30 +2,31 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 import "./complete-game.css";
+import "./complete-v7.css";
 
 export async function generateMetadata(): Promise<Metadata> {
   const incomingHeaders = await headers();
   const host = incomingHeaders.get("x-forwarded-host") ?? incomingHeaders.get("host") ?? "localhost:3000";
   const protocol = incomingHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const imageUrl = `${protocol}://${host}/og-v2.png`;
+  const imageUrl = `${protocol}://${host}/og-v3.png`;
 
   return {
     title: "灰雾纪事｜诡秘之主同人推演",
     description: "经营你的非凡者组织，在原著时间线中调查、抉择并改写历史。",
     icons: {
-      icon: "/og-v2.png",
-      shortcut: "/og-v2.png",
+      icon: "/favicon.svg",
+      shortcut: "/favicon.svg",
     },
     openGraph: {
       title: "灰雾纪事",
-      description: "在原著时间线中，经营组织，调查异常，改写历史。",
-      images: [{ url: imageUrl, width: 1674, height: 941, alt: "灰雾纪事游戏封面" }],
+      description: "经营组织，调查异常，亲手推动历史偏转，并在大雾霾终局决定贝克兰德的命运。",
+      images: [{ url: imageUrl, width: 1536, height: 864, alt: "灰雾纪事完整推演版封面" }],
       type: "website",
     },
     twitter: {
       card: "summary_large_image",
       title: "灰雾纪事",
-      description: "在原著时间线中，经营组织，调查异常，改写历史。",
+      description: "经营组织，调查异常，亲手推动历史偏转，并在大雾霾终局决定贝克兰德的命运。",
       images: [imageUrl],
     },
   };

@@ -1,5 +1,5 @@
 export type PathwayId = "seer" | "spectator" | "apprentice" | "hunter" | "mystery";
-export type ViewId = "intent" | "investigation" | "city" | "organization" | "progression" | "archive";
+export type ViewId = "intent" | "investigation" | "city" | "organization" | "progression" | "archive" | "ending";
 export type RiskLevel = "低" | "中" | "高" | "致命";
 export type EvidenceCertainty = "传闻" | "推断" | "可信证据" | "已确认";
 
@@ -46,6 +46,11 @@ export type Member = {
   core?: string;
   voice?: string;
   arc?: string;
+  secret?: string;
+  personalEvent?: string;
+  personalEventState?: "dormant" | "active" | "resolved";
+  injury?: string;
+  relationshipStage?: "接触" | "临时合作" | "长期盟友或线人" | "正式成员";
 };
 
 export type District = {
@@ -120,6 +125,8 @@ export type EvidenceNode = {
   source: string;
   tags: string[];
   weekDiscovered?: number;
+  expiresWeek?: number;
+  compromised?: boolean;
 };
 
 export type EvidenceLink = {
@@ -186,6 +193,71 @@ export type WorldMove = {
   detail: string;
   week: number;
   visibility: "迹象" | "获知" | "确认";
+};
+
+export type CaseFile = {
+  id: string;
+  title: string;
+  premise: string;
+  stakes: string;
+  state: "active" | "dormant" | "resolved" | "failed";
+  pressure: number;
+  discoveredCount: number;
+  totalCount: number;
+};
+
+export type HistoricalPivot = {
+  id: string;
+  week: number;
+  title: string;
+  cause: string;
+  effects: string[];
+  magnitude: number;
+};
+
+export type CanonActor = {
+  id: string;
+  name: string;
+  publicIdentity: string;
+  location: string;
+  agenda: string;
+  state: string;
+  awareness: "未知" | "间接听闻" | "注意" | "直接接触";
+  recruitable: false;
+  lastMove: string;
+};
+
+export type FatalSituation = {
+  id: string;
+  actionId: string;
+  title: string;
+  threat: string;
+  knownThreats: string[];
+  stage: "decision" | "resolved";
+  odds: { retreat: number; help: number; continue: number };
+};
+
+export type PlayerCondition = {
+  health: number;
+  pollution: number;
+  injuries: string[];
+  alive: boolean;
+};
+
+export type EndingState = {
+  phase: "running" | "finale" | "ended" | "sandbox";
+  route?: "阻止" | "利用" | "改变" | "逃离";
+  title?: string;
+  epilogue?: string[];
+  grades?: { organization: string; members: string; advancement: string; relations: string; history: string };
+  sandboxUnlocked: boolean;
+};
+
+export type OrganizationProfile = {
+  headquartersDistrictId: string;
+  legalStatus: "未获许可" | "秘密默许" | "合法掩护" | "官方协作";
+  satellites: { id: string; name: string; districtId: string; function: string; upkeep: number }[];
+  formerOrganizations: string[];
 };
 
 export type PressureMission = {
@@ -309,6 +381,16 @@ export type GameState = {
   worldMoves: WorldMove[];
   economyHistory: EconomyLedger[];
   organizationConditions: string[];
+  cases: CaseFile[];
+  pivots: HistoricalPivot[];
+  canonActors: CanonActor[];
+  fatalSituation: FatalSituation | null;
+  playerCondition: PlayerCondition;
+  ending: EndingState;
+  recruitPool: Member[];
+  organizationProfile: OrganizationProfile;
+  ritualReadiness: number;
+  instability: number;
 };
 
 const seq = (rank: number, name: string, capabilities: string[], acting: string): Sequence => ({ rank, name, capabilities, acting });
@@ -457,22 +539,69 @@ const RANK_EIGHT_RECIPES: Record<PathwayId, Material[]> = {
   ],
 };
 
+const HIGHER_RECIPE_NAMES: Record<PathwayId, Record<number, [string, string, string]>> = {
+  seer: {
+    7: ["熔岩章鱼的血液结晶", "雾树树心粉末", "舞台火焰与一枚旧纸人"], 6: ["千面狩猎者的完整面皮", "影纹水母的变色囊", "属于三个身份的真实签名"],
+    5: ["罗塞尔时期秘偶师的灵性结晶", "成熟木偶树的核心", "自愿交出的灵体之线媒介"], 4: ["诡术邪怪的主眼", "迷雾巨狼的心脏", "一场无人识破的公开表演记录"],
+    3: ["古代怨灵的记忆结晶", "历史迷雾中的残页", "三件跨越三百年的同源遗物"], 2: ["完整奇迹生物的愿望结晶", "一份被兑现的群体愿望", "七十二个微小愿望的见证"],
+    1: ["诡秘侍者非凡特性", "被嫁接的概念标本", "足够稳定的现实锚点"], 0: ["占卜家途径唯一性", "两份序列一非凡特性", "容纳源质并维持人性锚点"],
+  },
+  spectator: {
+    7: ["梦境鹿的心脏", "安抚妖精的结晶泪", "三份经本人同意的治疗记录"], 6: ["催眠水母的完整脑核", "噩梦藤的花粉", "一段自愿封存的真实记忆"],
+    5: ["梦境行者非凡特性", "银白梦蚕的茧", "一处反复出现的稳定梦境坐标"], 4: ["操纵师非凡特性", "群体潜意识海的结晶", "一场未被察觉的社会实验档案"],
+    3: ["织梦人非凡特性", "真实之梦的碎片", "百人共享梦境的完整叙事"], 2: ["洞察者非凡特性", "心灵巨龙的虹膜", "一次看穿欺骗却没有揭穿的证明"],
+    1: ["作家非凡特性", "时代思潮的具象羽笔", "一段由人物性格自然抵达的历史"], 0: ["观众途径唯一性", "两份序列一非凡特性", "容纳源质并建立群体心灵锚点"],
+  },
+  apprentice: {
+    7: ["星纹鸟的完整晶核", "无光星砂", "本人观测七夜的星图"], 6: ["记录官非凡特性", "回声蜥蜴的舌骨", "三种已获许可的能力印记"],
+    5: ["旅行家非凡特性", "灵界游鱼的鳞片", "十二座城市的可靠坐标"], 4: ["秘法师非凡特性", "空间囚笼的边界结晶", "一间无人知晓的密室坐标"],
+    3: ["漫游者非凡特性", "星界尘埃凝成的核心", "一次越过安全边界并归来的记录"], 2: ["旅法师非凡特性", "异域规则的稳定拓印", "一条连接两个遥远地点的永久门径"],
+    1: ["星之匙非凡特性", "概念之门的钥匙投影", "所有仍愿意归返之地的坐标"], 0: ["学徒途径唯一性", "两份序列一非凡特性", "容纳源质并完成星界定位"],
+  },
+  hunter: {
+    7: ["熔岩蝾螈的心脏", "火鸦的尾羽结晶", "亲手控制的一场无伤火灾记录"], 6: ["阴谋家非凡特性", "战争狐的脑垂体", "让三方都按计划行动的完整方案"],
+    5: ["收割者非凡特性", "血色巨镰螳螂的前肢", "在战场上终止冲突的决定性一击"], 4: ["铁血骑士非凡特性", "军团意志结晶", "九名自愿追随者的血誓"],
+    3: ["战争主教非凡特性", "古战场核心", "一场由你领导并取得胜利的真实战争"], 2: ["天气术士非凡特性", "灾害云团的雷核", "一片被战争改变的天气记录"],
+    1: ["征服者非凡特性", "败者自愿交出的王冠", "征服后仍保持秩序的国度见证"], 0: ["猎人途径唯一性", "两份序列一非凡特性", "容纳源质并建立战争锚点"],
+  },
+  mystery: {
+    7: ["古老巫术生物的晶核", "七种对应星体的金属粉", "一套完成反噬验证的术式"], 6: ["卷轴教授非凡特性", "知识幽灵的皮膜", "十二张不同领域的有效卷轴"],
+    5: ["星象师非凡特性", "坠星兽的眼核", "连续三十夜无误的星象记录"], 4: ["神秘学家非凡特性", "被定义的未知现象结晶", "一部由自己完成的神秘学体系"],
+    3: ["预言大师非凡特性", "知识河流的水滴", "三次准确却未强行改变的重大预言"], 2: ["贤者非凡特性", "活化知识生物的核心", "一座自由开放并持续运转的知识库"],
+    1: ["知识皇帝非凡特性", "真理宣告的残响", "被多个组织承认的知识秩序"], 0: ["窥秘人途径唯一性", "两份序列一非凡特性", "容纳源质并建立知识锚点"],
+  },
+};
+
+export const ADVANCEMENT_RITUALS: Record<PathwayId, Record<number, string>> = {
+  seer: { 8: "在众目睽睽之下完成一次无人受伤、且无人识破准备的表演。", 7: "提前准备至少三种替代手段，在失控局面中完成目标。", 6: "以另一个身份生活七日，最后准确说出自己的全部真实关系。", 5: "在不直接伤害目标的前提下，操纵一场不少于十人的完整事件。", 4: "策划一场影响整座城区、事后无人理解手段的诡术。", 3: "从历史中找回一段被遗忘的真实，并让至少百人重新记住。", 2: "先独立实现七十二个微小愿望，再完成一个改变万人命运的愿望。", 1: "建立稳定锚点后，于一场天使级冲突中完成概念嫁接。", 0: "容纳唯一性与源质，并让足够多的锚点仍能确认你是谁。" },
+  spectator: { 8: "在不干预的情况下完整观察并复述三场重大冲突。", 7: "治愈一名真正抗拒治疗者的创伤且不抹去其人格。", 6: "让目标主动完成你预设的行为，却在最后保留拒绝权。", 5: "进入并走出一场持续七夜的共享梦境。", 4: "无声影响一座城市的情绪潮流并在峰值前使其平复。", 3: "编织一个百人共享且逻辑自洽的梦境世界。", 2: "识破一次针对时代的巨大骗局并守住自我。", 1: "书写一个覆盖万人、完全符合人物性格的发展并令其成为现实。", 0: "容纳唯一性与源质，让群体潜意识承认你的象征。" },
+  apprentice: { 8: "仅用低阶戏法从封闭建筑中带出三人。", 7: "独立记录七夜星图并准确找到一个失落坐标。", 6: "记录三种不同途径能力并在正确场景安全复现。", 5: "不借固定门径抵达十二座城市并全部平安返回。", 4: "隐藏一个重要空间一年且不被任何预言发现。", 3: "完成一次星界漫游并带回可验证的异域证据。", 2: "建立跨越两个规则区域的稳定通道。", 1: "关闭一扇本不可能关闭的概念之门。", 0: "容纳唯一性与源质，让所有重要坐标仍指向你的归处。" },
+  hunter: { 8: "激怒一名强于自己的敌人并让其因冲动落入无伤陷阱。", 7: "控制一场大火完成目标且不波及无辜。", 6: "设计多方阴谋，并让所有参与者都以为做出自主选择。", 5: "在真实战场用一次决定性行动终结冲突。", 4: "与至少九名自愿追随者建立军团连接并共同存活。", 3: "领导并赢得一场具有政治后果的战争。", 2: "以天气改变战争结果，同时承担灾害余波。", 1: "征服一个敌对政权后建立可持续秩序。", 0: "容纳唯一性与源质，让战争锚点承认你的统御。" },
+  mystery: { 8: "以知识而非力量击败一名身体更强的对手。", 7: "设计并验证一套可重复、可中止的原创巫术。", 6: "制作十二张不同领域卷轴并由不同使用者安全触发。", 5: "依据星象准确预告并处理一场地区级异常。", 4: "定义一个未知现象并让定义经受三方独立验证。", 3: "作出三次重大预言且不依赖强行干预使其实现。", 2: "建立一座能自行传承、纠错与保护使用者的知识库。", 1: "建立被多个超凡组织承认的知识秩序。", 0: "容纳唯一性与源质，让秘密与答案共同成为你的锚点。" },
+};
+
 export function materialsFor(pathwayId: PathwayId, targetRank: number): Material[] {
   if (targetRank === 8) return RANK_EIGHT_RECIPES[pathwayId].map((item) => ({ ...item }));
-  const pathway = PATHWAYS[pathwayId];
-  const target = pathway.sequences.find((item) => item.rank === targetRank) ?? pathway.sequences[pathway.sequences.length - 1];
-  return [
-    { id: `${pathwayId}-${targetRank}-main-a`, name: `${target.name}对应主材料·甲`, kind: "主材料", obtained: false, known: false, source: "需要获得完整配方后确认" },
-    { id: `${pathwayId}-${targetRank}-main-b`, name: `${target.name}对应主材料·乙`, kind: "主材料", obtained: false, known: false, source: "需要获得完整配方后确认" },
-    { id: `${pathwayId}-${targetRank}-aux`, name: `${target.name}辅助材料组`, kind: "辅助材料", obtained: false, known: false, source: "需要获得完整配方后确认" },
-  ];
+  const names = HIGHER_RECIPE_NAMES[pathwayId][targetRank] ?? HIGHER_RECIPE_NAMES[pathwayId][0];
+  return names.map((name, index) => ({ id: `${pathwayId}-${targetRank}-${index}`, name, kind: index < 2 ? "主材料" : targetRank <= 4 ? "仪式条件" : "辅助材料", obtained: false, known: false, source: targetRank <= 4 ? "高位势力、遗迹或历史偏转事件" : "完整配方、教会封存库或可靠非凡交易" }));
 }
 
 export const INITIAL_MEMBERS: Member[] = [
-  { id: "mara", name: "玛拉·维恩", role: "外勤调查员", specialty: "跟踪、街头关系与撤离", loyalty: 70, trust: 72, interest: 55, ideology: 84, fatigue: 8, status: "可安排", background: "东区长大，曾替一家律师事务所寻找失踪债务人。", core: "务实、保护弱者、厌恶没有撤退计划的英雄主义。", voice: "短句，先报告事实，再表达担忧。", arc: "正在判断这个组织是否值得长期托付。" },
-  { id: "cedric", name: "塞德里克·霍尔", role: "账房与掩护人", specialty: "账目、身份文件与工程管理", loyalty: 66, trust: 65, interest: 68, ideology: 66, fatigue: 12, status: "可安排", background: "破产商人的次子，熟悉银行、保险与合法身份的缝隙。", core: "秩序、可持续与体面；害怕组织因冲动一起毁掉。", voice: "礼貌而精确，习惯用成本和期限表达反对。", arc: "财务压力正在迫使他重新衡量忠诚与安全。" },
-  { id: "ines", name: "伊妮丝·科尔", role: "情报联络员", specialty: "报业、贵族传闻与关系维护", loyalty: 63, trust: 59, interest: 71, ideology: 58, fatigue: 6, status: "可安排", background: "曾为晚报整理社会版匿名来信，保留着一批不愿见光的消息源。", core: "好奇、谨慎、重视交换对等；不会无条件交出全部信息。", voice: "喜欢用旁人的故事暗示自己的判断。", arc: "她仍保留一条没有向组织登记的消息渠道。" },
-  { id: "rowan", name: "罗文·布莱克", role: "非凡顾问", pathway: "收尸人", sequence: 9, specialty: "灵体、死亡痕迹与尸检", loyalty: 65, trust: 67, interest: 52, ideology: 76, fatigue: 15, status: "可安排", background: "在教会外围做过尸体搬运，因一次未经许可的通灵离开。", core: "敬畏死亡、反感滥用灵体、愿意承担脏活。", voice: "低声、克制，很少使用比喻。", arc: "黑玻璃挂坠让他想起那次导致离职的通灵。" },
+  { id: "mara", name: "玛拉·维恩", role: "外勤调查员", specialty: "跟踪、街头关系与撤离", loyalty: 70, trust: 72, interest: 55, ideology: 84, fatigue: 8, status: "可安排", background: "东区长大，曾替一家律师事务所寻找失踪债务人。", core: "务实、保护弱者、厌恶没有撤退计划的英雄主义。", voice: "短句，先报告事实，再表达担忧。", arc: "正在判断这个组织是否值得长期托付。", secret: "她的弟弟正以假名出现在一份临时招工册上。", personalEvent: "玛拉认出了名单上的家族旧姓。", personalEventState: "dormant", relationshipStage: "正式成员" },
+  { id: "cedric", name: "塞德里克·霍尔", role: "账房与掩护人", specialty: "账目、身份文件与工程管理", loyalty: 66, trust: 65, interest: 68, ideology: 66, fatigue: 12, status: "可安排", background: "破产商人的次子，熟悉银行、保险与合法身份的缝隙。", core: "秩序、可持续与体面；害怕组织因冲动一起毁掉。", voice: "礼貌而精确，习惯用成本和期限表达反对。", arc: "财务压力正在迫使他重新衡量忠诚与安全。", secret: "父亲破产前替王室承包商做过一笔无法解释的账。", personalEvent: "一名旧债主带着封口条件找上门。", personalEventState: "dormant", relationshipStage: "正式成员" },
+  { id: "ines", name: "伊妮丝·科尔", role: "情报联络员", specialty: "报业、贵族传闻与关系维护", loyalty: 63, trust: 59, interest: 71, ideology: 58, fatigue: 6, status: "可安排", background: "曾为晚报整理社会版匿名来信，保留着一批不愿见光的消息源。", core: "好奇、谨慎、重视交换对等；不会无条件交出全部信息。", voice: "喜欢用旁人的故事暗示自己的判断。", arc: "她仍保留一条没有向组织登记的消息渠道。", secret: "她仍把少量无害情报卖给前主编。", personalEvent: "前主编要求她交换一份组织内部消息。", personalEventState: "dormant", relationshipStage: "正式成员" },
+  { id: "rowan", name: "罗文·布莱克", role: "非凡顾问", pathway: "收尸人", sequence: 9, specialty: "灵体、死亡痕迹与尸检", loyalty: 65, trust: 67, interest: 52, ideology: 76, fatigue: 15, status: "可安排", background: "在教会外围做过尸体搬运，因一次未经许可的通灵离开。", core: "敬畏死亡、反感滥用灵体、愿意承担脏活。", voice: "低声、克制，很少使用比喻。", arc: "黑玻璃挂坠让他想起那次导致离职的通灵。", secret: "那次通灵并非事故，他曾听见一位死者说出王室姓氏。", personalEvent: "挂坠在他值夜时叫出了他的名字。", personalEventState: "dormant", relationshipStage: "正式成员" },
+];
+
+export const FIXED_RECRUIT_POOL: Member[] = [
+  { id: "nora", name: "诺拉·贝尔", role: "南区诊所助手", specialty: "病例、急救与社区信任", loyalty: 34, trust: 28, interest: 52, ideology: 78, fatigue: 18, status: "尚未接触", background: "在慈善诊所登记无名病患，发现煤烟病历里夹杂无法解释的黑斑。", core: "温和但不退让，拒绝把穷人当作数字。", voice: "说话很慢，追问每一个代价由谁承担。", arc: "她会因组织是否救助平民决定去留。", secret: "她藏着一名受污染工人。", personalEvent: "诊所开始拒收东区转来的病患。", personalEventState: "dormant", relationshipStage: "接触" },
+  { id: "victor", name: "维克托·莱恩", role: "桥区掮客", specialty: "黑市价格、材料与假身份", loyalty: 25, trust: 20, interest: 82, ideology: 31, fatigue: 7, status: "尚未接触", background: "曾替海盗和收藏家转卖神秘材料，始终保持一条干净退路。", core: "利益优先，但极重契约。", voice: "先报价格，再说风险，最后才谈人情。", arc: "可能成为可靠线人，也可能在高价面前背叛。", secret: "他替魔女教派运过一次密封箱。", personalEvent: "一批材料的真正买家要求他交出客户名单。", personalEventState: "dormant", relationshipStage: "接触" },
+  { id: "elsa", name: "艾尔莎·莫恩", role: "霍伊大学研究助理", specialty: "语言、古文献与仪式考据", loyalty: 30, trust: 24, interest: 70, ideology: 61, fatigue: 11, status: "尚未接触", background: "研究第四纪民俗，论文因触及敏感史料被导师撤下。", core: "求知欲强，害怕知识被权力封锁。", voice: "引用文献后才给出个人判断。", arc: "必须学会知识的边界不是胆怯。", secret: "她抄走了一页教会封存目录。", personalEvent: "大学档案员发现目录页码不连续。", personalEventState: "dormant", relationshipStage: "接触" },
+  { id: "gareth", name: "加雷斯·科恩", role: "退役警探", specialty: "审讯、治安档案与警方关系", loyalty: 38, trust: 32, interest: 48, ideology: 69, fatigue: 22, status: "尚未接触", background: "因坚持调查一宗被结案的工人失踪案而提前退职。", core: "固执，信程序，但不再迷信程序。", voice: "把每句话都当作口供核对。", arc: "要决定是重新相信组织，还是独自追查到底。", secret: "他保留着一份被警方销毁的副卷。", personalEvent: "原同僚警告他停止接触东区案件。", personalEventState: "dormant", relationshipStage: "接触" },
+  { id: "sylvie", name: "西尔维·兰德", role: "贵族侍女", specialty: "上流日程、仆役网络与礼仪", loyalty: 29, trust: 18, interest: 63, ideology: 55, fatigue: 10, status: "尚未接触", background: "在皇后区几座宅邸轮换服务，知道主人不愿让客人看见哪些门。", core: "克制、敏锐，首先保护自己的家人。", voice: "从不直说姓名，只描述位置与习惯。", arc: "安全得到保障后才可能成为长期线人。", secret: "她见过一位不会在镜中留下影像的贵客。", personalEvent: "雇主准备把她调往一处封闭庄园。", personalEventState: "dormant", relationshipStage: "接触" },
+  { id: "ollie", name: "奥利·芬恩", role: "码头领航员", specialty: "船运、走私路线与海上传闻", loyalty: 33, trust: 30, interest: 58, ideology: 50, fatigue: 16, status: "尚未接触", background: "领过五海商船入港，能从吃水线判断货单是否说谎。", core: "迷信但诚实，不把船员留在危险货舱。", voice: "用潮汐和风向比喻局势。", arc: "需要面对一艘本应沉没却重新入港的旧船。", secret: "他曾把一件会低语的货物抛入河中。", personalEvent: "旧船的船主带着新货单重新出现。", personalEventState: "dormant", relationshipStage: "接触" },
+  { id: "edith", name: "伊迪丝·格兰特", role: "蒸汽技师", pathway: "通识者", sequence: 9, specialty: "机械、煤气管网与事故分析", loyalty: 27, trust: 22, interest: 77, ideology: 57, fatigue: 14, status: "尚未接触", background: "在煤气公司检修设备，发现数条管线被秘密改道。", core: "只信可重复验证的结果。", voice: "先画结构，再解释推论。", arc: "她必须承认有些异常无法只靠机械解释。", secret: "她私藏了被命令销毁的管网蓝图。", personalEvent: "机械之心开始调查图纸泄露。", personalEventState: "dormant", relationshipStage: "接触" },
+  { id: "asher", name: "阿舍尔·韦德", role: "流亡神秘学者", specialty: "仪式语言、反占卜与源堡残梦", loyalty: 20, trust: 16, interest: 66, ideology: 42, fatigue: 24, status: "尚未接触", background: "自称从海外遗迹归来，偶尔使用不属于这个时代的措辞。", core: "表面玩世不恭，实际极怕再次失去自己的名字。", voice: "会在严肃话题里插入陌生时代的比喻。", arc: "可能承认自己也是从源堡苏醒的过去之人。", secret: "他是另一名从源堡苏醒的穿越者，但不知道完整原著真相。", personalEvent: "一段灰雾梦境正在把他引向组织负责人。", personalEventState: "dormant", relationshipStage: "接触" },
 ];
 
 export const INITIAL_FACILITIES: Facility[] = [
@@ -493,6 +622,16 @@ export const INITIAL_EVIDENCE: EvidenceNode[] = [
   { id: "ev-carriage", caseId: "black-knock", label: "凌晨货运马车", kind: "记录", summary: "同一辆无牌马车每逢周四从东区驶向码头封闭仓库。", certainty: "可信证据", discovered: false, source: "等待追踪", tags: ["马车", "东区", "码头", "人口"] },
   { id: "ev-factory", caseId: "black-knock", label: "废弃纺织厂地下层", kind: "地点", summary: "厂房地面近期承受过大量人员与仪式材料的搬运。", certainty: "推断", discovered: false, source: "等待现场调查", tags: ["工厂", "东区", "人口", "仪式"] },
   { id: "ev-population", caseId: "great-smog", label: "异常人口流向", kind: "推断", summary: "失踪、临时招工与政府迁移记录正在指向同一批不可见人口。", certainty: "推断", discovered: false, source: "需要三个独立来源", tags: ["人口", "王室", "大雾霾", "阴谋"] },
+  { id: "ev-gas-map", caseId: "silent-pipeline", label: "被改道的煤气管网", kind: "记录", summary: "三条主管线绕开居民区，汇入没有公开用途的地下设施。", certainty: "推断", discovered: false, source: "煤气公司旧图与现场压力表", tags: ["煤气", "管网", "大雾霾"], expiresWeek: 19 },
+  { id: "ev-valve", caseId: "silent-pipeline", label: "非标准调压阀", kind: "物证", summary: "阀门能在同一时刻向多个街区释放超出民用标准的煤气。", certainty: "可信证据", discovered: false, source: "等待设备检修", tags: ["机械", "煤气", "工程"] },
+  { id: "ev-engineer-order", caseId: "silent-pipeline", label: "销毁蓝图的命令", kind: "记录", summary: "命令来自一家没有正式雇员的王室承包公司。", certainty: "可信证据", discovered: false, source: "伊迪丝保留的副本", tags: ["王室", "命令", "蓝图"] },
+  { id: "ev-mirror-guest", caseId: "mirror-guest", label: "镜中无影的贵客", kind: "证词", summary: "皇后区仆役称，一名固定访客从不在镜面留下正常倒影。", certainty: "传闻", discovered: false, source: "等待建立仆役线人", tags: ["贵族", "魔女", "镜子"] },
+  { id: "ev-perfume", caseId: "mirror-guest", label: "灾祸气息的香水", kind: "物证", summary: "香水残留含有制造疾病与绝望象征的仪式材料。", certainty: "推断", discovered: false, source: "等待神秘鉴定", tags: ["魔女", "污染", "香水"] },
+  { id: "ev-banquet-list", caseId: "mirror-guest", label: "封闭晚宴名单", kind: "记录", summary: "名单把王室承包人、煤气工程师与数名假身份女性放在同一晚宴。", certainty: "可信证据", discovered: false, source: "皇后区仆役网络", tags: ["王室", "魔女", "工程"] },
+  { id: "ev-returned-ship", caseId: "drowned-ship", label: "本应沉没的旧船", kind: "异常", summary: "一艘已登记沉没的货轮换名入港，吃水线显示货量远高于货单。", certainty: "传闻", discovered: false, source: "码头领航员证词", tags: ["码头", "材料", "走私"] },
+  { id: "ev-sealed-cargo", caseId: "drowned-ship", label: "无报关密封箱", kind: "物证", summary: "箱体残留与黑玻璃挂坠相似的灵性频率，内部物质仍未知。", certainty: "推断", discovered: false, source: "等待远距离鉴定", tags: ["挂坠", "材料", "王室"] },
+  { id: "ev-victim-register", caseId: "great-smog", label: "潜在受害者登记册", kind: "记录", summary: "诊所病例、失踪档案和工棚名册能估算最先受灾的街区与人群。", certainty: "可信证据", discovered: false, source: "需要社区与警方资料交叉验证", tags: ["人口", "救援", "大雾霾"] },
+  { id: "ev-ritual-site", caseId: "great-smog", label: "核心仪式坐标", kind: "地点", summary: "人口、管网、密封货物与灾祸象征的交点构成核心仪式区域。", certainty: "推断", discovered: false, source: "需要四条调查链汇合", tags: ["仪式", "王室", "魔女", "大雾霾"] },
 ];
 
 export const INITIAL_EVIDENCE_LINKS: EvidenceLink[] = [
@@ -504,6 +643,18 @@ export const INITIAL_EVIDENCE_LINKS: EvidenceLink[] = [
   { id: "link-carriage-factory", from: "ev-carriage", to: "ev-factory", label: "固定停靠", discovered: false },
   { id: "link-factory-population", from: "ev-factory", to: "ev-population", label: "人员来源", discovered: false },
   { id: "link-ink-population", from: "ev-ink", to: "ev-population", label: "行政掩护", discovered: false },
+  { id: "link-pipeline-population", from: "ev-gas-map", to: "ev-population", label: "覆盖同一街区", discovered: false },
+  { id: "link-valve-map", from: "ev-valve", to: "ev-gas-map", label: "管网控制", discovered: false },
+  { id: "link-order-map", from: "ev-engineer-order", to: "ev-gas-map", label: "要求销毁", discovered: false },
+  { id: "link-mirror-perfume", from: "ev-mirror-guest", to: "ev-perfume", label: "住所残留", discovered: false },
+  { id: "link-banquet-perfume", from: "ev-banquet-list", to: "ev-perfume", label: "同场出现", discovered: false },
+  { id: "link-banquet-order", from: "ev-banquet-list", to: "ev-engineer-order", label: "承包人参加", discovered: false },
+  { id: "link-ship-cargo", from: "ev-returned-ship", to: "ev-sealed-cargo", label: "秘密装载", discovered: false },
+  { id: "link-cargo-locket", from: "ev-sealed-cargo", to: "ev-locket", label: "灵性频率相似", discovered: false },
+  { id: "link-victims-population", from: "ev-victim-register", to: "ev-population", label: "人员重合", discovered: false },
+  { id: "link-ritual-population", from: "ev-ritual-site", to: "ev-population", label: "核心燃料", discovered: false },
+  { id: "link-ritual-map", from: "ev-ritual-site", to: "ev-gas-map", label: "空间结构", discovered: false },
+  { id: "link-ritual-perfume", from: "ev-ritual-site", to: "ev-perfume", label: "灾祸象征", discovered: false },
 ];
 
 export const INITIAL_OPPORTUNITIES: Opportunity[] = [
@@ -512,6 +663,11 @@ export const INITIAL_OPPORTUNITIES: Opportunity[] = [
   { id: "op-follow-carriage", caseId: "black-knock", title: "追踪信使末路", description: "沿车夫、路口和夜间货运记录寻找送件者离开后的路线。", districtId: "bridge", risk: "中", requirements: ["ev-missing-courier"], suggestedIntent: "从街口车夫开始追踪失踪信使，核对路口、夜间马车和货运站记录，并预设两条撤离路线。", rewardPreview: "定位凌晨货运马车", state: "available" },
   { id: "op-inspect-factory", caseId: "black-knock", title: "进入废弃纺织厂", description: "确认失踪工人与地下空间的实际联系。", districtId: "east", risk: "高", requirements: ["ev-carriage", "ev-ink"], suggestedIntent: "在凌晨货运窗口潜入废弃纺织厂，只确认地下层用途、人员数量和撤离路线，不与未知非凡者正面冲突。", rewardPreview: "连接人口问题与秘密工程", state: "locked" },
   { id: "op-church-briefing", caseId: "great-smog", title: "向教会提交可核验简报", description: "以证据而非剧透争取一次非正式调查。", districtId: "north", risk: "中", requirements: ["ev-resonance", "ev-ink", "ev-carriage"], suggestedIntent: "整理挂坠共鸣、政府采购墨水与夜间货运三项证据，向可信教会人员申请非正式核验，不直接指控王室。", rewardPreview: "提高教会警觉，获得有限官方协助", state: "locked" },
+  { id: "op-gas-audit", caseId: "silent-pipeline", title: "夜查煤气调压站", description: "核对被改道管线的物理流向和统一控制能力。", districtId: "south", risk: "高", requirements: ["ev-gas-map"], suggestedIntent: "在夜间停机窗口检查南区调压站，只记录管线、阀门和压力变化，不启动未知设备；遇到机械之心或武装守卫立即求援。", rewardPreview: "确认大规模释放装置，并可能获得工程师证词", state: "locked" },
+  { id: "op-servant-network", caseId: "mirror-guest", title: "建立皇后区仆役线", description: "从日程、洗衣、香水和侧门记录验证无影贵客。", districtId: "empress", risk: "中", requirements: ["ev-mirror-guest"], suggestedIntent: "保护仆役身份的前提下核对无影贵客的到访日程、香水残留和晚宴名单，不追问其真实姓名。", rewardPreview: "打开魔女教派与王室社交链", state: "locked" },
+  { id: "op-board-ship", caseId: "drowned-ship", title: "检查重返港口的旧船", description: "在卸货前确认密封箱数量、去向与非凡风险。", districtId: "dock", risk: "高", requirements: ["ev-returned-ship"], suggestedIntent: "借领航员路线登上换名旧船，从吃水线、货单和灵性残留确认密封箱，不打开箱体并预留水路撤离。", rewardPreview: "截断一批仪式材料或追踪最终买家", state: "locked" },
+  { id: "op-build-rescue", caseId: "great-smog", title: "建立雾霾救援网", description: "根据潜在受害者登记册预置诊所、掩体、路线与联络员。", districtId: "east", risk: "中", requirements: ["ev-victim-register"], suggestedIntent: "依据病例和失踪档案，在东区与南区建立分散救援点、白名单撤离路线和煤气中毒处置物资，同时避免公开幕后推断。", rewardPreview: "终局显著降低平民伤亡，并提升成员凝聚力", state: "locked" },
+  { id: "op-ritual-core", caseId: "great-smog", title: "确认核心仪式坐标", description: "把人口、管网、货物与魔女活动连接为可执行的终局目标。", districtId: "east", risk: "致命", requirements: ["ev-population", "ev-gas-map", "ev-perfume", "ev-sealed-cargo"], suggestedIntent: "只用远距离调查和多源交叉验证确认核心仪式坐标，不进入核心区域；若遭遇天使级征兆，立即向盟友求援并撤退。", rewardPreview: "终局开放阻止与改变路线的关键优势", state: "locked" },
 ];
 
 export const INITIAL_FACTIONS: FactionState[] = [
@@ -537,7 +693,7 @@ export const INITIAL_TIMELINE: TimelineEvent[] = [
 
 export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
   return {
-    version: 6,
+    version: 7,
     week: 1,
     date: "1349年6月30日",
     pathwayId,
@@ -586,5 +742,26 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     worldMoves: [],
     economyHistory: [],
     organizationConditions: ["未获许可", "掩护业务稳定", "成员仍在观察负责人"],
+    cases: [
+      { id: "black-knock", title: "凌晨三点的敲门声", premise: "异常挂坠、失踪信使与补写名单是组织收到的第一条主动线索。", stakes: "据点暴露、失踪人口与一条通往更大阴谋的入口。", state: "active", pressure: 64, discoveredCount: 3, totalCount: 7 },
+      { id: "silent-pipeline", title: "沉默的煤气管线", premise: "煤气公司内部有人试图销毁一份被改道的城市管网图。", stakes: "大规模释放装置与王室工程的物理基础。", state: "dormant", pressure: 28, discoveredCount: 0, totalCount: 3 },
+      { id: "mirror-guest", title: "镜中没有客人", premise: "皇后区的仆役网络流传着一位不留下正常倒影的访客。", stakes: "魔女教派与王室社交链。", state: "dormant", pressure: 22, discoveredCount: 0, totalCount: 3 },
+      { id: "drowned-ship", title: "沉船重新入港", premise: "一艘已经登记沉没的货轮换名回到贝克兰德。", stakes: "终局仪式材料、走私链与非凡污染。", state: "dormant", pressure: 19, discoveredCount: 0, totalCount: 2 },
+      { id: "great-smog", title: "不可见的人口", premise: "数条相互独立的异常正在城市底层汇聚。", stakes: "贝克兰德大雾霾及其数万名潜在受害者。", state: "dormant", pressure: 12, discoveredCount: 0, totalCount: 3 },
+    ],
+    pivots: [],
+    canonActors: [
+      { id: "klein", name: "克莱恩·莫雷蒂", publicIdentity: "廷根毕业生", location: "廷根", agenda: "活下去，并理解自己为何苏醒。", state: "刚从死亡中醒来，尚未进入贝克兰德视野。", awareness: "未知", recruitable: false, lastMove: "在远方整理原主留下的痕迹。" },
+      { id: "dunn", name: "邓恩·史密斯", publicIdentity: "廷根值夜者队长", location: "廷根", agenda: "保护队员与廷根的神秘秩序。", state: "正在处理一宗与安提哥努斯家族笔记有关的案件。", awareness: "未知", recruitable: false, lastMove: "把一名新成员纳入观察。" },
+      { id: "audrey", name: "奥黛丽·霍尔", publicIdentity: "贵族小姐", location: "贝克兰德·皇后区", agenda: "接触神秘世界，同时维持家族与自身安全。", state: "尚未与玩家组织发生直接联系。", awareness: "未知", recruitable: false, lastMove: "在社交季里寻找一条不惊动家人的神秘学渠道。" },
+      { id: "azik", name: "阿兹克·艾格斯", publicIdentity: "历史系教员", location: "廷根", agenda: "寻找失落的过去。", state: "记忆仍不完整。", awareness: "未知", recruitable: false, lastMove: "留意一名学生身上不协调的命运痕迹。" },
+    ],
+    fatalSituation: null,
+    playerCondition: { health: 100, pollution: 3, injuries: [], alive: true },
+    ending: { phase: "running", sandboxUnlocked: false },
+    recruitPool: FIXED_RECRUIT_POOL.map((item) => ({ ...item })),
+    organizationProfile: { headquartersDistrictId: "cherwood", legalStatus: "未获许可", satellites: [], formerOrganizations: [] },
+    ritualReadiness: 0,
+    instability: 4,
   };
 }

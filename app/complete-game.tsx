@@ -9,18 +9,19 @@ import {
   UsersRound, WandSparkles, X, Zap,
 } from "lucide-react";
 import {
-  ActionContract, ChronicleChapter, createInitialGame, DISTRICTS, Facility, GameState, PATHWAYS,
+  ActionContract, ADVANCEMENT_RITUALS, ChronicleChapter, createInitialGame, DISTRICTS, Facility, GameState, PATHWAYS,
   PathwayId, PlayerIntent, RiskLevel, ViewId,
 } from "./game-model";
 import {
-  advanceSequence, AiConfig, availableAbilities, callModel, canAdvance, generateLiteraryChapter,
-  interpretIntentWithAi, localContract, resolveWeek, scheduleContract,
+  advanceSequence, AiConfig, availableAbilities, callModel, canAdvance, generateAiWorldDelta, generateLiteraryChapter,
+  connectEvidence, enterSandbox, interpretIntentWithAi, localContract, resolveFatalSituation, resolveFinale,
+  resolveWeek, scheduleContract, transformOrganization,
 } from "./game-engine";
 import InvestigationBoard from "./investigation-board";
 import OrganizationOperations from "./organization-operations";
 
-const SAVE_KEY = "mist-chronicle-complete-v6";
-const LEGACY_SAVE_KEY = "mist-chronicle-complete-v5";
+const SAVE_KEY = "mist-chronicle-complete-v7";
+const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
 const AI_KEY = "mist-chronicle-save-v3-ai";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
@@ -31,6 +32,7 @@ const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Command }[] = [
   { id: "organization", label: "组织", icon: Building2 },
   { id: "progression", label: "晋升", icon: WandSparkles },
   { id: "archive", label: "纪事", icon: Archive },
+  { id: "ending", label: "结局", icon: CloudFog },
 ];
 
 function riskClass(risk: RiskLevel) { return risk === "致命" ? "fatal" : risk === "高" ? "high" : risk === "中" ? "medium" : "low"; }
@@ -79,15 +81,15 @@ export default function CompleteGame() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const saved = window.localStorage.getItem(SAVE_KEY);
-      const legacySaved = window.localStorage.getItem(LEGACY_SAVE_KEY);
+      const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
-        try { const value = JSON.parse(saved) as GameState; if (value.version === 6) setGame(value); }
+        try { const value = JSON.parse(saved) as GameState; if (value.version === 7) setGame(value); }
         catch { window.localStorage.removeItem(SAVE_KEY); }
       } else if (legacySaved) {
         try {
           const legacy = JSON.parse(legacySaved) as Partial<GameState>;
-          if (legacy.version === 5 && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));
+          if ([5, 6].includes(legacy.version ?? 0) && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));
         } catch { /* 旧存档只用于读取纪事，损坏时不影响新游戏。 */ }
       }
       if (savedAi) {
@@ -151,16 +153,38 @@ export default function CompleteGame() {
 
   async function endWeek() {
     if (generationStage) return;
+    if (game.fatalSituation || game.ending.phase === "finale" || game.ending.phase === "ended") return;
     const resolved = resolveWeek(game);
     setGame(resolved.state); setTurnChapter(resolved.chapter); setView("investigation"); setGenerationError("");
     if (!aiReady || !resolved.chapter.results.length) return;
     try {
       const literary = await generateLiteraryChapter({ endpoint, apiKey, model }, resolved.state, resolved.chapter, setGenerationStage);
       setTurnChapter(literary);
-      setGame((current) => ({ ...current, chronicle: current.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) }));
+      const narratedState = { ...resolved.state, chronicle: resolved.state.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) };
+      const simulatedState = await generateAiWorldDelta({ endpoint, apiKey, model }, narratedState, literary, setGenerationStage);
+      setGame((current) => ({ ...current, factions: simulatedState.factions, canonActors: simulatedState.canonActors, missions: simulatedState.missions, worldMoves: simulatedState.worldMoves, chronicle: current.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) }));
     } catch (error) {
       setGenerationError(`${error instanceof Error ? error.message : "文学模式失败"}；本地事实章节已保留。`);
     } finally { setGenerationStage(""); }
+  }
+
+  function chooseFatal(choice: "retreat" | "help" | "continue") {
+    const next = resolveFatalSituation(game, choice);
+    setGame(next);
+    if (!next.playerCondition.alive) { setTurnChapter(null); setView("ending"); }
+    setToast(next.playerCondition.alive ? "致命处境已由规则引擎完成最终检定" : "负责人死亡，本局结束");
+  }
+
+  function chooseFinale(route: "阻止" | "利用" | "改变" | "逃离") {
+    setGame((current) => resolveFinale(current, route));
+    setTurnChapter(null);
+    setView("ending");
+  }
+
+  function applyOrganizationChange(action: "rename" | "move" | "legalize" | "satellite" | "split" | "merge" | "rebuild", value: string) {
+    const next = transformOrganization(game, action, value);
+    if (next === game) { setToast(action === "legalize" ? "合法化需要官方或教会信任35、组织影响25" : action === "merge" ? "合并需要至少一个信任55的盟友" : "资金、目标或组织条件尚不满足"); return; }
+    setGame(next); setToast("组织形态已改变；成员、资金、据点与关系按规则重新结算");
   }
 
   function applySuggestion(text: string, districtId = selectedDistrictId) { setIntentText(text); setSelectedDistrictId(districtId); setView("intent"); window.scrollTo({ top: 0, behavior: "smooth" }); }
@@ -231,7 +255,7 @@ export default function CompleteGame() {
     </header>
 
     <nav className={`complete-sidebar ${showMobileNav ? "open" : ""}`} aria-label="游戏主导航">
-      {NAV_ITEMS.map((item) => { const Icon = item.icon; const badge = item.id === "progression" ? game.currentSequence : item.id === "investigation" ? game.opportunities.filter((opportunity) => opportunity.state === "available").length : null; return <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setShowMobileNav(false); }}><Icon size={18} /><span>{item.label}</span>{badge !== null && <i>{badge}</i>}</button>; })}
+      {NAV_ITEMS.filter((item) => item.id !== "ending" || game.ending.phase !== "running").map((item) => { const Icon = item.icon; const badge = item.id === "progression" ? game.currentSequence : item.id === "investigation" ? game.opportunities.filter((opportunity) => opportunity.state === "available").length : null; return <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setShowMobileNav(false); }}><Icon size={18} /><span>{item.label}</span>{badge !== null && <i>{badge}</i>}</button>; })}
       <div className="sidebar-spacer" />
       <button onClick={() => setShowSettings(true)}><Settings size={18} /><span>设置</span></button>
     </nav>
@@ -265,7 +289,7 @@ export default function CompleteGame() {
             <header className="section-heading"><span><CalendarDays size={15} /><strong>本周日程</strong></span><small>人员和设施可以并行，但同一资源不能重叠占用</small></header>
             <div className="calendar-strip">{DAY_NAMES.map((day, index) => <div key={day}><span>{day}</span>{game.schedule.filter((action) => index + 1 >= action.startDay && index + 1 < action.startDay + action.days).map((action) => <i key={action.id} className={riskClass(action.risk)} title={action.title} />)}</div>)}</div>
             <div className="schedule-list">{game.schedule.length ? game.schedule.map((action) => <article key={action.id}><span className={`schedule-risk ${riskClass(action.risk)}`}>{action.risk}</span><div><strong>{action.title}{action.focus && <em>重点叙事</em>}</strong><p>{memberName(game, action.leaderId)} · {DAY_NAMES[action.startDay - 1]}起 · {action.days}天 · £{action.budget}</p></div><button onClick={() => removeAction(action.id)} aria-label="移除计划"><X size={15} /></button></article>) : <div className="empty-state"><CalendarDays size={22} /><p>本周还没有正式行动。你可以自由安排，也可以让组织保持低调。</p></div>}</div>
-            <footer><span>预计周末维护费 £16</span><button className="complete-primary compact" onClick={() => void endWeek()} disabled={Boolean(generationStage)}><span>{generationStage || "结束本周并结算"}</span><ArrowRight size={16} /></button></footer>
+            <footer><span>生命 {game.playerCondition.health} · 污染 {game.playerCondition.pollution} · 预计周末维护费 £16</span><button className="complete-primary compact" onClick={() => void endWeek()} disabled={Boolean(generationStage) || Boolean(game.fatalSituation) || game.ending.phase === "finale" || game.ending.phase === "ended"}><span>{generationStage || (game.fatalSituation ? "先处理致命处境" : game.ending.phase === "finale" ? "进入终局决断" : game.ending.phase === "sandbox" ? "推进沙盒世界一周" : "结束本周并结算")}</span><ArrowRight size={16} /></button></footer>
           </article>
         </section>
 
@@ -277,7 +301,7 @@ export default function CompleteGame() {
         </aside>
       </div>}
 
-      {view === "investigation" && <InvestigationBoard game={game} onUseOpportunity={(opportunity) => { setIntentText(opportunity.suggestedIntent); setSelectedDistrictId(opportunity.districtId); setView("intent"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
+      {view === "investigation" && <InvestigationBoard game={game} onConnectEvidence={(from, to, label) => setGame((current) => connectEvidence(current, from, to, label))} onUseOpportunity={(opportunity) => { setIntentText(opportunity.suggestedIntent); setSelectedDistrictId(opportunity.districtId); setView("intent"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
 
       {view === "city" && <div className="city-page page-enter">
         <header className="page-title row"><div><p>贝克兰德 · 城市情报图</p><h1>地图提供线索，但不替你决定道路</h1><span>点击任何区域查看背景。你也可以忽略所有提示，直接回到意图工作台调查其他目标。</span></div><button className="complete-secondary" onClick={() => setView("intent")}><Command size={15} />自由输入意图</button></header>
@@ -287,7 +311,7 @@ export default function CompleteGame() {
 
       {view === "organization" && <div className="organization-page page-enter">
         <header className="page-title row"><div><p>地点 · 人员 · 制度</p><h1>{game.organizationName}</h1><span>{game.coverIdentity}</span></div><button className="complete-primary compact" onClick={() => applySuggestion("把空置后室改造成一间隐蔽的炼金实验室，优先隔绝气味与灵性波动。", "cherwood")}><Hammer size={15} />提出建设方案</button></header>
-        <OrganizationOperations game={game} />
+        <OrganizationOperations game={game} onTransform={applyOrganizationChange} onMemberEvent={(memberId) => { const member = game.members.find((item) => item.id === memberId); if (member) applySuggestion(`与${member.name}处理其个人事件：${member.personalEvent}。先听取诉求，再决定组织承担多少风险。`, "cherwood"); }} />
         <div className="organization-grid">
           <section className="hq-card complete-card"><header className="section-heading"><span><Building2 size={15} /><strong>乔伍德主据点</strong></span><small>临街三层事务所 · 地下一层</small></header><div className="floor-plan">{game.facilities.map((facility) => <button key={facility.id} className={`room room-${facility.id} ${facility.status === "闲置" ? "idle" : ""}`} onClick={() => setSelectedFacility(facility)}><span>{facility.name}</span><small>{facility.type} · Lv.{facility.level}</small>{facility.assignedMemberId && <i>{game.members.find((member) => member.id === facility.assignedMemberId)?.name.slice(0, 1)}</i>}</button>)}</div><footer><span><ShieldAlert size={13} />据点风险</span><p>固定出入规律与连续仪式正在积累可观察痕迹。扩张前应建设外围安全屋。</p></footer></section>
           <aside className="organization-side">
@@ -297,6 +321,7 @@ export default function CompleteGame() {
         </div>
         <section className="departments complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>部门授权</strong></span><small>扩大自主权提高效率，也会增加隐瞒与派系风险</small></header><div>{game.departments.map((department) => <article key={department.id}><header><span>{department.name}</span><b>{department.status}</b></header><p>{department.mandate}</p><label><span>自主权 {department.autonomy}%</span><input type="range" min="0" max="100" value={department.autonomy} onChange={(event) => setGame((current) => ({ ...current, departments: current.departments.map((item) => item.id === department.id ? { ...item, autonomy: Number(event.target.value) } : item) }))} /></label><footer><span>负责人：{game.members.find((member) => member.id === department.leadMemberId)?.name}</span><span>预算 £{department.budget}/周</span></footer></article>)}</div></section>
         <section className="roster complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>核心成员</strong></span><small>成员有自己的晋升意志、疲劳与忠诚</small></header><div>{game.members.map((member) => <article key={member.id}><div className="member-monogram">{member.name.slice(0, 1)}</div><h3>{member.name}</h3><p>{member.role}{member.pathway ? ` · 序列${member.sequence} ${member.pathway}` : " · 普通人"}</p><dl><div><dt>专长</dt><dd>{member.specialty}</dd></div><div><dt>忠诚</dt><dd>{member.loyalty}</dd></div><div><dt>疲劳</dt><dd>{member.fatigue}</dd></div></dl><button onClick={() => openMemberChat(member.id)}>档案与自由对话 <ChevronRight size={13} /></button></article>)}</div></section>
+        <section className="recruit-pool complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>固定人物池与关系阶梯</strong></span><small>接触 → 临时合作 → 长期盟友或线人 → 正式成员</small></header><div>{game.recruitPool.map((member) => <article key={member.id}><header><div className="member-monogram">{member.name.slice(0, 1)}</div><span><strong>{member.name}</strong><small>{member.role}</small></span><b>{member.relationshipStage}</b></header><p>{member.background}</p><footer><span>{member.specialty}</span><button onClick={() => applySuggestion(`与${member.name}推进关系。先回应其当前关切并提供可验证的合作条件，不强迫其加入组织。`, member.id === "sylvie" ? "empress" : member.id === "ollie" ? "dock" : member.id === "elsa" ? "north" : member.id === "nora" ? "south" : "bridge")}>安排接触 <ArrowRight size={13} /></button></footer></article>)}</div></section>
       </div>}
 
       {view === "progression" && <div className="progression-page page-enter">
@@ -314,6 +339,8 @@ export default function CompleteGame() {
             {nextSequence ? <>
               <div className="advancement-meter"><div><span>魔药消化</span><strong>{game.digestion}%</strong></div><span><i style={{ width: `${game.digestion}%` }} /></span><p>{currentSequence.acting}</p></div>
               <div className="advancement-meter"><div><span>配方知识</span><strong>{game.formulaKnowledge}%</strong></div><span><i style={{ width: `${game.formulaKnowledge}%` }} /></span><p>{game.formulaKnowledge >= 100 ? "完整配方已核验，材料清单可以用于行动契约。" : "需要研究、交易或从其他势力获取更多配方知识。"}</p></div>
+              <div className="advancement-meter"><div><span>仪式准备</span><strong>{game.ritualReadiness}%</strong></div><span><i style={{ width: `${game.ritualReadiness}%` }} /></span><p>{ADVANCEMENT_RITUALS[game.pathwayId][nextSequence.rank]}</p><button className="ritual-plan" onClick={() => applySuggestion(`为晋升序列${nextSequence.rank}·${nextSequence.name}准备并执行仪式：${ADVANCEMENT_RITUALS[game.pathwayId][nextSequence.rank]}。先拆分条件、验证安全措施，不在条件不足时服食魔药。`, "cherwood")}>把仪式写入自由行动</button></div>
+              <div className={`instability-strip ${game.instability >= 55 ? "danger" : ""}`}><span>失控风险</span><strong>{game.instability}/100</strong><small>{game.instability >= 70 ? "当前禁止晋升：先处理污染、锚点或精神状态。" : "晋升和高位能力会提高风险，休整与成员关系可提供锚点。"}</small></div>
               <div className="material-list"><header><span>晋升材料</span><small>{game.materials.filter((item) => item.obtained).length}/{game.materials.length}</small></header>{game.materials.map((material) => <button key={material.id} onClick={() => !material.obtained && applySuggestion(`寻找并取得${material.known ? material.name : `序列${nextSequence.rank}配方中缺失的${material.kind}`}。先验证真伪，不接受来源不明的替代品。`, material.source.includes("码头") ? "dock" : material.source.includes("北区") || material.source.includes("大学") ? "north" : "bridge")} disabled={material.obtained}><span className={material.obtained ? "done" : material.known ? "known" : "unknown"}>{material.obtained ? <Check size={13} /> : material.known ? <Search size={13} /> : <LockKeyhole size={13} />}</span><div><strong>{material.known ? material.name : "尚未确认的材料"}</strong><small>{material.kind} · {material.obtained ? "已入库" : material.source}</small></div><ChevronRight size={13} /></button>)}</div>
               <button className="complete-primary advance-button" onClick={attemptAdvance} disabled={!canAdvance(game)}>{canAdvance(game) ? <><Sparkles size={16} />举行晋升</> : "尚未满足晋升条件"}</button>
             </> : <p className="sequence-apex">你已经抵达这条途径的序列顶点。此后的问题不再是材料，而是锚点、权柄与世界的回应。</p>}
@@ -321,11 +348,23 @@ export default function CompleteGame() {
         </div>
       </div>}
 
+      {view === "ending" && <div className="ending-page page-enter">
+        <header className="ending-hero"><CloudFog size={28} /><p>本局结算</p><h1>{game.ending.title ?? "终局尚未完成"}</h1><span>{game.ending.route ? `你的选择：${game.ending.route}` : "负责人的故事在这里停止。"}</span></header>
+        {game.ending.epilogue && <article className="ending-prose complete-card">{game.ending.epilogue.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</article>}
+        {game.ending.grades && <section className="ending-grades">{Object.entries({ organization: "组织存续", members: "成员命运", advancement: "非凡晋升", relations: "势力关系", history: "历史偏转" }).map(([key, label]) => <article className="complete-card" key={key}><small>{label}</small><strong>{game.ending.grades![key as keyof typeof game.ending.grades]}</strong></article>)}</section>}
+        <div className="ending-actions"><button onClick={() => setView("archive")}><BookOpen size={15} />重读整局纪事</button>{game.ending.sandboxUnlocked && game.ending.phase !== "sandbox" && <button className="complete-primary" onClick={() => { setGame((current) => enterSandbox(current)); setView("intent"); }}><GitBranch size={15} />进入无限沙盒</button>}{game.ending.phase === "sandbox" && <button className="complete-primary" onClick={() => setView("intent")}><Command size={15} />继续书写偏转世界</button>}</div>
+      </div>}
+
       {view === "archive" && <div className="archive-page page-enter">
         <header className="page-title"><p>权威世界账本</p><h1>事实、资产与正式纪事</h1><span>每周小说总结都会永久保存在这里。点击任意章节即可反复阅读；小说不能反向覆盖已经结算的事实。</span></header>
         <div className="archive-grid"><section className="chronicle-index complete-card"><header className="section-heading"><span><BookOpen size={15} /><strong>每周小说纪事</strong></span><small>{game.chronicle.length}章 · 可反复阅读</small></header>{game.chronicle.length ? game.chronicle.map((chapter, index) => <button key={chapter.id} className={index === 0 ? "latest" : ""} onClick={() => setSelectedChapter(chapter)} aria-label={`重读第${chapter.week}周：${chapter.title}`}><span>W{String(chapter.week).padStart(2, "0")}</span><div><strong>{chapter.title}</strong><small>{chapter.date} · {chapter.source === "ai" ? "文学模式" : "本地事实版"}</small></div><b>{index === 0 ? "最新" : "重读"}</b><ChevronRight size={14} /></button>) : <div className="empty-state"><BookOpen size={24} /><p>结束第一周后，每周小说总结都会永久保存到这里。</p></div>}</section><section className="fact-ledger complete-card"><header className="section-heading"><span><FileKey size={15} /><strong>世界事实</strong></span><small>{game.facts.length}条</small></header>{game.facts.slice().reverse().map((fact) => <article key={fact.id}><b className={fact.certainty}>{fact.certainty}</b><div><strong>{fact.subject}</strong><p>{fact.statement}</p><small>{fact.source} · 第{fact.week}周</small></div></article>)}</section></div>
       </div>}
     </section>
+
+    {game.ending.phase === "finale" && <div className="complete-sheet-backdrop finale-backdrop"><section className="finale-sheet" role="dialog" aria-modal="true" aria-labelledby="finale-title"><header><small>第24周 · 原著级终局</small><h2 id="finale-title">贝克兰德大雾霾</h2><p>规则已经根据证据、盟友、组织状态与历史偏转锁定当前世界。请选择组织在这场事件中的立场；AI不能替你决定。</p></header><div className="finale-intel"><span>有效证据 <strong>{game.evidenceNodes.filter((item) => item.discovered && !item.compromised).length}</strong></span><span>历史偏转 <strong>{game.deviation.toFixed(1)}%</strong></span><span>盟友 <strong>{game.factions.filter((item) => item.trust >= 35).length}</strong></span><span>生命/污染 <strong>{game.playerCondition.health}/{game.playerCondition.pollution}</strong></span></div><div className="finale-routes">{([[
+      "阻止", "把证据与盟友集中到核心仪式，正面打断灾难。"], ["改变", "改变人口、煤气或材料的汇合，让灾难偏离原定形态。"], ["利用", "从崩解仪式中夺取资源与晋升机会，承担最高污染。"], ["逃离", "保存组织、证据与尽可能多的受害者名单，离开首都。"]] as const).map(([route, description]) => <button key={route} onClick={() => chooseFinale(route)}><strong>{route}</strong><p>{description}</p><ArrowRight size={15} /></button>)}</div></section></div>}
+
+    {game.fatalSituation && <div className="complete-sheet-backdrop fatal-backdrop"><section className="fatal-sheet" role="alertdialog" aria-modal="true" aria-labelledby="fatal-title"><header><ShieldAlert size={24} /><small>明确的高危局面</small><h2 id="fatal-title">{game.fatalSituation.title}</h2><p>{game.fatalSituation.threat}</p></header><div className="known-threats"><strong>目前已知</strong>{game.fatalSituation.knownThreats.map((threat) => <p key={threat}>{threat}</p>)}</div><div className="fatal-choices"><button onClick={() => chooseFatal("retreat")}><strong>立即撤退</strong><span>安全阈值 {game.fatalSituation.odds.retreat}%</span><small>放弃现场成果，优先保命。</small></button><button onClick={() => chooseFatal("help")}><strong>请求支援</strong><span>安全阈值 {game.fatalSituation.odds.help}%</span><small>消耗关系并暴露部分情报。</small></button><button className="continue" onClick={() => chooseFatal("continue")}><strong>继续深入</strong><span>安全阈值 {game.fatalSituation.odds.continue}%</span><small>可能获得更多成果；失败可导致死亡并结束本局。</small></button></div><footer>死亡只会在你选择后由最终检定产生；叙事模型无权越过这一步。</footer></section></div>}
 
     {contract && <div className="complete-sheet-backdrop" onMouseDown={() => setContract(null)}><section className="complete-sheet contract-sheet" role="dialog" aria-modal="true" aria-labelledby="contract-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>组织对命令的理解</p><h2 id="contract-title">{contract.title}</h2></div><button onClick={() => setContract(null)} aria-label="关闭"><X size={17} /></button></header>{generationError && <div className="inline-warning"><ShieldAlert size={14} />{generationError}</div>}<div className="contract-summary"><span className={`risk-chip ${riskClass(contract.risk)}`}>{contract.risk}风险</span><span><Clock3 size={12} />{contract.days}天</span><span><CircleDollarSign size={12} />£{contract.budget}</span><span><MapPin size={12} />{DISTRICTS.find((district) => district.id === contract.districtId)?.name}</span></div><div className="contract-fields">{editableContractField(contract, setContract, "desiredOutcome", "核心目标", true)}{editableContractField(contract, setContract, "approach", "执行方法", true)}{editableContractField(contract, setContract, "knownFacts", "角色已知事实")}{editableContractField(contract, setContract, "hypothesis", "玩家提出的假设")}{editableContractField(contract, setContract, "unknowns", "仍未知")}{editableContractField(contract, setContract, "redLines", "禁止事项")}{editableContractField(contract, setContract, "retreat", "撤退条件", true)}</div><label className="focus-toggle"><button className={contract.focus ? "on" : ""} onClick={() => setContract({ ...contract, focus: !contract.focus })}><i /></button><span><strong>本回合重点叙事</strong><small>{contract.focus ? "本周小说章节将以此为重点场景" : "这项行动将在次要报告中呈现"}</small></span></label><footer><button className="complete-secondary" onClick={() => setContract(null)}><ArrowLeft size={14} />返回修改意图</button><button className="complete-primary" onClick={confirmContract}><span>确认并排入日程</span><CalendarDays size={16} /></button></footer></section></div>}
 
