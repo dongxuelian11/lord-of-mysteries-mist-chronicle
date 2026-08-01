@@ -20,15 +20,18 @@ test("server-renders the complete free-intent game shell", async () => {
   assert.match(html, /当前主要压力/);
   assert.match(html, /本周日程/);
   assert.match(html, /游戏主导航/);
+  assert.match(html, /调查/);
   assert.match(html, /晋升/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
 test("implements the complete simulation systems and accessible Apple-style UI", async () => {
-  const [app, engine, model, css, layout] = await Promise.all([
+  const [app, engine, model, board, operations, css, layout] = await Promise.all([
     readFile(new URL("../app/complete-game.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game-engine.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/game-model.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/investigation-board.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/organization-operations.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/complete-game.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
   ]);
@@ -43,6 +46,8 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(app, /character-dialogue/);
   assert.match(app, /重新阅读完整章节/);
   assert.match(app, /每周小说总结都会永久保存/);
+  assert.match(app, /mist-chronicle-complete-v6/);
+  assert.match(app, /InvestigationBoard/);
   assert.match(app, /aria-label="游戏主导航"/);
   assert.match(engine, /interpretIntentWithAi/);
   assert.match(engine, /scheduleContract/);
@@ -50,20 +55,36 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /generateLiteraryChapter/);
   assert.doesNotMatch(engine, /chronicle: \[chapter, \.\.\.game\.chronicle\]\.slice/);
   assert.match(engine, /advanceSequence/);
+  assert.match(engine, /discoverEvidence/);
+  assert.match(engine, /refreshOpportunities/);
+  assert.match(engine, /factionTurn/);
+  assert.match(engine, /timelineAfterWeek/);
+  assert.match(engine, /organizationConditions/);
+  assert.match(engine, /abilityTagsFromText/);
   assert.match(model, /sequence[s]?:/i);
   assert.match(model, /const RANK_EIGHT_RECIPES/);
   assert.match(model, /INITIAL_FACILITIES/);
   assert.match(model, /PressureMission/);
+  assert.match(model, /EvidenceNode/);
+  assert.match(model, /FactionState/);
+  assert.match(model, /TimelineEvent/);
+  assert.match(model, /INITIAL_OPPORTUNITIES/);
   assert.match(model, /background:/);
   assert.match(model, /core:/);
   assert.match(model, /voice:/);
   assert.match(model, /arc:/);
+  assert.match(board, /新开放的可能性/);
+  assert.match(board, /世界没有等待你/);
+  assert.match(operations, /成员留下的理由/);
+  assert.match(operations, /下周基础结余/);
   assert.match(css, /cubic-bezier\(\.2,\.8,\.2,1\)/);
   assert.match(css, /prefers-reduced-motion:reduce/);
   assert.match(css, /:focus-visible/);
   assert.match(css, /character-dialogue/);
   assert.match(css, /Legibility pass/);
   assert.match(css, /latest-chronicle/);
+  assert.match(css, /investigation-grid/);
+  assert.match(css, /organization-operations/);
   assert.match(css, /@media\(max-width:760px\)/);
   assert.match(layout, /complete-game\.css/);
 });

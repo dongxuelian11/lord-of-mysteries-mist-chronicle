@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Archive, ArrowLeft, ArrowRight, BookOpen, Boxes, Building2, CalendarDays, Check, CheckCircle2,
   ChevronRight, CircleDollarSign, Clock3, CloudFog, Command, Eye, FileKey, FlaskConical,
-  Hammer, Landmark, Lightbulb, ListTodo, LockKeyhole, Map, MapPin, Menu, PackageSearch,
+  GitBranch, Hammer, Landmark, Lightbulb, ListTodo, LockKeyhole, Map, MapPin, Menu, PackageSearch,
   Plus, RotateCcw, Search, Send, Settings, ShieldAlert, Sparkles, Target, TrendingUp,
   UsersRound, WandSparkles, X, Zap,
 } from "lucide-react";
@@ -16,13 +16,16 @@ import {
   advanceSequence, AiConfig, availableAbilities, callModel, canAdvance, generateLiteraryChapter,
   interpretIntentWithAi, localContract, resolveWeek, scheduleContract,
 } from "./game-engine";
+import InvestigationBoard from "./investigation-board";
+import OrganizationOperations from "./organization-operations";
 
-const SAVE_KEY = "mist-chronicle-complete-v5";
+const SAVE_KEY = "mist-chronicle-complete-v6";
 const AI_KEY = "mist-chronicle-save-v3-ai";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Command }[] = [
   { id: "intent", label: "意图", icon: Command },
+  { id: "investigation", label: "调查", icon: GitBranch },
   { id: "city", label: "城市", icon: Map },
   { id: "organization", label: "组织", icon: Building2 },
   { id: "progression", label: "晋升", icon: WandSparkles },
@@ -77,7 +80,7 @@ export default function CompleteGame() {
       const saved = window.localStorage.getItem(SAVE_KEY);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
-        try { const value = JSON.parse(saved) as GameState; if (value.version === 5) setGame(value); }
+        try { const value = JSON.parse(saved) as GameState; if (value.version === 6) setGame(value); }
         catch { window.localStorage.removeItem(SAVE_KEY); }
       }
       if (savedAi) {
@@ -142,7 +145,7 @@ export default function CompleteGame() {
   async function endWeek() {
     if (generationStage) return;
     const resolved = resolveWeek(game);
-    setGame(resolved.state); setTurnChapter(resolved.chapter); setGenerationError("");
+    setGame(resolved.state); setTurnChapter(resolved.chapter); setView("investigation"); setGenerationError("");
     if (!aiReady || !resolved.chapter.results.length) return;
     try {
       const literary = await generateLiteraryChapter({ endpoint, apiKey, model }, resolved.state, resolved.chapter, setGenerationStage);
@@ -221,7 +224,7 @@ export default function CompleteGame() {
     </header>
 
     <nav className={`complete-sidebar ${showMobileNav ? "open" : ""}`} aria-label="游戏主导航">
-      {NAV_ITEMS.map((item) => { const Icon = item.icon; return <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setShowMobileNav(false); }}><Icon size={18} /><span>{item.label}</span>{item.id === "progression" && <i>{game.currentSequence}</i>}</button>; })}
+      {NAV_ITEMS.map((item) => { const Icon = item.icon; const badge = item.id === "progression" ? game.currentSequence : item.id === "investigation" ? game.opportunities.filter((opportunity) => opportunity.state === "available").length : null; return <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setShowMobileNav(false); }}><Icon size={18} /><span>{item.label}</span>{badge !== null && <i>{badge}</i>}</button>; })}
       <div className="sidebar-spacer" />
       <button onClick={() => setShowSettings(true)}><Settings size={18} /><span>设置</span></button>
     </nav>
@@ -267,6 +270,8 @@ export default function CompleteGame() {
         </aside>
       </div>}
 
+      {view === "investigation" && <InvestigationBoard game={game} onUseOpportunity={(opportunity) => { setIntentText(opportunity.suggestedIntent); setSelectedDistrictId(opportunity.districtId); setView("intent"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
+
       {view === "city" && <div className="city-page page-enter">
         <header className="page-title row"><div><p>贝克兰德 · 城市情报图</p><h1>地图提供线索，但不替你决定道路</h1><span>点击任何区域查看背景。你也可以忽略所有提示，直接回到意图工作台调查其他目标。</span></div><button className="complete-secondary" onClick={() => setView("intent")}><Command size={15} />自由输入意图</button></header>
         <section className="complete-city-map complete-card"><div className="map-veil" /><div className="map-river" />{DISTRICTS.map((district) => <button key={district.id} className={`complete-district ${district.size} ${district.danger >= 65 ? "danger" : ""} ${game.discoveredDistrictIds.includes(district.id) ? "known" : "unknown"}`} style={{ left: `${district.x}%`, top: `${district.y}%` }} onClick={() => setSelectedDistrictDetail(district.id)}><span>{district.name}</span><small>{district.subtitle}</small><i>{district.danger}</i></button>)}</section>
@@ -275,6 +280,7 @@ export default function CompleteGame() {
 
       {view === "organization" && <div className="organization-page page-enter">
         <header className="page-title row"><div><p>地点 · 人员 · 制度</p><h1>{game.organizationName}</h1><span>{game.coverIdentity}</span></div><button className="complete-primary compact" onClick={() => applySuggestion("把空置后室改造成一间隐蔽的炼金实验室，优先隔绝气味与灵性波动。", "cherwood")}><Hammer size={15} />提出建设方案</button></header>
+        <OrganizationOperations game={game} />
         <div className="organization-grid">
           <section className="hq-card complete-card"><header className="section-heading"><span><Building2 size={15} /><strong>乔伍德主据点</strong></span><small>临街三层事务所 · 地下一层</small></header><div className="floor-plan">{game.facilities.map((facility) => <button key={facility.id} className={`room room-${facility.id} ${facility.status === "闲置" ? "idle" : ""}`} onClick={() => setSelectedFacility(facility)}><span>{facility.name}</span><small>{facility.type} · Lv.{facility.level}</small>{facility.assignedMemberId && <i>{game.members.find((member) => member.id === facility.assignedMemberId)?.name.slice(0, 1)}</i>}</button>)}</div><footer><span><ShieldAlert size={13} />据点风险</span><p>固定出入规律与连续仪式正在积累可观察痕迹。扩张前应建设外围安全屋。</p></footer></section>
           <aside className="organization-side">

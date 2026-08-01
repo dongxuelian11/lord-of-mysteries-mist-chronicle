@@ -1,6 +1,7 @@
 export type PathwayId = "seer" | "spectator" | "apprentice" | "hunter" | "mystery";
-export type ViewId = "intent" | "city" | "organization" | "progression" | "archive";
+export type ViewId = "intent" | "investigation" | "city" | "organization" | "progression" | "archive";
 export type RiskLevel = "低" | "中" | "高" | "致命";
+export type EvidenceCertainty = "传闻" | "推断" | "可信证据" | "已确认";
 
 export type Ability = {
   id: string;
@@ -10,6 +11,7 @@ export type Ability = {
   cost: number;
   risk: string;
   passive?: boolean;
+  ruleTags?: string[];
 };
 
 export type Sequence = {
@@ -35,6 +37,9 @@ export type Member = {
   sequence?: number;
   specialty: string;
   loyalty: number;
+  trust?: number;
+  interest?: number;
+  ideology?: number;
   fatigue: number;
   status: string;
   background?: string;
@@ -88,6 +93,8 @@ export type Facility = {
   project?: string;
   progress?: number;
   benefits: string[];
+  verbs?: string[];
+  maintenance?: number;
   risk: string;
 };
 
@@ -99,6 +106,86 @@ export type Department = {
   autonomy: number;
   budget: number;
   status: string;
+  weeklyVerb?: string;
+};
+
+export type EvidenceNode = {
+  id: string;
+  caseId: string;
+  label: string;
+  kind: "人物" | "地点" | "物证" | "证词" | "记录" | "异常" | "推断";
+  summary: string;
+  certainty: EvidenceCertainty;
+  discovered: boolean;
+  source: string;
+  tags: string[];
+  weekDiscovered?: number;
+};
+
+export type EvidenceLink = {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+  discovered: boolean;
+};
+
+export type Opportunity = {
+  id: string;
+  caseId: string;
+  title: string;
+  description: string;
+  districtId: string;
+  risk: RiskLevel;
+  requirements: string[];
+  suggestedIntent: string;
+  rewardPreview: string;
+  state: "locked" | "available" | "resolved" | "expired";
+};
+
+export type FactionState = {
+  id: string;
+  name: string;
+  kind: "教会" | "密教" | "王室" | "官方" | "灰色势力";
+  publicGoal: string;
+  currentPlan: string;
+  trust: number;
+  interest: number;
+  suspicion: number;
+  leverage: number;
+  planProgress: number;
+  visibility: "未知" | "传闻" | "已接触" | "持续往来";
+  lastMove: string;
+};
+
+export type TimelineEvent = {
+  id: string;
+  title: string;
+  scheduledWeek: number;
+  kind: "历史锚点" | "可变事件" | "终局";
+  status: "upcoming" | "active" | "diverted" | "resolved";
+  summary: string;
+  revealed: boolean;
+  pressure: number;
+};
+
+export type EconomyLedger = {
+  week: number;
+  coverIncome: number;
+  contractIncome: number;
+  facilityCost: number;
+  departmentCost: number;
+  actionCost: number;
+  balance: number;
+};
+
+export type WorldMove = {
+  id: string;
+  factionId: string;
+  title: string;
+  detail: string;
+  week: number;
+  visibility: "迹象" | "获知" | "确认";
 };
 
 export type PressureMission = {
@@ -142,6 +229,8 @@ export type ActionContract = {
   redLines: string;
   retreat: string;
   focus: boolean;
+  opportunityId?: string;
+  methodTags?: string[];
 };
 
 export type ScheduledAction = ActionContract & { status: "planned" | "resolved"; startDay: number };
@@ -157,6 +246,10 @@ export type ActionResult = {
   digestionGain: number;
   missionProgress: number;
   resourceChanges: { money: number; secrecy: number; stability: number; influence: number };
+  reasons?: string[];
+  unlockedEvidenceIds?: string[];
+  unlockedOpportunityIds?: string[];
+  futureChanges?: string[];
 };
 
 export type ChronicleChapter = {
@@ -208,6 +301,14 @@ export type GameState = {
   facts: WorldFact[];
   chronicle: ChronicleChapter[];
   discoveredDistrictIds: string[];
+  evidenceNodes: EvidenceNode[];
+  evidenceLinks: EvidenceLink[];
+  opportunities: Opportunity[];
+  factions: FactionState[];
+  timeline: TimelineEvent[];
+  worldMoves: WorldMove[];
+  economyHistory: EconomyLedger[];
+  organizationConditions: string[];
 };
 
 const seq = (rank: number, name: string, capabilities: string[], acting: string): Sequence => ({ rank, name, capabilities, acting });
@@ -368,24 +469,75 @@ export function materialsFor(pathwayId: PathwayId, targetRank: number): Material
 }
 
 export const INITIAL_MEMBERS: Member[] = [
-  { id: "mara", name: "玛拉·维恩", role: "外勤调查员", specialty: "跟踪、街头关系与撤离", loyalty: 72, fatigue: 8, status: "可安排", background: "东区长大，曾替一家律师事务所寻找失踪债务人。", core: "务实、保护弱者、厌恶没有撤退计划的英雄主义。", voice: "短句，先报告事实，再表达担忧。", arc: "正在判断这个组织是否值得长期托付。" },
-  { id: "cedric", name: "塞德里克·霍尔", role: "账房与掩护人", specialty: "账目、身份文件与工程管理", loyalty: 65, fatigue: 12, status: "可安排", background: "破产商人的次子，熟悉银行、保险与合法身份的缝隙。", core: "秩序、可持续与体面；害怕组织因冲动一起毁掉。", voice: "礼貌而精确，习惯用成本和期限表达反对。", arc: "财务压力正在迫使他重新衡量忠诚与安全。" },
-  { id: "ines", name: "伊妮丝·科尔", role: "情报联络员", specialty: "报业、贵族传闻与关系维护", loyalty: 59, fatigue: 6, status: "可安排", background: "曾为晚报整理社会版匿名来信，保留着一批不愿见光的消息源。", core: "好奇、谨慎、重视交换对等；不会无条件交出全部信息。", voice: "喜欢用旁人的故事暗示自己的判断。", arc: "她仍保留一条没有向组织登记的消息渠道。" },
-  { id: "rowan", name: "罗文·布莱克", role: "非凡顾问", pathway: "收尸人", sequence: 9, specialty: "灵体、死亡痕迹与尸检", loyalty: 67, fatigue: 15, status: "可安排", background: "在教会外围做过尸体搬运，因一次未经许可的通灵离开。", core: "敬畏死亡、反感滥用灵体、愿意承担脏活。", voice: "低声、克制，很少使用比喻。", arc: "黑玻璃挂坠让他想起那次导致离职的通灵。" },
+  { id: "mara", name: "玛拉·维恩", role: "外勤调查员", specialty: "跟踪、街头关系与撤离", loyalty: 70, trust: 72, interest: 55, ideology: 84, fatigue: 8, status: "可安排", background: "东区长大，曾替一家律师事务所寻找失踪债务人。", core: "务实、保护弱者、厌恶没有撤退计划的英雄主义。", voice: "短句，先报告事实，再表达担忧。", arc: "正在判断这个组织是否值得长期托付。" },
+  { id: "cedric", name: "塞德里克·霍尔", role: "账房与掩护人", specialty: "账目、身份文件与工程管理", loyalty: 66, trust: 65, interest: 68, ideology: 66, fatigue: 12, status: "可安排", background: "破产商人的次子，熟悉银行、保险与合法身份的缝隙。", core: "秩序、可持续与体面；害怕组织因冲动一起毁掉。", voice: "礼貌而精确，习惯用成本和期限表达反对。", arc: "财务压力正在迫使他重新衡量忠诚与安全。" },
+  { id: "ines", name: "伊妮丝·科尔", role: "情报联络员", specialty: "报业、贵族传闻与关系维护", loyalty: 63, trust: 59, interest: 71, ideology: 58, fatigue: 6, status: "可安排", background: "曾为晚报整理社会版匿名来信，保留着一批不愿见光的消息源。", core: "好奇、谨慎、重视交换对等；不会无条件交出全部信息。", voice: "喜欢用旁人的故事暗示自己的判断。", arc: "她仍保留一条没有向组织登记的消息渠道。" },
+  { id: "rowan", name: "罗文·布莱克", role: "非凡顾问", pathway: "收尸人", sequence: 9, specialty: "灵体、死亡痕迹与尸检", loyalty: 65, trust: 67, interest: 52, ideology: 76, fatigue: 15, status: "可安排", background: "在教会外围做过尸体搬运，因一次未经许可的通灵离开。", core: "敬畏死亡、反感滥用灵体、愿意承担脏活。", voice: "低声、克制，很少使用比喻。", arc: "黑玻璃挂坠让他想起那次导致离职的通灵。" },
 ];
 
 export const INITIAL_FACILITIES: Facility[] = [
-  { id: "meeting", name: "密议室", type: "指挥", description: "隔音墙、城市地图和分离保存的行动档案。", level: 1, status: "运转中", assignedMemberId: "cedric", benefits: ["同时规划4项行动", "行动契约保密"], risk: "成员会议频繁时容易形成固定出入规律。" },
-  { id: "archive", name: "证据档案室", type: "情报", description: "保存证词、报纸剪报、配方抄本与世界事实。", level: 1, status: "运转中", assignedMemberId: "ines", benefits: ["交叉验证线索", "研究配方知识"], risk: "据点失守会暴露全部调查对象。" },
-  { id: "ritual", name: "简易仪式室", type: "神秘", description: "以盐线、铜钉和双层窗帘隔离的基础仪式空间。", level: 1, status: "运转中", assignedMemberId: "rowan", benefits: ["进行序列9仪式", "降低基础仪式污染"], risk: "连续使用会积累可被感知的灵性波动。" },
-  { id: "vault", name: "封印储藏间", type: "安全", description: "地下小室，能够短期保存低危材料和受污染物。", level: 1, status: "运转中", benefits: ["保存3件危险资产", "延缓材料失活"], risk: "缺少专职看守，无法容纳高危封印物。" },
-  { id: "workshop", name: "空置后室", type: "待建设", description: "可改造成炼金实验室、医疗室、训练场或自定义设施。", level: 0, status: "闲置", benefits: ["可启动自由建设项目"], risk: "当前没有产出。" },
-  { id: "quarters", name: "成员休息室", type: "生活", description: "四张床、储物柜与从不对外开启的后门。", level: 1, status: "运转中", benefits: ["缓解疲劳", "处理成员事件"], risk: "空间拥挤，组织扩大前必须寻找新据点。" },
+  { id: "meeting", name: "密议室", type: "指挥", description: "隔音墙、城市地图和分离保存的行动档案。", level: 1, status: "运转中", assignedMemberId: "cedric", benefits: ["同时规划4项行动", "行动契约保密"], verbs: ["协调并行行动", "召开紧急会议"], maintenance: 3, risk: "成员会议频繁时容易形成固定出入规律。" },
+  { id: "archive", name: "证据档案室", type: "情报", description: "保存证词、报纸剪报、配方抄本与世界事实。", level: 1, status: "运转中", assignedMemberId: "ines", benefits: ["交叉验证线索", "研究配方知识"], verbs: ["交叉验证证据", "逆向研究配方"], maintenance: 4, risk: "据点失守会暴露全部调查对象。" },
+  { id: "ritual", name: "简易仪式室", type: "神秘", description: "以盐线、铜钉和双层窗帘隔离的基础仪式空间。", level: 1, status: "运转中", assignedMemberId: "rowan", benefits: ["进行序列9仪式", "降低基础仪式污染"], verbs: ["隔离鉴定", "举行低序列仪式"], maintenance: 5, risk: "连续使用会积累可被感知的灵性波动。" },
+  { id: "vault", name: "封印储藏间", type: "安全", description: "地下小室，能够短期保存低危材料和受污染物。", level: 1, status: "运转中", benefits: ["保存3件危险资产", "延缓材料失活"], verbs: ["封存危险物", "切断低级联系"], maintenance: 4, risk: "缺少专职看守，无法容纳高危封印物。" },
+  { id: "workshop", name: "空置后室", type: "待建设", description: "可改造成炼金实验室、医疗室、训练场或自定义设施。", level: 0, status: "闲置", benefits: ["可启动自由建设项目"], verbs: ["启动模块建设"], maintenance: 0, risk: "当前没有产出。" },
+  { id: "quarters", name: "成员休息室", type: "生活", description: "四张床、储物柜与从不对外开启的后门。", level: 1, status: "运转中", benefits: ["缓解疲劳", "处理成员事件"], verbs: ["安排休养", "处理成员冲突"], maintenance: 3, risk: "空间拥挤，组织扩大前必须寻找新据点。" },
+];
+
+export const INITIAL_EVIDENCE: EvidenceNode[] = [
+  { id: "ev-locket", caseId: "black-knock", label: "黑玻璃挂坠", kind: "物证", summary: "雨夜送达据点，每晚三点传出敲门声。", certainty: "已确认", discovered: true, source: "据点共同记录", tags: ["挂坠", "异常", "灵性"] },
+  { id: "ev-worker-list", caseId: "black-knock", label: "补写的工人名单", kind: "记录", summary: "名单最后三行由不同墨水补写，三人都来自东区临时工棚。", certainty: "已确认", discovered: true, source: "伊妮丝初检", tags: ["名单", "工人", "东区"] },
+  { id: "ev-missing-courier", caseId: "black-knock", label: "失踪信使", kind: "人物", summary: "送件者离开事务所后没有回到雇佣马车。", certainty: "可信证据", discovered: true, source: "街口车夫证词", tags: ["信使", "马车", "失踪"] },
+  { id: "ev-resonance", caseId: "black-knock", label: "门径共鸣", kind: "异常", summary: "挂坠不是在发声，而是在与某个封闭空间建立周期性联系。", certainty: "推断", discovered: false, source: "等待灵性鉴定", tags: ["挂坠", "鉴定", "污染", "门"] },
+  { id: "ev-ink", caseId: "black-knock", label: "政府采购墨水", kind: "物证", summary: "补写名单的耐潮墨水只供应政府承包商和港务仓库。", certainty: "可信证据", discovered: false, source: "等待账目交叉验证", tags: ["名单", "墨水", "政府", "采购"] },
+  { id: "ev-carriage", caseId: "black-knock", label: "凌晨货运马车", kind: "记录", summary: "同一辆无牌马车每逢周四从东区驶向码头封闭仓库。", certainty: "可信证据", discovered: false, source: "等待追踪", tags: ["马车", "东区", "码头", "人口"] },
+  { id: "ev-factory", caseId: "black-knock", label: "废弃纺织厂地下层", kind: "地点", summary: "厂房地面近期承受过大量人员与仪式材料的搬运。", certainty: "推断", discovered: false, source: "等待现场调查", tags: ["工厂", "东区", "人口", "仪式"] },
+  { id: "ev-population", caseId: "great-smog", label: "异常人口流向", kind: "推断", summary: "失踪、临时招工与政府迁移记录正在指向同一批不可见人口。", certainty: "推断", discovered: false, source: "需要三个独立来源", tags: ["人口", "王室", "大雾霾", "阴谋"] },
+];
+
+export const INITIAL_EVIDENCE_LINKS: EvidenceLink[] = [
+  { id: "link-delivery", from: "ev-locket", to: "ev-missing-courier", label: "由其送达", discovered: true },
+  { id: "link-list-courier", from: "ev-worker-list", to: "ev-missing-courier", label: "同一封套", discovered: true },
+  { id: "link-locket-resonance", from: "ev-locket", to: "ev-resonance", label: "周期性联系", discovered: false },
+  { id: "link-list-ink", from: "ev-worker-list", to: "ev-ink", label: "补写墨水", discovered: false },
+  { id: "link-courier-carriage", from: "ev-missing-courier", to: "ev-carriage", label: "最后行踪", discovered: false },
+  { id: "link-carriage-factory", from: "ev-carriage", to: "ev-factory", label: "固定停靠", discovered: false },
+  { id: "link-factory-population", from: "ev-factory", to: "ev-population", label: "人员来源", discovered: false },
+  { id: "link-ink-population", from: "ev-ink", to: "ev-population", label: "行政掩护", discovered: false },
+];
+
+export const INITIAL_OPPORTUNITIES: Opportunity[] = [
+  { id: "op-identify-locket", caseId: "black-knock", title: "安全鉴定挂坠", description: "在隔离条件下确认敲门声的性质和联系方向。", districtId: "cherwood", risk: "中", requirements: ["ev-locket"], suggestedIntent: "在仪式室隔离黑玻璃挂坠，使用适合的非凡能力鉴定敲门声的性质；若出现未知注视立即切断联系。", rewardPreview: "确认异常机制，开放反向追踪或封闭仪式", state: "available" },
+  { id: "op-trace-ink", caseId: "black-knock", title: "追查名单墨水", description: "从公开采购和港务账目寻找补写者留下的行政痕迹。", districtId: "government", risk: "低", requirements: ["ev-worker-list"], suggestedIntent: "追查工人名单最后三行使用的墨水，从公开采购、印刷商和港务仓库三个来源交叉验证。", rewardPreview: "获得政府承包链证据", state: "available" },
+  { id: "op-follow-carriage", caseId: "black-knock", title: "追踪信使末路", description: "沿车夫、路口和夜间货运记录寻找送件者离开后的路线。", districtId: "bridge", risk: "中", requirements: ["ev-missing-courier"], suggestedIntent: "从街口车夫开始追踪失踪信使，核对路口、夜间马车和货运站记录，并预设两条撤离路线。", rewardPreview: "定位凌晨货运马车", state: "available" },
+  { id: "op-inspect-factory", caseId: "black-knock", title: "进入废弃纺织厂", description: "确认失踪工人与地下空间的实际联系。", districtId: "east", risk: "高", requirements: ["ev-carriage", "ev-ink"], suggestedIntent: "在凌晨货运窗口潜入废弃纺织厂，只确认地下层用途、人员数量和撤离路线，不与未知非凡者正面冲突。", rewardPreview: "连接人口问题与秘密工程", state: "locked" },
+  { id: "op-church-briefing", caseId: "great-smog", title: "向教会提交可核验简报", description: "以证据而非剧透争取一次非正式调查。", districtId: "north", risk: "中", requirements: ["ev-resonance", "ev-ink", "ev-carriage"], suggestedIntent: "整理挂坠共鸣、政府采购墨水与夜间货运三项证据，向可信教会人员申请非正式核验，不直接指控王室。", rewardPreview: "提高教会警觉，获得有限官方协助", state: "locked" },
+];
+
+export const INITIAL_FACTIONS: FactionState[] = [
+  { id: "night-church", name: "黑夜教会", kind: "教会", publicGoal: "维持首都神秘秩序", currentPlan: "观察非法非凡组织与异常人口报告", trust: 8, interest: 18, suspicion: 20, leverage: 0, planProgress: 12, visibility: "传闻", lastMove: "值夜者正在汇总东区失踪案。" },
+  { id: "steam-church", name: "蒸汽与机械之神教会", kind: "教会", publicGoal: "保护工业与技术秩序", currentPlan: "审查煤气、港务与大型工程事故", trust: 4, interest: 12, suspicion: 15, leverage: 0, planProgress: 8, visibility: "传闻", lastMove: "机械之心接管了一份异常设备事故档案。" },
+  { id: "royal-project", name: "王室特别工程集团", kind: "王室", publicGoal: "推进保密公共工程", currentPlan: "集中材料、人口与行政掩护", trust: 0, interest: 5, suspicion: 6, leverage: 0, planProgress: 18, visibility: "未知", lastMove: "一批不公开招标的物资完成转运。" },
+  { id: "witch-sect", name: "魔女教派", kind: "密教", publicGoal: "身份与目的均未公开", currentPlan: "提供仪式支持并清理知情者", trust: 0, interest: 4, suspicion: 4, leverage: 0, planProgress: 14, visibility: "未知", lastMove: "一名使用假身份的女子在东区更换住所。" },
+  { id: "aurora-order", name: "极光会外围", kind: "密教", publicGoal: "散播末日与救赎言论", currentPlan: "争夺被忽视的异常与失踪者", trust: 0, interest: 10, suspicion: 8, leverage: 0, planProgress: 7, visibility: "传闻", lastMove: "地下聚会出现新的布道者。" },
+  { id: "police", name: "贝克兰德警察厅", kind: "官方", publicGoal: "控制治安与舆论", currentPlan: "把失踪人口归入普通治安案件", trust: 10, interest: 8, suspicion: 12, leverage: 0, planProgress: 10, visibility: "已接触", lastMove: "警察要求事务所补交执业文件。" },
+  { id: "press", name: "晚报消息网", kind: "灰色势力", publicGoal: "用新闻换取生存和影响", currentPlan: "收集东区事故与上流丑闻", trust: 22, interest: 28, suspicion: 5, leverage: 8, planProgress: 16, visibility: "已接触", lastMove: "一名社会版编辑压下了工人失踪短讯。" },
+  { id: "black-market", name: "桥区非凡黑市", kind: "灰色势力", publicGoal: "维持隐秘交易", currentPlan: "垄断配方、材料和危险物品流向", trust: 8, interest: 24, suspicion: 10, leverage: 4, planProgress: 13, visibility: "已接触", lastMove: "有人开始询问黑玻璃制品的买家。" },
+];
+
+export const INITIAL_TIMELINE: TimelineEvent[] = [
+  { id: "tl-awakening", title: "廷根的苏醒者", scheduledWeek: 1, kind: "历史锚点", status: "active", summary: "远方一名本不属于这个时代的人从死亡中醒来；贝克兰德暂时无人知晓。", revealed: true, pressure: 5 },
+  { id: "tl-tingen-shadow", title: "廷根阴影加深", scheduledWeek: 6, kind: "可变事件", status: "upcoming", summary: "廷根的隐秘冲突将逼近灾变窗口。玩家只能通过极少数远方情报察觉。", revealed: false, pressure: 18 },
+  { id: "tl-detective-arrival", title: "一位侦探抵达贝克兰德", scheduledWeek: 10, kind: "历史锚点", status: "upcoming", summary: "如果历史没有严重偏转，一名新的私人侦探会进入首都。", revealed: false, pressure: 12 },
+  { id: "tl-population", title: "不可见人口开始汇聚", scheduledWeek: 14, kind: "可变事件", status: "upcoming", summary: "招工、迁移、失踪和收容记录将逐渐出现同一方向。", revealed: false, pressure: 36 },
+  { id: "tl-procurement", title: "王室采购进入加速期", scheduledWeek: 18, kind: "可变事件", status: "upcoming", summary: "材料、煤气设施和封闭仓库的调度会明显增多。", revealed: false, pressure: 55 },
+  { id: "tl-smog-eve", title: "雾霾前夜", scheduledWeek: 22, kind: "可变事件", status: "upcoming", summary: "相关势力完成最后准备，玩家的证据、盟友与破坏成果开始决定事件形态。", revealed: false, pressure: 78 },
+  { id: "tl-great-smog", title: "贝克兰德大雾霾", scheduledWeek: 24, kind: "终局", status: "upcoming", summary: "终局事件可能被阻止、削弱、转移、利用或按原历史爆发。", revealed: true, pressure: 92 },
 ];
 
 export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
   return {
-    version: 5,
+    version: 6,
     week: 1,
     date: "1349年6月30日",
     pathwayId,
@@ -406,8 +558,8 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     members: INITIAL_MEMBERS.map((item) => ({ ...item })),
     facilities: INITIAL_FACILITIES.map((item) => ({ ...item })),
     departments: [
-      { id: "field", name: "外勤与调查", leadMemberId: "mara", mandate: "验证异常、建立撤离路线，不与未知非凡者正面冲突。", autonomy: 42, budget: 70, status: "2人编制" },
-      { id: "support", name: "档案与后勤", leadMemberId: "cedric", mandate: "维持合法掩护、管理资产与建设项目。", autonomy: 35, budget: 55, status: "2人编制" },
+      { id: "field", name: "外勤与调查", leadMemberId: "mara", mandate: "验证异常、建立撤离路线，不与未知非凡者正面冲突。", autonomy: 42, budget: 14, status: "2人编制", weeklyVerb: "自动核验一项已发现线索的外围信息" },
+      { id: "support", name: "档案与后勤", leadMemberId: "cedric", mandate: "维持合法掩护、管理资产与建设项目。", autonomy: 35, budget: 11, status: "2人编制", weeklyVerb: "维持掩护收入并降低设施事故概率" },
     ],
     inventory: [
       { id: "black-locket", name: "渗水的黑玻璃挂坠", category: "封印物", quantity: 1, location: "封印储藏间", keeper: "罗文·布莱克", risk: "每晚三点传出敲门声；来源未知。" },
@@ -426,5 +578,13 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     ],
     chronicle: [],
     discoveredDistrictIds: ["cherwood", "east", "bridge", "north", "dock"],
+    evidenceNodes: INITIAL_EVIDENCE.map((item) => ({ ...item, tags: [...item.tags] })),
+    evidenceLinks: INITIAL_EVIDENCE_LINKS.map((item) => ({ ...item })),
+    opportunities: INITIAL_OPPORTUNITIES.map((item) => ({ ...item, requirements: [...item.requirements] })),
+    factions: INITIAL_FACTIONS.map((item) => ({ ...item })),
+    timeline: INITIAL_TIMELINE.map((item) => ({ ...item })),
+    worldMoves: [],
+    economyHistory: [],
+    organizationConditions: ["未获许可", "掩护业务稳定", "成员仍在观察负责人"],
   };
 }
