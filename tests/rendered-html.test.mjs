@@ -55,6 +55,9 @@ test("keeps interaction, persistence, and accessibility in the product source", 
   assert.match(page, /spirituality/);
   assert.match(page, /useAbility/);
   assert.match(page, /abilityResolutionText/);
+  assert.match(page, /showDistrictDetail/);
+  assert.match(page, /showOrderComposer/);
+  assert.match(page, /区域线索/);
   assert.match(page, /aria-label="主要页面"/);
   assert.match(page, /Ctrl|ctrlKey/);
   assert.match(css, /min-height:\s*44px/);
@@ -66,6 +69,9 @@ test("keeps interaction, persistence, and accessibility in the product source", 
   assert.match(css, /\.mission-control/);
   assert.match(css, /\.ability-control/);
   assert.match(css, /\.district-background/);
+  assert.match(css, /\.map-first-grid/);
+  assert.match(css, /\.district-drawer/);
+  assert.match(css, /\.order-sheet/);
   assert.match(layout, /灰雾纪事/);
   assert.match(packageJson, /lucide-react/);
 });

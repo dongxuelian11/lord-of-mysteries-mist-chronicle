@@ -7,7 +7,7 @@
 ---
 
 **Project:** 灰雾纪事
-**Generated:** 2026-08-01 22:59:20
+**Generated:** 2026-08-01 23:15:26
 **Category:** Gaming
 
 ---
@@ -18,24 +18,22 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#FFFFFF` | `--color-primary` |
-| Secondary | `#E5E5E5` | `--color-secondary` |
-| CTA/Accent | `#007AFF` | `--color-cta` |
-| Background | `#888888` | `--color-background` |
-| Text | `#000000` | `--color-text` |
-
-**Color Notes:** Glass white + system blue
+| Primary | `#2563EB` | `--color-primary` |
+| Secondary | `#3B82F6` | `--color-secondary` |
+| CTA/Accent | `#F97316` | `--color-cta` |
+| Background | `#F8FAFC` | `--color-background` |
+| Text | `#1E293B` | `--color-text` |
 
 ### Typography
 
-- **Heading Font:** Inter
-- **Body Font:** Inter
-- **Mood:** spatial, legible, glass, system, clean, neutral
-- **Google Fonts:** [Inter + Inter](https://fonts.google.com/share?selection.family=Inter:wght@300;400;500;600)
+- **Heading Font:** Atkinson Hyperlegible
+- **Body Font:** Atkinson Hyperlegible
+- **Mood:** accessible, readable, inclusive, WCAG, dyslexia-friendly, clear
+- **Google Fonts:** [Atkinson Hyperlegible + Atkinson Hyperlegible](https://fonts.google.com/share?selection.family=Atkinson+Hyperlegible:wght@400;700)
 
 **CSS Import:**
 ```css
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap');
 ```
 
 ### Spacing Variables
@@ -68,7 +66,7 @@
 ```css
 /* Primary Button */
 .btn-primary {
-  background: #007AFF;
+  background: #F97316;
   color: white;
   padding: 12px 24px;
   border-radius: 8px;
@@ -85,8 +83,8 @@
 /* Secondary Button */
 .btn-secondary {
   background: transparent;
-  color: #FFFFFF;
-  border: 2px solid #FFFFFF;
+  color: #2563EB;
+  border: 2px solid #2563EB;
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -99,7 +97,7 @@
 
 ```css
 .card {
-  background: #888888;
+  background: #F8FAFC;
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow-md);
@@ -125,9 +123,9 @@
 }
 
 .input:focus {
-  border-color: #FFFFFF;
+  border-color: #2563EB;
   outline: none;
-  box-shadow: 0 0 0 3px #FFFFFF20;
+  box-shadow: 0 0 0 3px #2563EB20;
 }
 ```
 
@@ -153,24 +151,21 @@
 
 ## Style Guidelines
 
-**Style:** 3D & Hyperrealism
+**Style:** Zero Interface
 
-**Keywords:** Depth, realistic textures, 3D models, spatial navigation, tactile, skeuomorphic elements, rich detail, immersive
+**Keywords:** Minimal visible UI, voice-first, gesture-based, AI-driven, invisible controls, predictive, context-aware, ambient
 
-**Best For:** Gaming, product showcase, immersive experiences, high-end e-commerce, architectural viz, VR/AR
+**Best For:** Voice assistants, AI platforms, future-forward UX, smart home, contextual computing, ambient experiences
 
-**Key Effects:** WebGL/Three.js 3D, realistic shadows (layers), physics lighting, parallax (3-5 layers), smooth 3D (300-400ms)
+**Key Effects:** Voice recognition UI, gesture detection, AI predictions (smooth reveal), progressive disclosure, smart suggestions
 
 ### Page Pattern
 
-**Pattern Name:** Horizontal Scroll Journey
+**Pattern Name:** Funnel (3-Step Conversion)
 
-- **Conversion Strategy:** Immersive product discovery. High engagement. Keep navigation visible.
-28,Bento Grid Showcase,bento,  grid,  features,  modular,  apple-style,  showcase", 1. Hero, 2. Bento Grid (Key Features), 3. Detail Cards, 4. Tech Specs, 5. CTA, Floating Action Button or Bottom of Grid, Card backgrounds: #F5F5F7 or Glass. Icons: Vibrant brand colors. Text: Dark., Hover card scale (1.02), video inside cards, tilt effect, staggered reveal, Scannable value props. High information density without clutter. Mobile stack.
-29,Interactive 3D Configurator,3d,  configurator,  customizer,  interactive,  product", 1. Hero (Configurator), 2. Feature Highlight (synced), 3. Price/Specs, 4. Purchase, Inside Configurator UI + Sticky Bottom Bar, Neutral studio background. Product: Realistic materials. UI: Minimal overlay., Real-time rendering, material swap animation, camera rotate/zoom, light reflection, Increases ownership feeling. 360 view reduces return rates. Direct add-to-cart.
-30,AI-Driven Dynamic Landing,ai,  dynamic,  personalized,  adaptive,  generative", 1. Prompt/Input Hero, 2. Generated Result Preview, 3. How it Works, 4. Value Prop, Input Field (Hero) + 'Try it' Buttons, Adaptive to user input. Dark mode for compute feel. Neon accents., Typing text effects, shimmering generation loaders, morphing layouts, Immediate value demonstration. 'Show, don't tell'. Low friction start.
-- **CTA Placement:** Floating Sticky CTA or End of Horizontal Track
-- **Section Order:** 1. Intro (Vertical), 2. The Journey (Horizontal Track), 3. Detail Reveal, 4. Vertical Footer
+- **Conversion Strategy:** Progressive disclosure. Show only essential info per step. Use progress indicators. Multiple CTAs.
+- **CTA Placement:** Each step: mini-CTA. Final: main CTA
+- **Section Order:** 1. Hero, 2. Step 1 (problem), 3. Step 2 (solution), 4. Step 3 (action), 5. CTA progression
 
 ---
 

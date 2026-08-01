@@ -388,6 +388,8 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [undoOrderId, setUndoOrderId] = useState<string | null>(null);
   const [turnReport, setTurnReport] = useState<TurnReport | null>(null);
+  const [showDistrictDetail, setShowDistrictDetail] = useState(false);
+  const [showOrderComposer, setShowOrderComposer] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -433,6 +435,8 @@ export default function Home() {
       if (event.key === "Escape") {
         setShowSettings(false);
         setShowNewGame(false);
+        setShowDistrictDetail(false);
+        setShowOrderComposer(false);
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         event.preventDefault();
@@ -537,7 +541,8 @@ export default function Home() {
     setActionType(nextAction);
     setBrief(suggestedBrief);
     setView("situation");
-    window.setTimeout(() => document.getElementById("order-composer")?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
+    setShowDistrictDetail(false);
+    setShowOrderComposer(true);
   }
 
   function resolveWeek() {
@@ -723,7 +728,7 @@ export default function Home() {
       </nav>
 
       {view === "situation" && (
-        <div className="command-grid" id="game-content">
+        <div className="command-grid map-first-grid" id="game-content">
           <section className="panel mission-control" aria-labelledby="mission-title">
             <div className="mission-context">
               <p className="eyebrow icon-eyebrow"><Compass size={12} /> 当前状况 · 原著时间线尚未偏转</p>
@@ -775,7 +780,7 @@ export default function Home() {
                 <p className="eyebrow">城市态势</p>
                 <h2>贝克兰德</h2>
               </div>
-              <span className="weather"><CloudFog size={13} /> 薄雾 · 12°C</span>
+              <div className="map-heading-actions"><span className="map-hint"><MapPin size={12} /> 点击城区查看档案</span><span className="weather"><CloudFog size={13} /> 薄雾 · 12°C</span></div>
             </div>
 
             <div className="map-field detailed-map" aria-label="贝克兰德十城区交互地图">
@@ -787,7 +792,7 @@ export default function Home() {
                     key={district.id}
                     style={{ left: `${district.x}%`, top: `${district.y}%` } as React.CSSProperties}
                     className={`district map-district ${district.size} ${district.tone} ${selectedDistrict.id === district.id ? "selected" : ""}`}
-                    onClick={() => setSelectedDistrictId(district.id)}
+                    onClick={() => { setSelectedDistrictId(district.id); setShowDistrictDetail(true); }}
                     aria-label={`${district.name}，危险${district.danger}，${activeCases}件调查事件`}
                   >
                     <span className="district-pulse" />
@@ -953,6 +958,15 @@ export default function Home() {
           </section>
 
           <aside className="right-stack">
+            <section className="panel map-objective-card">
+              <p className="eyebrow icon-eyebrow"><Compass size={12} /> 当前阶段 · 秘密立足</p>
+              <h2>提前布局贝克兰德</h2>
+              <p>克莱恩刚在廷根苏醒。你需要把人口失踪、异常药品和可疑货运串成能够影响官方的证据。</p>
+              <div className="map-goal-row"><span><Target size={14} /> 大雾霾阴谋</span><strong>{conspiracyProgress}%</strong></div>
+              <div className="objective-progress"><span><i style={{ width: `${conspiracyProgress}%` }} /></span></div>
+              {urgentIncident && <button className="urgent-map-action" onClick={() => { setSelectedDistrictId(urgentIncident.districtId); setShowDistrictDetail(true); }}><span><small>最近期限 · {urgentIncident.deadline}周</small><strong>{urgentIncident.title}</strong></span><ChevronRight size={16} /></button>}
+            </section>
+
             <section className="panel organization-card">
               <div className="organization-seal">鸦</div>
               <p className="eyebrow icon-eyebrow"><Building2 size={12} /> 当前组织</p>
@@ -978,14 +992,91 @@ export default function Home() {
               <div className="pathway-line"><span>{pathway.name}</span><strong>{pathway.ability}</strong></div>
               <p className="muted">{pathway.note}</p>
               <div className="player-ability-summary"><Zap size={14} /><span><small>可用能力</small><strong>{pathway.activeName}</strong></span></div>
-              <button className="secondary-button" onClick={() => { setSelectedMemberId(PLAYER_MEMBER_ID); setAbilityArmed(true); document.getElementById("order-composer")?.scrollIntoView({ behavior: "smooth", block: "center" }); }} disabled={game.spirituality <= 0 || !availableMembers.some((member) => member.id === PLAYER_MEMBER_ID)}>亲自带队并启用能力</button>
+              <button className="secondary-button" onClick={() => { setSelectedMemberId(PLAYER_MEMBER_ID); setAbilityArmed(true); setShowOrderComposer(true); }} disabled={game.spirituality <= 0 || !availableMembers.some((member) => member.id === PLAYER_MEMBER_ID)}>亲自带队并启用能力</button>
             </section>
+
+            <button className="open-orders-button" onClick={() => setShowOrderComposer(true)}>
+              <span><small>本周行动</small><strong>{game.orders.length > 0 ? `已安排 ${game.orders.length} / 3` : "尚未安排指令"}</strong></span><ArrowRight size={18} />
+            </button>
 
             <button className="turn-button" onClick={resolveWeek}>
               <span><small>世界将同步推进 · ⇧⌘ Enter</small>结束本周</span>
               <ArrowRight size={22} />
             </button>
           </aside>
+        </div>
+      )}
+
+      {showDistrictDetail && view === "situation" && (
+        <div className="district-drawer-backdrop" role="presentation" onMouseDown={() => setShowDistrictDetail(false)}>
+          <aside className="district-drawer" role="dialog" aria-modal="true" aria-labelledby="district-drawer-title" onMouseDown={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowDistrictDetail(false)} aria-label="关闭区域档案"><X size={18} /></button>
+            <header className="district-drawer-header">
+              <p className="eyebrow"><MapPin size={11} /> 区域档案</p>
+              <h2 id="district-drawer-title">{selectedDistrict.name}</h2>
+              <span>{selectedDistrict.subtitle}</span>
+              <div className="drawer-stats">
+                <div><small>危险</small><strong>{selectedDistrict.danger}</strong></div>
+                <div><small>影响</small><strong>{selectedDistrict.influence}</strong></div>
+                <div><small>情报</small><strong>{selectedDistrict.intel}</strong></div>
+                <div><small>进行中</small><strong>{districtIncidents.filter((incident) => incident.status === "active").length}</strong></div>
+              </div>
+            </header>
+
+            <section className="drawer-lore">
+              <h3><BookOpen size={14} /> 区域背景</h3>
+              <p>{selectedDistrict.background}</p>
+              <div className="landmark-list">{selectedDistrict.landmarks.map((landmark) => <span key={landmark}>{landmark}</span>)}</div>
+              <div className="drawer-notes"><p><strong>可利用</strong>{selectedDistrict.opportunity}</p><p><strong>注意</strong>{selectedDistrict.warning}</p></div>
+            </section>
+
+            <section className="drawer-cases">
+              <div className="drawer-section-heading"><span><ShieldAlert size={14} /> 区域线索</span><small>{districtIncidents.length} 件档案</small></div>
+              {districtIncidents.length > 0 ? districtIncidents.map((incident) => (
+                <article className="drawer-case" key={incident.id}>
+                  <div className="drawer-case-title"><span><small>{incident.confidence} · {incident.faction}</small><strong>{incident.title}</strong></span><b className={incident.urgency > 60 ? "high" : ""}>风险 {incident.urgency}</b></div>
+                  <p>{incident.summary}</p>
+                  <div className="case-progress"><span><i style={{ width: `${incident.progress}%` }} /></span><strong>{incident.progress}%</strong><small>剩余 {incident.deadline} 周</small></div>
+                  <div className="drawer-clues">
+                    {incident.revealedClues > 0 ? incident.clues.slice(0, incident.revealedClues).map((clue, index) => <p key={clue}><i>0{index + 1}</i>{clue}</p>) : <p className="unknown-clue"><i>?</i>尚无可靠线索，调查推进至25%后揭示</p>}
+                  </div>
+                  {incident.status === "active" && <div className="case-actions"><button onClick={() => prepareSuggestedAction(incident, "调查", `围绕“${incident.title}”核对目击记录与现场痕迹，优先确认最可靠的线索，并准备撤离路线。`)}>安排调查</button><button onClick={() => prepareSuggestedAction(incident, "研究", `整理“${incident.title}”现有材料，使用档案和神秘学知识验证异常来源。`)}>研究材料</button></div>}
+                </article>
+              )) : (
+                <div className="empty-district-case"><Search size={20} /><p>组织尚未在这里发现公开异常。你仍可主动探索，建立当地情报来源。</p><button onClick={() => { setActionType("调查"); setBrief(`派人熟悉${selectedDistrict.name}的街区、重要人物与异常传闻，建立基础情报地图。`); setShowDistrictDetail(false); setShowOrderComposer(true); }}>探索该区</button></div>
+              )}
+            </section>
+            <button className="drawer-archive-link" onClick={() => { setShowDistrictDetail(false); setView("archive"); }}><Archive size={14} /> 查看全部调查档案</button>
+          </aside>
+        </div>
+      )}
+
+      {showOrderComposer && view === "situation" && (
+        <div className="modal-backdrop order-sheet-backdrop" role="presentation" onMouseDown={() => setShowOrderComposer(false)}>
+          <section className="modal order-sheet" role="dialog" aria-modal="true" aria-labelledby="order-sheet-title" onMouseDown={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowOrderComposer(false)} aria-label="关闭行动编排"><X size={18} /></button>
+            <div className="order-sheet-header">
+              <p className="eyebrow">重点指令 · {selectedDistrict.name}</p>
+              <h2 id="order-sheet-title">安排本周行动</h2>
+              <div className="action-points" aria-label={`剩余${game.actionPoints}个行动点`}>{[0, 1, 2].map((point) => <i key={point} className={point < game.actionPoints ? "filled" : ""} />)}</div>
+            </div>
+            <div className="order-controls">
+              <label><span>行动类型</span><select value={actionType} onChange={(event) => setActionType(event.target.value)}>{Object.keys(ACTION_PROFILES).map((type) => <option key={type}>{type}</option>)}</select></label>
+              <label><span>执行成员</span><select value={activeMemberId} onChange={(event) => setSelectedMemberId(event.target.value)} disabled={!availableMembers.length}>{availableMembers.map((member) => <option value={member.id} key={member.id}>{member.name} · {member.role}</option>)}</select></label>
+            </div>
+            <div className={`plan-forecast ${planForecast.threshold >= 70 ? "good" : planForecast.threshold >= 52 ? "warn" : "danger"}`}>
+              <div><Search size={15} /><span>{planForecast.profile.label}</span></div>
+              <dl><div><dt>预估成功</dt><dd>{planForecast.threshold}% · {planForecast.risk}</dd></div><div><dt>预计推进</dt><dd>成功 +{planForecast.progress}%</dd></div><div><dt>行动成本</dt><dd>£ {planForecast.profile.cost}</dd></div></dl>
+            </div>
+            <div className={`ability-control ${abilityIsActive ? "armed" : ""} ${!canUseAbility ? "locked" : ""}`}>
+              <div className="ability-icon"><Zap size={18} /></div>
+              <div className="ability-copy"><div><span>途径主动能力</span><strong>{pathway.activeName}</strong></div><p>{pathway.activeDescription}</p><small>擅长：{pathway.favoredActions.join(" / ")} · 灵性 {game.spirituality} / 3</small></div>
+              {activeMemberId === PLAYER_MEMBER_ID ? <button className="ability-toggle" onClick={() => setAbilityArmed((current) => !current)} disabled={!canUseAbility} aria-pressed={abilityIsActive}>{abilityIsActive ? "已启用" : game.spirituality > 0 ? "消耗1灵性" : "灵性耗尽"}</button> : <button className="ability-toggle" onClick={() => { setSelectedMemberId(PLAYER_MEMBER_ID); setAbilityArmed(true); }} disabled={!availableMembers.some((member) => member.id === PLAYER_MEMBER_ID) || game.spirituality <= 0}>负责人亲自出动</button>}
+            </div>
+            <label className="brief-field"><span>具体计划</span><textarea value={brief} onChange={(event) => setBrief(event.target.value)} placeholder="描述目标、方法、底线和撤退条件……" maxLength={280} /><small>{brief.length}/280 · 计划越具体，准备加成越高</small></label>
+            <button className="primary-button" onClick={queueOrder} disabled={!brief.trim() || game.actionPoints <= 0 || !availableMembers.length}><span className="button-label">下达指令 <small>消耗1行动点</small></span><ArrowRight size={17} /></button>
+            {game.orders.length > 0 && <div className="order-sheet-queue"><div className="drawer-section-heading"><span>待执行计划</span><small>{game.orders.length} / 3</small></div>{game.orders.map((order, index) => { const member = operatives.find((item) => item.id === order.memberId); return <div className="queued-order" key={order.id}><span className="queue-index">0{index + 1}</span><div><strong>{order.type} · {member?.name}{order.useAbility ? ` · ${pathway.activeName}` : ""}</strong><p>{order.brief}</p></div><button onClick={() => removeOrder(order.id)} aria-label="撤销指令"><X size={15} /></button></div>; })}</div>}
+          </section>
         </div>
       )}
 
