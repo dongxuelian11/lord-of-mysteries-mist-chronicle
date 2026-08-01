@@ -108,6 +108,14 @@ type TurnResult = {
   newClue?: string;
   abilityName?: string;
   abilityEffect?: string;
+  sceneTitle: string;
+  orderBrief: string;
+  incidentTitle?: string;
+  narrative: string[];
+  testimony?: { speaker: string; words: string };
+  findings: string[];
+  consequence: string;
+  followUp: string;
 };
 
 type TurnReport = {
@@ -117,6 +125,9 @@ type TurnReport = {
   summary: string;
   results: TurnResult[];
   deltas: { money: number; intel: number; concealment: number; stability: number };
+  prelude: string[];
+  worldMoves: { title: string; districtName: string; text: string; severity: "watch" | "danger" }[];
+  closing: string;
 };
 
 type GameState = {
@@ -368,6 +379,113 @@ function actionDetail(actionType: string, success: boolean, memberName: string, 
   return `${districtName}：${success ? good : bad}`;
 }
 
+const DISTRICT_SCENES: Record<string, string> = {
+  north: "雨水沿着大学区的尖顶和黑色铁栏缓慢淌下，远处圣赛缪尔教堂的钟声被雾切成了几段",
+  empress: "修剪整齐的树篱后只有车轮压过湿石路的轻响，贵族宅邸的窗帘在白昼也闭得严密",
+  west: "煤气灯尚未熄灭，送奶车与擦得发亮的私人马车已经在体面的街道上交错而过",
+  hillston: "证券所开门前，银行街已经满是抱着文件袋的职员，油墨、雨伞与焦躁混合成一种商业区特有的气味",
+  cherwood: "剧院后巷残留着昨夜的酒气，事务所门前的铜牌被晨雾蒙上一层薄白",
+  queen: "政府大楼的长窗逐一亮起，穿黑外套的公务员在门廊下交换点头，却很少真正看向彼此",
+  east: "工厂汽笛穿过低垂的烟云，狭窄街巷里挤满赶早班的工人，廉价煤烟让每张脸都显得灰暗",
+  bridge: "塔索克河拍打着发黑的桥墩，公共马车碾过桥面时，栏杆会传来细微而持续的震颤",
+  south: "诊所门外已经排起短队，潮湿衣物、药粉和煮得过久的燕麦粥气味挤在同一条街上",
+  dock: "潮水托起一排沉默的货船，起重机的铁链在雾中碰撞，声音像从很远的地方传来",
+};
+
+const INCIDENT_VOICES: Record<string, { speaker: string; open: string; guarded: string }> = {
+  "missing-workers": { speaker: "失踪工人的姐姐艾达", open: "他把这周的工钱留在了桌上。一个打算逃债的人，不会连母亲的药钱都提前分好。", guarded: "我已经和警察说过一次。他们只问他欠了多少酒钱，没问那辆马车。" },
+  "black-market-formula": { speaker: "戴灰手套的黑市掮客", open: "写下这张配方的人懂规矩，改动它的人更懂——他知道怎样让买家活到喝下第二瓶。", guarded: "配方是真的，价钱也是真的。至于谁改过它，那不是几镑钞票能买的问题。" },
+  "noble-salon": { speaker: "负责收取邀请函的老门房", open: "每位客人都戴面具，可真正需要遮住脸的那几位，反而从不戴。", guarded: "先生，西区每天都有聚会。把好奇心当成门票的人，通常回不到第二次。" },
+  "university-dreams": { speaker: "霍伊大学历史系助教", open: "他们醒来后写出的符号并不相同，可把纸叠在一起，线条恰好组成一扇门。", guarded: "学生只是考试前过度紧张。校方不希望外人把梦话写进报纸。" },
+  "parliament-whisper": { speaker: "拒绝留下姓名的抄写员", open: "那间会议室没有点灯。我听见他们逐户念出名字，就像在核对一批货物。", guarded: "我什么也没听见。若你还想问，请先告诉我，明天是谁来保护我的妻子。" },
+  "bridge-ghost": { speaker: "末班公共马车的车夫", open: "过第三座桥时车厢会沉一下。不是有人上车，更像是有什么东西终于想起了自己的重量。", guarded: "乘客一直是六个。公司登记簿上也是六个。你最好别让我因为第七个丢了饭碗。" },
+  "south-fever": { speaker: "圣槲诊所的值夜护士", open: "他们都说骨头里有火，可皮肤冷得像刚从河里捞起来。我洗过药杯，水面浮着银色的粉。", guarded: "病人需要休息，不需要神秘学家围着他们猜谜。除非你能先弄来干净的药。" },
+  "sealed-cargo": { speaker: "码头理货员佩斯", open: "货单写着香料，吃水却像装了铅。昨夜舱里有人敲了五下，船长立刻让我们都下船。", guarded: "我只负责数箱子。港务官说不用开舱，那它就不该在我的眼睛里打开。" },
+};
+
+const ACTION_PROCESS: Record<string, { success: string; failure: string }> = {
+  调查: { success: "你们没有急着追逐最显眼的传闻，而是将时间、路线和证词分别记录，再寻找它们无法彼此解释的部分。到傍晚时，一处原本像是疏忽的矛盾开始显出人为安排的轮廓。", failure: "最初的两条线索都通向了容易查证、却毫无价值的人。等到队伍意识到有人刻意投放这些说法时，负责望风的成员已经发现同一顶灰呢礼帽在街角出现了第三次。" },
+  交涉: { success: "谈话没有从问题开始，而是从对方真正害怕失去的东西开始。承诺、沉默和一份没有署名的担保被依次放上桌面，对方终于允许自己说出官方记录之外的那部分事实。", failure: "对方听完条件后没有立刻拒绝，只把茶杯向外推了半寸。这个细微动作已经说明谈判结束；继续施压只会让背后的势力知道组织掌握了多少。" },
+  研究: { success: "档案被按年代、墨迹和纸张来源重新排列，灵性残留则单独封存在盐圈内。几个看似无关的细节在深夜形成对应：这不是偶然污染，而是有人熟悉流程后留下的可控误差。", failure: "样本之间存在相互矛盾的灵性反应。继续强行归纳只会得到一个漂亮而危险的错误结论，负责研究的人最终烧掉了受污染的试纸，保住了其余材料。" },
+  采购: { success: "采购没有经过公开柜台。三次换车、两张临时票据和一名只收旧金币的中间人之后，所需物资被拆成普通货物送回据点，没有留下完整的买家记录。", failure: "卖方临时更换了交货地点，还多带来两名不说话的护卫。这更像一次身份确认而非交易，队伍在付出少量定金后主动切断联系。" },
+  仪式: { success: "蜡烛的火焰在第三段祷文结束后同时偏向同一方向。灵界没有给出答案，只以气味、色彩和一段不属于任何人的记忆作出回应；这些象征足以排除大部分错误路径。", failure: "仪式进行到一半，镜面中的倒影比现实慢了一次呼吸。主持者立刻破坏核心符号并撒盐熄灭烛火，避免了进一步接触，却无法确定注视是否已经从另一侧投来。" },
+  休整: { success: "一周没有英雄式的行动。门锁被重新检查，暗号被替换，成员轮流睡了几个完整的夜晚。正是在这种平静里，两处可能导致据点暴露的习惯被及时纠正。", failure: "疲惫并未因为停止外勤就立刻消失。一次关于经费的小争执拖得太久，直到负责人把每个人的职责重新写在纸上，会议才恢复秩序。" },
+};
+
+const WORLD_SIGNS: Record<string, string> = {
+  "missing-workers": "东区又有一间廉价公寓在清晨被发现空置。房东坚持租客连夜离城，邻居却说楼梯整晚没有响过。",
+  "black-market-formula": "地下聚会中，那张配方的报价被提高了一倍。卖家开始询问最近有哪些组织在打听墨水来源。",
+  "noble-salon": "西区沙龙更换了下一次聚会地点，一名原本答应牵线的仆役突然被主人送往乡下。",
+  "university-dreams": "第六名学生报告了相同梦境。校方封闭了校史馆地下室，并对外宣称正在维修水管。",
+  "parliament-whisper": "涉及贫民迁移的文件被重新编号，原本可以公开查阅的附件进入了内部流转程序。",
+  "bridge-ghost": "末班马车公司悄悄换掉了涉事车夫，但没有停运那条线路。第三座桥下出现一束来历不明的白花。",
+  "south-fever": "南区诊所新增两名症状相同的病人，廉价药房则在天亮前搬空了后仓。",
+  "sealed-cargo": "港务处签发了临时放行文书。那艘货轮尚未卸货，却已有两辆封闭马车在仓库外等待。",
+};
+
+function buildNarrativeResult(args: {
+  week: number;
+  order: Order;
+  member: Member;
+  district: District;
+  incident?: Incident;
+  success: boolean;
+  progressDelta: number;
+  newClue?: string;
+  abilityName?: string;
+  abilityEffect?: string;
+}) {
+  const { week, order, member, district, incident, success, progressDelta, newClue, abilityName, abilityEffect } = args;
+  const actor = member.id === PLAYER_MEMBER_ID ? "你" : member.name;
+  const voice = incident ? INCIDENT_VOICES[incident.id] : undefined;
+  const process = ACTION_PROCESS[order.type] ?? ACTION_PROCESS.调查;
+  const nextProgress = incident ? Math.min(100, incident.progress + progressDelta) : 0;
+  const nextThreshold = [25, 50, 75, 95].find((value) => value > nextProgress);
+  const sceneTitles: Record<string, string> = { 调查: "雾中的走访", 交涉: "关门后的谈判", 研究: "灯下的档案", 采购: "没有收据的交易", 仪式: "灵界边缘", 休整: "据点的长夜" };
+  const narrative = [
+    `本周第${Math.min(6, (week % 5) + 1)}日清晨，${DISTRICT_SCENES[district.id] ?? district.background}。${actor}带着一份没有组织抬头的行动摘要进入${district.name}，其余成员按约定保持了两条街的距离。`,
+    `行动严格围绕你写下的指令展开：“${order.brief}”这段话决定了队伍先接触谁、哪些问题不能问，以及在什么迹象出现时必须撤退。${member.specialty}成为本次行动最可靠的支点。`,
+    success ? process.success : process.failure,
+    newClue
+      ? `临近收队时，一项可以被复核的事实终于从杂乱细节中浮现：${newClue}。它被单独誊写、编号并封入档案袋，没有人在现场尝试解释它的全部含义。`
+      : success
+        ? `行动取得了实质进展，但现有材料仍不足以形成新的可靠结论。队伍带回了时间记录、路线草图和证词摘要；它们会保留在证据链中，等待下一次交叉验证。`
+        : `最终带回据点的只有部分记录和一份被迫中止的接触名单。失败没有被粉饰成发现，但至少确认了对手会对哪些问题产生反应。`,
+    abilityName && abilityEffect ? `在最关键的节点，${actor}动用了${abilityName}。${abilityEffect}灵性的介入改变了行动结果，也在精神上留下了需要休息才能消退的疲惫。` : "",
+  ].filter(Boolean);
+  const findings = incident ? [
+    newClue ? `新增可靠证据：${newClue}` : `本次未跨过新的线索阈值，既有进度已经保存`,
+    `“${incident.title}”证据链预计由 ${incident.progress}% 推进至 ${nextProgress}%`,
+    `已识别相关方：${incident.faction}；当前可信度：${confidenceFromProgress(nextProgress)}`,
+  ] : ["完成基础街区踏查，暂未锁定具体异常事件", `建立了${district.name}的基础接触记录与撤离路线`];
+  const consequence = success
+    ? order.type === "仪式" ? "仪式带来了高价值指向，也制造了可被其他非凡者察觉的灵性波动。" : "行动维持在可控范围内；对手尚不能确认组织身份，但已经有人注意到新的调查者出现。"
+    : order.type === "休整" ? "内部矛盾没有扩大，却暴露出成员在长期压力下的疲惫。" : "行动受阻使当地关系变得更谨慎，下一次接触需要更好的掩护或新的中间人。";
+  const followUp = newClue
+    ? `围绕“${newClue}”设计下一条指令：寻找独立证人、文件或实物进行交叉验证。`
+    : incident && nextThreshold
+      ? `证据链距离下一次可靠突破还差 ${nextThreshold - nextProgress}%；优先更换调查方法或让擅长${order.type}的成员继续跟进。`
+      : incident ? "证据链已经接近完整，应考虑向可信势力提交材料、设局利用，或准备直接干预。" : `继续探索${district.name}，或等待新传闻将基础情报转化为正式事件。`;
+  return {
+    sceneTitle: `${sceneTitles[order.type] ?? "一次行动"} · ${incident?.title ?? district.name}`,
+    narrative,
+    testimony: voice ? { speaker: voice.speaker, words: success ? voice.open : voice.guarded } : undefined,
+    findings,
+    consequence,
+    followUp,
+  };
+}
+
+function worldMovementFor(incident: Incident, district: District) {
+  const nextDeadline = Math.max(0, incident.deadline - 1);
+  return {
+    title: nextDeadline === 0 ? `${incident.title}越过临界点` : `${incident.title}仍在发展`,
+    districtName: district.name,
+    text: WORLD_SIGNS[incident.id] ?? `${incident.summary}由于没有受到干预，相关人员正在改变原有安排。`,
+    severity: (nextDeadline === 0 || incident.urgency >= 65 ? "danger" : "watch") as "watch" | "danger",
+  };
+}
+
 export default function Home() {
   const [game, setGame] = useState<GameState>(() => createInitialState());
   const [hydrated, setHydrated] = useState(false);
@@ -603,6 +721,18 @@ export default function Home() {
       const baseDetail = actionDetail(order.type, success, member.name, district.name);
       const abilityEffect = abilityUsed ? abilityResolutionText(pathway, order.type) : undefined;
       const detail = abilityEffect ? `${baseDetail} ${abilityEffect}` : baseDetail;
+      const narrativeResult = buildNarrativeResult({
+        week: game.week,
+        order,
+        member,
+        district,
+        incident,
+        success,
+        progressDelta,
+        newClue,
+        abilityName: abilityUsed ? pathway.activeName : undefined,
+        abilityEffect,
+      });
       results.push({
         id: order.id,
         memberName: member.name,
@@ -616,6 +746,9 @@ export default function Home() {
         newClue,
         abilityName: abilityUsed ? pathway.activeName : undefined,
         abilityEffect,
+        orderBrief: order.brief,
+        incidentTitle: incident?.title,
+        ...narrativeResult,
       });
 
       entries.push({
@@ -630,6 +763,23 @@ export default function Home() {
     const nextWeek = game.week + 1;
     const discoveredClues = results.filter((result) => result.newClue).length;
     const successfulActions = results.filter((result) => result.success).length;
+    const worldMoves = game.incidents
+      .filter((incident) => incident.status === "active" && !progressByIncident[incident.id])
+      .sort((a, b) => a.deadline - b.deadline || b.urgency - a.urgency)
+      .slice(0, 3)
+      .map((incident) => worldMovementFor(incident, game.districts.find((district) => district.id === incident.districtId) ?? selectedDistrict));
+    const prelude = orders.length > 0 ? [
+      `贝克兰德的这一周从一场持续到午后的冷雨开始。雾沿塔索克河向城区内部推进，报童仍在街角高喊着与普通人生活有关的消息，没有一张报纸知道你的组织在同一时间送出了 ${orders.length} 份秘密指令。`,
+      `每份指令只交给对应的执行者。暗号、备用会面地点和最晚返回时间被分别写在不同纸条上，阅后投入壁炉。到周末，${successfulActions}支队伍带回了可以继续使用的结果，${orders.length - successfulActions}项行动则留下了必须正视的代价。`,
+    ] : [
+      "这一周，组织没有派出重点行动。乔伍德区据点的窗帘按时拉开，账簿、委托和日常来客让一切看上去正常得近乎乏味。",
+      "然而贝克兰德不会因为你的沉默而停下。货物继续入港，名单继续被誊写，失踪者的床铺被新的租客占据；没有进入档案的事情，仍在雾后自行发展。",
+    ];
+    const closing = discoveredClues > 0
+      ? `周日深夜，${discoveredClues}份新证据被锁进据点内侧的铁柜。成员们没有庆祝——每一条得到确认的线索，都让那些原本可以被称为巧合的事件更像一项长期安排。`
+      : successfulActions > 0
+        ? "周日的复盘会议持续了一个小时。没有足以改变局势的单一发现，但地图上的铅笔线比上周更清楚；组织至少知道下一次应该把手伸向哪里。"
+        : "周日夜里，壁炉中的火提前熄灭。没有人受伤，也没有人失踪，可桌上那些没有得到回答的问题显得比一周前更加沉重。";
     setGame((current) => ({
       ...current,
       week: nextWeek,
@@ -666,6 +816,9 @@ export default function Home() {
         : `本周执行${orders.length}项重点行动，${successfulActions}项成功。${discoveredClues > 0 ? "新的证据已经写入调查档案。" : "尚未跨过新的证据阈值，但已有进度会被保留。"}`,
       results,
       deltas: { money: moneyDelta, intel: intelDelta, concealment: concealmentDelta, stability: stabilityDelta },
+      prelude,
+      worldMoves,
+      closing,
     });
     setToast(`第${game.week}周结算完成`);
   }
@@ -1147,43 +1300,53 @@ export default function Home() {
               <p>{turnReport.summary}</p>
             </header>
 
-            <div className="delta-grid" aria-label="本周资源变化">
-              {([
-                ["资金", turnReport.deltas.money, "£"],
-                ["情报", turnReport.deltas.intel, ""],
-                ["隐秘度", turnReport.deltas.concealment, ""],
-                ["稳定", turnReport.deltas.stability, ""],
-              ] as const).map(([label, value, prefix]) => (
-                <div key={label} className={value >= 0 ? "positive" : "negative"}>
-                  <span>{label}</span>
-                  <strong>{value >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{prefix}{value > 0 ? `+${value}` : value}</strong>
-                </div>
-              ))}
+            <div className="report-prologue">
+              {turnReport.prelude.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
             </div>
 
-            <div className="result-list">
+            <div className="result-list narrative-results">
               {turnReport.results.length > 0 ? turnReport.results.map((result, index) => (
-                <article className={`result-item ${result.success ? "success" : "failure"}`} key={result.id}>
-                  <div className="result-status">{result.success ? <CheckCircle2 size={20} /> : <XCircle size={20} />}</div>
-                  <div className="result-copy">
-                    <div className="result-title">
-                      <span>0{index + 1}</span>
-                      <h3>{result.memberName} · {result.actionType}</h3>
-                      <small>{result.districtName}</small>
-                    </div>
-                    <p>{result.detail}</p>
-                    <div className="resolution-line">
-                      <span>判定 {result.score} / {result.threshold}</span>
-                      <span>证据推进 +{result.progressDelta}%</span>
-                    </div>
-                    {result.abilityName && <div className="ability-result"><Zap size={14} /><span><b>{result.abilityName} 已生效</b>{result.abilityEffect}</span></div>}
-                    {result.newClue && <div className="new-clue"><Lightbulb size={15} /><span><b>发现新线索</b>{result.newClue}</span></div>}
-                  </div>
+                <article className={`narrative-chapter ${result.success ? "success" : "failure"}`} key={result.id}>
+                  <div className="chapter-marker"><span>指令 {String(index + 1).padStart(2, "0")}</span><i /> <b>{result.success ? <CheckCircle2 size={14} /> : <XCircle size={14} />}{result.success ? "行动取得进展" : "行动遭遇阻力"}</b></div>
+                  <h3>{result.sceneTitle}</h3>
+                  <div className="chapter-meta"><span>{result.districtName}</span><span>{result.memberName} · {result.actionType}</span>{result.incidentTitle && <span>档案：{result.incidentTitle}</span>}</div>
+                  <blockquote className="issued-order"><small>你下达的指令</small><p>{result.orderBrief}</p></blockquote>
+                  <div className="chapter-prose">{result.narrative.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</div>
+                  {result.testimony && <blockquote className="testimony"><span>现场证言 · {result.testimony.speaker}</span><p>“{result.testimony.words}”</p></blockquote>}
+                  <section className="finding-dossier">
+                    <h4><Lightbulb size={14} /> 带回据点的可靠信息</h4>
+                    <ul>{result.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul>
+                  </section>
+                  {result.abilityName && <div className="ability-result"><Zap size={14} /><span><b>{result.abilityName} 已生效</b>{result.abilityEffect}</span></div>}
+                  {result.newClue && <div className="new-clue"><Lightbulb size={15} /><span><b>新证据已归档</b>{result.newClue}</span></div>}
+                  <div className="chapter-outcome"><div><small>显性后果</small><p>{result.consequence}</p></div><div><small>建议追查</small><p>{result.followUp}</p></div></div>
+                  <details className="rules-appendix"><summary>查看规则检定</summary><div><span>检定掷值 <strong>{result.score}</strong></span><span>成功阈值 <strong>{result.threshold}</strong></span><span>证据推进 <strong>+{result.progressDelta}%</strong></span></div></details>
                 </article>
               )) : (
-                <div className="quiet-result"><CloudFog size={24} /><p>本周没有重点行动。未处理事件仍在各自的时间窗口中推进。</p></div>
+                <div className="quiet-result"><CloudFog size={24} /><p>本周没有重点行动。组织保住了表面的平静，而城市替你写下了这一周的其余部分。</p></div>
               )}
             </div>
+
+            {turnReport.worldMoves.length > 0 && <section className="world-movements">
+              <div className="world-movements-heading"><Eye size={15} /><span><small>没有等待你的城市</small><h3>未受干预的暗流</h3></span></div>
+              {turnReport.worldMoves.map((movement) => <article className={movement.severity} key={movement.title}><div><span>{movement.districtName}</span><strong>{movement.title}</strong></div><p>{movement.text}</p></article>)}
+            </section>}
+
+            <div className="report-closing"><span>本周终记</span><p>{turnReport.closing}</p></div>
+
+            <section className="turn-ledger">
+              <div className="turn-ledger-heading"><span>组织账目附录</span><small>数值只解释后果，不替代叙事</small></div>
+              <div className="delta-grid" aria-label="本周资源变化">
+                {([[
+                  "资金", turnReport.deltas.money, "£"],
+                  ["情报", turnReport.deltas.intel, ""],
+                  ["隐秘度", turnReport.deltas.concealment, ""],
+                  ["稳定", turnReport.deltas.stability, ""],
+                ] as const).map(([label, value, prefix]) => (
+                  <div key={label} className={value >= 0 ? "positive" : "negative"}><span>{label}</span><strong>{value >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{prefix}{value > 0 ? `+${value}` : value}</strong></div>
+                ))}
+              </div>
+            </section>
 
             <footer className="report-actions">
               <button className="back-button" onClick={() => { setTurnReport(null); setView("archive"); }}><Archive size={16} /> 查看全部档案</button>

@@ -862,3 +862,73 @@ select:hover, input:hover, textarea:hover { background: rgba(7,10,8,.72); }
   .order-sheet-backdrop { align-items: end; }
   .order-sheet { max-height: 94vh; }
 }
+
+/* Long-form weekly chronicle: prose first, mechanics as an appendix. */
+.turn-report-modal { width: min(940px, 100%); max-height: 94vh; background: linear-gradient(145deg, #20251f, #121612 68%); }
+.turn-report-modal .report-header { padding: 34px 48px 26px; }
+.turn-report-modal .report-header h2 { max-width: 720px; font-size: 29px; line-height: 1.25; }
+.turn-report-modal .report-header > p:last-child { max-width: 72ch; font-family: "Songti SC", "STSong", serif; font-size: 13px; line-height: 1.8; }
+.report-prologue { padding: 30px 48px 8px; max-width: 82ch; }
+.report-prologue p, .chapter-prose p { color: #d1c9b8; font-family: "Songti SC", "STSong", "Noto Serif SC", Georgia, serif; font-size: 14px; line-height: 2; letter-spacing: .015em; }
+.report-prologue p:first-child::first-letter { float: left; margin: 7px 7px 0 0; color: var(--gold); font-size: 42px; line-height: .72; }
+.narrative-results { padding: 8px 48px 12px; }
+.narrative-chapter { padding: 34px 0 42px; border-bottom: 1px solid rgba(201,168,106,.18); }
+.chapter-marker { display: flex; align-items: center; gap: 10px; color: var(--gold-soft); font: 9px -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: .1em; }
+.chapter-marker > i { height: 1px; flex: 1; background: var(--hairline); }
+.chapter-marker > b { display: flex; align-items: center; gap: 5px; color: var(--green-bright); font-weight: 500; letter-spacing: 0; }
+.narrative-chapter.failure .chapter-marker > b { color: #d98b7e; }
+.narrative-chapter > h3 { margin: 17px 0 7px; font-size: 24px; line-height: 1.35; }
+.chapter-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.chapter-meta span { padding: 4px 7px; border-radius: 6px; color: var(--muted); background: rgba(255,255,255,.035); font-size: 8px; }
+.issued-order { margin: 20px 0; padding: 13px 16px; border: 0; border-left: 2px solid var(--gold-soft); background: rgba(201,168,106,.045); }
+.issued-order small { color: var(--gold-soft); font-size: 8px; letter-spacing: .08em; }
+.issued-order p { margin: 6px 0 0; color: #bdb5a4; font-size: 11px; line-height: 1.65; }
+.chapter-prose { max-width: 74ch; }
+.chapter-prose p { margin: 0 0 15px; }
+.testimony { max-width: 68ch; margin: 23px 0; padding: 18px 20px; border: 1px solid rgba(201,168,106,.14); border-radius: 3px; background: rgba(8,11,9,.38); }
+.testimony span { color: var(--gold-soft); font-size: 8px; letter-spacing: .06em; }
+.testimony p { margin: 9px 0 0; color: #e0d7c4; font-family: "Songti SC", "STSong", serif; font-size: 14px; font-style: italic; line-height: 1.85; }
+.finding-dossier { max-width: 74ch; margin-top: 22px; padding: 15px 17px; border: 1px solid rgba(119,153,133,.2); border-radius: 11px; background: rgba(119,153,133,.055); }
+.finding-dossier h4 { margin: 0; display: flex; align-items: center; gap: 7px; color: var(--green-bright); font-size: 10px; font-weight: 500; }
+.finding-dossier ul { margin: 11px 0 0; padding-left: 18px; }
+.finding-dossier li { margin-top: 6px; color: #b9c5bb; font-size: 10px; line-height: 1.6; }
+.narrative-chapter .ability-result, .narrative-chapter .new-clue { max-width: 74ch; }
+.chapter-outcome { max-width: 74ch; margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.chapter-outcome > div { padding: 13px; border-radius: 10px; background: rgba(255,255,255,.025); }
+.chapter-outcome small { color: var(--gold-soft); font-size: 8px; }
+.chapter-outcome p { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.65; }
+.rules-appendix { max-width: 74ch; margin-top: 14px; color: var(--muted); font-size: 9px; }
+.rules-appendix summary { width: fit-content; min-height: 30px; display: flex; align-items: center; cursor: pointer; color: #777f78; }
+.rules-appendix summary::marker { color: var(--gold-soft); }
+.rules-appendix > div { padding: 9px 11px; display: flex; flex-wrap: wrap; gap: 14px; border-radius: 8px; background: rgba(4,7,5,.32); }
+.rules-appendix strong { color: var(--ink); font-weight: 500; }
+.world-movements { padding: 30px 48px; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); background: rgba(4,7,5,.22); }
+.world-movements-heading { margin-bottom: 14px; display: flex; align-items: center; gap: 10px; color: var(--gold); }
+.world-movements-heading span { display: grid; gap: 2px; }
+.world-movements-heading small { color: var(--gold-soft); font-size: 8px; letter-spacing: .08em; }
+.world-movements-heading h3 { margin: 0; font-size: 17px; }
+.world-movements article { padding: 14px 0; border-top: 1px solid var(--hairline); }
+.world-movements article > div { display: flex; align-items: baseline; gap: 8px; }
+.world-movements article span { color: var(--gold-soft); font-size: 8px; }
+.world-movements article strong { font-size: 11px; font-weight: 500; }
+.world-movements article.danger strong { color: #d98b7e; }
+.world-movements article p { max-width: 74ch; margin: 7px 0 0; color: #aaa496; font-family: "Songti SC", "STSong", serif; font-size: 12px; line-height: 1.75; }
+.report-closing { padding: 30px 48px; }
+.report-closing span { color: var(--gold-soft); font-size: 8px; letter-spacing: .08em; }
+.report-closing p { max-width: 74ch; margin: 9px 0 0; color: #d4ccba; font-family: "Songti SC", "STSong", serif; font-size: 14px; line-height: 1.9; }
+.turn-ledger { margin: 0 48px 28px; padding: 16px; border: 1px solid var(--hairline); border-radius: 12px; background: rgba(5,8,6,.32); }
+.turn-ledger-heading { display: flex; align-items: center; justify-content: space-between; }
+.turn-ledger-heading span { font-size: 10px; }
+.turn-ledger-heading small { color: var(--muted); font-size: 8px; }
+.turn-ledger .delta-grid { padding: 12px 0 0; border: 0; }
+.turn-report-modal .report-actions { position: sticky; bottom: 0; z-index: 3; background: rgba(20,25,21,.94); backdrop-filter: blur(18px); border-top: 1px solid var(--hairline); }
+
+@media (max-width: 760px) {
+  .turn-report-modal .report-header, .report-prologue, .narrative-results, .world-movements, .report-closing { padding-inline: 20px; }
+  .turn-report-modal .report-header h2 { font-size: 23px; }
+  .report-prologue p, .chapter-prose p { font-size: 13px; line-height: 1.9; }
+  .narrative-chapter > h3 { font-size: 20px; }
+  .chapter-outcome { grid-template-columns: 1fr; }
+  .turn-ledger { margin-inline: 20px; }
+  .turn-ledger-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
+}

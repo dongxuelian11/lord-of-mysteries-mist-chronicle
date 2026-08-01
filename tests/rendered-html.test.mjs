@@ -49,7 +49,7 @@ test("keeps interaction, persistence, and accessibility in the product source", 
   assert.match(page, /localStorage/);
   assert.match(page, /newGameStep/);
   assert.match(page, /TurnReport/);
-  assert.match(page, /发现新线索/);
+  assert.match(page, /新证据已归档/);
   assert.match(page, /revealedClues/);
   assert.match(page, /prepareSuggestedAction/);
   assert.match(page, /spirituality/);
@@ -58,6 +58,10 @@ test("keeps interaction, persistence, and accessibility in the product source", 
   assert.match(page, /showDistrictDetail/);
   assert.match(page, /showOrderComposer/);
   assert.match(page, /区域线索/);
+  assert.match(page, /buildNarrativeResult/);
+  assert.match(page, /INCIDENT_VOICES/);
+  assert.match(page, /未受干预的暗流/);
+  assert.match(page, /你下达的指令/);
   assert.match(page, /aria-label="主要页面"/);
   assert.match(page, /Ctrl|ctrlKey/);
   assert.match(css, /min-height:\s*44px/);
@@ -72,6 +76,9 @@ test("keeps interaction, persistence, and accessibility in the product source", 
   assert.match(css, /\.map-first-grid/);
   assert.match(css, /\.district-drawer/);
   assert.match(css, /\.order-sheet/);
+  assert.match(css, /\.narrative-chapter/);
+  assert.match(css, /\.chapter-prose/);
+  assert.match(css, /\.world-movements/);
   assert.match(layout, /灰雾纪事/);
   assert.match(packageJson, /lucide-react/);
 });
