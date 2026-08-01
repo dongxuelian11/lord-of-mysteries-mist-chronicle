@@ -47,6 +47,8 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(app, /重新阅读完整章节/);
   assert.match(app, /每周小说总结都会永久保存/);
   assert.match(app, /mist-chronicle-complete-v6/);
+  assert.match(app, /LEGACY_SAVE_KEY/);
+  assert.match(app, /旧历史分支/);
   assert.match(app, /InvestigationBoard/);
   assert.match(app, /aria-label="游戏主导航"/);
   assert.match(engine, /interpretIntentWithAi/);

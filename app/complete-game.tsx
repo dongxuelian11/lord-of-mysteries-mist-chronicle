@@ -20,6 +20,7 @@ import InvestigationBoard from "./investigation-board";
 import OrganizationOperations from "./organization-operations";
 
 const SAVE_KEY = "mist-chronicle-complete-v6";
+const LEGACY_SAVE_KEY = "mist-chronicle-complete-v5";
 const AI_KEY = "mist-chronicle-save-v3-ai";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
@@ -78,10 +79,16 @@ export default function CompleteGame() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const saved = window.localStorage.getItem(SAVE_KEY);
+      const legacySaved = window.localStorage.getItem(LEGACY_SAVE_KEY);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
         try { const value = JSON.parse(saved) as GameState; if (value.version === 6) setGame(value); }
         catch { window.localStorage.removeItem(SAVE_KEY); }
+      } else if (legacySaved) {
+        try {
+          const legacy = JSON.parse(legacySaved) as Partial<GameState>;
+          if (legacy.version === 5 && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));
+        } catch { /* 旧存档只用于读取纪事，损坏时不影响新游戏。 */ }
       }
       if (savedAi) {
         try { const value = JSON.parse(savedAi) as Partial<AiConfig>; setEndpoint(value.endpoint ?? ""); setApiKey(value.apiKey ?? ""); setModel(value.model ?? ""); }
