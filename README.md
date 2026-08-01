@@ -1,4 +1,8 @@
-# vinext-starter
+# 灰雾纪事
+
+AI 小说化叙事的已确认产品与实现契约见 [docs/AI_NARRATIVE_SPEC.md](docs/AI_NARRATIVE_SPEC.md)。
+
+## Development foundation
 
 A clean full-stack starter running on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
