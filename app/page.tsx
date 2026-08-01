@@ -5,12 +5,14 @@ import {
   Archive,
   ArrowRight,
   Building2,
+  BookOpen,
   Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CloudFog,
   Command,
+  Compass,
   Eye,
   LayoutDashboard,
   Lightbulb,
@@ -20,10 +22,12 @@ import {
   Settings,
   ShieldAlert,
   Sparkles,
+  Target,
   TrendingDown,
   TrendingUp,
   Undo2,
   UsersRound,
+  Zap,
   X,
   XCircle,
 } from "lucide-react";
@@ -53,6 +57,10 @@ type District = {
   x: number;
   y: number;
   size: "small" | "medium" | "large";
+  background: string;
+  landmarks: string[];
+  opportunity: string;
+  warning: string;
 };
 
 type Incident = {
@@ -76,6 +84,7 @@ type Order = {
   memberId: string;
   districtId: string;
   brief: string;
+  useAbility: boolean;
 };
 
 type ChronicleEntry = {
@@ -97,6 +106,8 @@ type TurnResult = {
   detail: string;
   progressDelta: number;
   newClue?: string;
+  abilityName?: string;
+  abilityEffect?: string;
 };
 
 type TurnReport = {
@@ -118,6 +129,7 @@ type GameState = {
   intel: number;
   concealment: number;
   stability: number;
+  spirituality: number;
   members: Member[];
   districts: District[];
   incidents: Incident[];
@@ -126,6 +138,7 @@ type GameState = {
 };
 
 const STORAGE_KEY = "mist-chronicle-save-v3";
+const PLAYER_MEMBER_ID = "player";
 
 const ACTION_PROFILES: Record<string, { base: number; progress: number; intel: number; cost: number; exposure: number; label: string }> = {
   调查: { base: 7, progress: 21, intel: 7, cost: 12, exposure: 2, label: "推进证据链，可能解锁新线索" },
@@ -136,12 +149,26 @@ const ACTION_PROFILES: Record<string, { base: number; progress: number; intel: n
   休整: { base: 18, progress: 2, intel: 0, cost: 6, exposure: -3, label: "恢复稳定并降低组织暴露" },
 };
 
-const PATHWAYS: Record<PathwayId, { name: string; sequence: string; ability: string; note: string }> = {
-  seer: { name: "占卜家", sequence: "序列9", ability: "灵视 · 占卜", note: "擅长预警、追索与仪式准备" },
-  spectator: { name: "观众", sequence: "序列9", ability: "观察 · 读心倾向", note: "擅长识人、交涉与心理干预" },
-  apprentice: { name: "学徒", sequence: "序列9", ability: "开门 · 灵性直觉", note: "擅长潜入、脱身与空间探索" },
-  hunter: { name: "猎人", sequence: "序列9", ability: "追踪 · 陷阱", note: "擅长侦察、伏击与正面冲突" },
-  mystery: { name: "窥秘人", sequence: "序列9", ability: "神秘学识 · 仪式", note: "擅长研究、鉴定与污染辨识" },
+type Pathway = {
+  name: string;
+  sequence: string;
+  ability: string;
+  note: string;
+  activeName: string;
+  activeDescription: string;
+  favoredActions: string[];
+  thresholdBonus: number;
+  progressBonus: number;
+  intelBonus: number;
+  exposureModifier: number;
+};
+
+const PATHWAYS: Record<PathwayId, Pathway> = {
+  seer: { name: "占卜家", sequence: "序列9", ability: "灵视 · 占卜", note: "擅长预警、追索与仪式准备", activeName: "梦境占卜", activeDescription: "在行动前举行简短占卜，避开错误方向并看见关键象征。", favoredActions: ["调查", "仪式"], thresholdBonus: 22, progressBonus: 9, intelBonus: 3, exposureModifier: 0 },
+  spectator: { name: "观众", sequence: "序列9", ability: "观察 · 读心倾向", note: "擅长识人、交涉与心理干预", activeName: "心理画像", activeDescription: "读取细微表情与情绪变化，判断证词、动机和谈判底线。", favoredActions: ["交涉", "调查"], thresholdBonus: 21, progressBonus: 7, intelBonus: 4, exposureModifier: -2 },
+  apprentice: { name: "学徒", sequence: "序列9", ability: "开门 · 灵性直觉", note: "擅长潜入、脱身与空间探索", activeName: "无锁之门", activeDescription: "借助灵性直觉寻找隐蔽入口，为队伍建立安全的潜入与撤离路线。", favoredActions: ["调查", "采购"], thresholdBonus: 19, progressBonus: 11, intelBonus: 2, exposureModifier: -1 },
+  hunter: { name: "猎人", sequence: "序列9", ability: "追踪 · 陷阱", note: "擅长侦察、伏击与正面冲突", activeName: "猎物标记", activeDescription: "从现场痕迹锁定目标行动轨迹，快速推进追踪，但容易惊动猎物。", favoredActions: ["调查", "采购"], thresholdBonus: 24, progressBonus: 12, intelBonus: 2, exposureModifier: 2 },
+  mystery: { name: "窥秘人", sequence: "序列9", ability: "神秘学识 · 仪式", note: "擅长研究、鉴定与污染辨识", activeName: "神秘鉴定", activeDescription: "辨识材料、符号与灵性残留，分离伪造信息和真实污染。", favoredActions: ["研究", "仪式"], thresholdBonus: 23, progressBonus: 10, intelBonus: 5, exposureModifier: 1 },
 };
 
 const ORGANIZATIONS: Record<OrganizationId, { name: string; cover: string; perk: string }> = {
@@ -159,16 +186,16 @@ const INITIAL_MEMBERS: Member[] = [
 ];
 
 const INITIAL_DISTRICTS: District[] = [
-  { id: "north", name: "北区", subtitle: "大学与圣赛缪尔", danger: 30, influence: 16, intel: 38, tone: "safe", x: 21, y: 15, size: "large" },
-  { id: "empress", name: "皇后区", subtitle: "王室与大贵族", danger: 44, influence: 8, intel: 18, tone: "gold", x: 43, y: 18, size: "medium" },
-  { id: "west", name: "西区", subtitle: "教会与上流社交", danger: 38, influence: 11, intel: 22, tone: "gold", x: 16, y: 39, size: "large" },
-  { id: "hillston", name: "希尔斯顿区", subtitle: "商业与证券", danger: 35, influence: 20, intel: 34, tone: "safe", x: 46, y: 39, size: "medium" },
-  { id: "cherwood", name: "乔伍德区", subtitle: "组织据点所在", danger: 24, influence: 42, intel: 56, tone: "safe", x: 31, y: 53, size: "medium" },
-  { id: "queen", name: "皇后大道", subtitle: "政府与议会", danger: 48, influence: 9, intel: 20, tone: "gold", x: 59, y: 51, size: "small" },
-  { id: "east", name: "东区", subtitle: "工厂与失踪人口", danger: 72, influence: 18, intel: 31, tone: "danger", x: 77, y: 35, size: "large" },
-  { id: "bridge", name: "贝克兰德桥区", subtitle: "交通与灰色交易", danger: 59, influence: 15, intel: 41, tone: "danger", x: 47, y: 68, size: "medium" },
-  { id: "south", name: "南区", subtitle: "工人住宅与诊所", danger: 52, influence: 23, intel: 36, tone: "safe", x: 67, y: 78, size: "medium" },
-  { id: "dock", name: "码头区", subtitle: "仓库、船运与走私", danger: 66, influence: 12, intel: 45, tone: "danger", x: 83, y: 72, size: "large" },
+  { id: "north", name: "北区", subtitle: "大学与圣赛缪尔", danger: 30, influence: 16, intel: 38, tone: "safe", x: 21, y: 15, size: "large", background: "贝克兰德的学术与宗教中心。大学、出版社和黑夜教会总部让这里秩序井然，也意味着每一次神秘学活动都可能落入官方视线。", landmarks: ["霍伊大学", "圣赛缪尔教堂", "贝克兰德技术大学"], opportunity: "适合查阅档案、接触学者，并借教会秩序压制异常。", warning: "教会值夜者反应迅速；公开举行仪式极易被记录。" },
+  { id: "empress", name: "皇后区", subtitle: "王室与大贵族", danger: 44, influence: 8, intel: 18, tone: "gold", x: 43, y: 18, size: "medium", background: "宫殿、花园与世袭贵族宅邸构成封闭世界。信息很少流向街头，但仆役、马车夫与宴会供应商维持着一条隐秘的消息网络。", landmarks: ["王室宫殿", "皇后花园", "贵族宅邸群"], opportunity: "可建立贵族线人，获取王室项目和上流婚姻网络情报。", warning: "身份核验严格；一次失礼就会永久关闭多条关系线。" },
+  { id: "west", name: "西区", subtitle: "教会与上流社交", danger: 38, influence: 11, intel: 22, tone: "gold", x: 16, y: 39, size: "large", background: "律师、医生、富商与中小贵族聚居的体面城区。慈善晚宴和私人沙龙是利益交换场，也是隐秘组织寻找新人的温床。", landmarks: ["律师事务所街", "贵族沙龙", "丰收教堂"], opportunity: "交涉收益高，容易接触委托人与合法化渠道。", warning: "多方势力互相监视，来历不明者很难长期伪装。" },
+  { id: "hillston", name: "希尔斯顿区", subtitle: "商业与证券", danger: 35, influence: 20, intel: 34, tone: "safe", x: 46, y: 39, size: "medium", background: "银行、证券所、保险公司和大型百货集中于此。纸面数字掩盖着真正的权力流向，异常交易往往比尸体更早暴露阴谋。", landmarks: ["贝克兰德证券交易所", "银行街", "大型百货"], opportunity: "适合追查资金、采购专业物资和建立商业掩护。", warning: "调查账目需要证据或内线；贸然查账会触发法律反制。" },
+  { id: "cherwood", name: "乔伍德区", subtitle: "组织据点所在", danger: 24, influence: 42, intel: 56, tone: "safe", x: 31, y: 53, size: "medium", background: "中产住宅、剧院与小型事务所混杂，既不贫穷也不过分显眼。你的组织以合法生意为掩护，在一栋临街建筑中建立了第一个据点。", landmarks: ["组织主据点", "剧院街", "地下非凡者聚会"], opportunity: "休整、研究和内部建设更安全，情报网络已有初步根基。", warning: "据点周边行动过于频繁，会把危险直接引向核心成员。" },
+  { id: "queen", name: "皇后大道", subtitle: "政府与议会", danger: 48, influence: 9, intel: 20, tone: "gold", x: 59, y: 51, size: "small", background: "王国行政机关、议会办公室与公务员俱乐部沿大道分布。这里的秘密很少由邪教徒守卫，更多被印章、程序和沉默的利益共同体保护。", landmarks: ["王国议会", "市政厅", "公务员俱乐部"], opportunity: "能够获取政策、人口迁移与政府采购记录。", warning: "指控重要人物需要完整证据链，否则组织可信度会迅速崩塌。" },
+  { id: "east", name: "东区", subtitle: "工厂与失踪人口", danger: 72, influence: 18, intel: 31, tone: "danger", x: 77, y: 35, size: "large", background: "烟尘、廉价出租屋和昼夜不停的工厂吞没了大量人口。贫困让失踪变得寻常，也为人口交易、邪教招募与秘密工程提供遮蔽。", landmarks: ["废弃纺织厂", "廉价旅馆区", "大型煤气工厂"], opportunity: "容易接触工人、帮派和被官方忽视的目击者。", warning: "治安恶劣且污染来源复杂；外勤失败可能引来帮派或官方盘查。" },
+  { id: "bridge", name: "贝克兰德桥区", subtitle: "交通与灰色交易", danger: 59, influence: 15, intel: 41, tone: "danger", x: 47, y: 68, size: "medium", background: "南北交通、廉价市场与短租公寓汇聚于桥区。人和货物不断流动，使这里成为跟踪目标、交换赃物和摆脱追兵的天然舞台。", landmarks: ["贝克兰德大桥", "公共马车总站", "旧货市场"], opportunity: "追踪与采购效率较高，也能接触跨区流动的线人。", warning: "线索流动快、过期也快；错过时间窗口后很难重新定位目标。" },
+  { id: "south", name: "南区", subtitle: "工人住宅与诊所", danger: 52, influence: 23, intel: 36, tone: "safe", x: 67, y: 78, size: "medium", background: "工匠、码头家庭和小型诊所形成紧密社区。居民对官方缺乏信任，却会记住真正提供帮助的人。异常常首先以疾病、事故和家庭悲剧出现。", landmarks: ["慈善诊所", "工人互助会", "廉价药房街"], opportunity: "救助行动能积累长期声望，并发现污染的早期症状。", warning: "资源有限；任何大规模异常都会迅速压垮当地救助网络。" },
+  { id: "dock", name: "码头区", subtitle: "仓库、船运与走私", danger: 66, influence: 12, intel: 45, tone: "danger", x: 83, y: 72, size: "large", background: "来自五海与殖民地的船只把货物、移民和未知事物带进首都。港务文件看似严密，实际上被公司、帮派和走私者共同侵蚀。", landmarks: ["因蒂斯货运栈桥", "海关仓库", "水手酒吧"], opportunity: "可获得海外材料、航运记录与黑市渠道。", warning: "封闭货舱和海外非凡者带来未知风险，撤离路线必须提前准备。" },
 ];
 
 const INITIAL_INCIDENTS: Incident[] = [
@@ -259,6 +286,7 @@ function createInitialState(pathway: PathwayId = "seer", organization: Organizat
     intel: 24 + intelBonus,
     concealment: 86,
     stability: 92,
+    spirituality: 3,
     members: INITIAL_MEMBERS.map((member) => ({ ...member })),
     districts: INITIAL_DISTRICTS.map((district) => ({ ...district })),
     incidents: INITIAL_INCIDENTS.map((incident) => ({ ...incident })),
@@ -272,6 +300,22 @@ function createInitialState(pathway: PathwayId = "seer", organization: Organizat
         tone: "neutral",
       },
     ],
+  };
+}
+
+function normalizeGameState(saved: GameState): GameState {
+  return {
+    ...saved,
+    spirituality: typeof saved.spirituality === "number" ? saved.spirituality : 3,
+    districts: INITIAL_DISTRICTS.map((district) => ({
+      ...district,
+      ...(saved.districts?.find((item) => item.id === district.id) ?? {}),
+      background: district.background,
+      landmarks: district.landmarks,
+      opportunity: district.opportunity,
+      warning: district.warning,
+    })),
+    orders: (saved.orders ?? []).map((order) => ({ ...order, useAbility: order.useAbility ?? false })),
   };
 }
 
@@ -297,11 +341,18 @@ function confidenceFromProgress(progress: number): Incident["confidence"] {
   return "传闻";
 }
 
-function calculateThreshold(member: Member, district: District, actionType: string, briefText: string) {
+function calculateThreshold(member: Member, district: District, actionType: string, briefText: string, abilityBonus = 0) {
   const profile = ACTION_PROFILES[actionType] ?? ACTION_PROFILES.调查;
   const preparation = Math.min(18, Math.floor(briefText.trim().length / 12));
   const memberBonus = member.sequence === "普通人" ? 8 : 15;
-  return Math.max(18, Math.min(88, 48 + profile.base + preparation + memberBonus - Math.floor(district.danger / 4)));
+  return Math.max(18, Math.min(95, 48 + profile.base + preparation + memberBonus + abilityBonus - Math.floor(district.danger / 4)));
+}
+
+function abilityResolutionText(pathway: Pathway, actionType: string) {
+  const favored = pathway.favoredActions.includes(actionType);
+  return favored
+    ? `${pathway.activeName}与这次行动高度契合，显著修正了判断并推进证据链。`
+    : `${pathway.activeName}提供了有限辅助，但并非处理这类问题的最佳手段。`;
 }
 
 function actionDetail(actionType: string, success: boolean, memberName: string, districtName: string) {
@@ -325,6 +376,7 @@ export default function Home() {
   const [selectedMemberId, setSelectedMemberId] = useState("mara");
   const [actionType, setActionType] = useState("调查");
   const [brief, setBrief] = useState("暗中接触失踪工人的家属，核对他们最后出现的时间与地点。不要惊动警察。");
+  const [abilityArmed, setAbilityArmed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showNewGame, setShowNewGame] = useState(false);
   const [newGameStep, setNewGameStep] = useState(1);
@@ -343,7 +395,7 @@ export default function Home() {
       const savedAi = window.localStorage.getItem(`${STORAGE_KEY}-ai`);
       if (saved) {
         try {
-          setGame(JSON.parse(saved) as GameState);
+          setGame(normalizeGameState(JSON.parse(saved) as GameState));
         } catch {
           window.localStorage.removeItem(STORAGE_KEY);
         }
@@ -402,12 +454,32 @@ export default function Home() {
   const selectedIncident = districtIncidents.find((incident) => incident.status === "active") ?? districtIncidents[0];
   const pathway = PATHWAYS[game.pathway];
   const organization = ORGANIZATIONS[game.organization];
-  const availableMembers = game.members.filter((member) => !game.orders.some((order) => order.memberId === member.id));
-  const selectedMember = game.members.find((member) => member.id === selectedMemberId) ?? game.members[0];
+  const playerMember: Member = {
+    id: PLAYER_MEMBER_ID,
+    name: "你 · 组织负责人",
+    role: `${pathway.name} / 亲自带队`,
+    sequence: `${pathway.sequence} · ${pathway.name}`,
+    specialty: pathway.note,
+    status: "空闲",
+    trust: 100,
+  };
+  const operatives = [playerMember, ...game.members];
+  const availableMembers = operatives.filter((member) => !game.orders.some((order) => order.memberId === member.id));
+  const selectedMember = operatives.find((member) => member.id === selectedMemberId) ?? operatives[0];
   const activeMemberId = availableMembers.some((member) => member.id === selectedMemberId)
     ? selectedMemberId
     : availableMembers[0]?.id ?? "";
   const activeMember = game.members.find((member) => member.id === activeMemberId) ?? selectedMember;
+  const canUseAbility = activeMemberId === PLAYER_MEMBER_ID && game.spirituality > 0;
+  const abilityIsActive = abilityArmed && canUseAbility;
+  const activeIncidents = game.incidents.filter((incident) => incident.status === "active");
+  const urgentIncident = [...activeIncidents].sort((a, b) => a.deadline - b.deadline || b.urgency - a.urgency)[0];
+  const missingWorkersIncident = activeIncidents.find((incident) => incident.id === "missing-workers");
+  const formulaIncident = activeIncidents.find((incident) => incident.id === "black-market-formula");
+  const conspiracyIncidentIds = ["missing-workers", "south-fever", "sealed-cargo", "parliament-whisper"];
+  const conspiracyProgress = Math.round(
+    game.incidents.filter((incident) => conspiracyIncidentIds.includes(incident.id)).reduce((sum, incident) => sum + incident.progress, 0) / conspiracyIncidentIds.length,
+  );
 
   const situationScore = useMemo(() => {
     return Math.round((game.intel + game.concealment + game.stability) / 3);
@@ -415,13 +487,17 @@ export default function Home() {
 
   const planForecast = useMemo(() => {
     const profile = ACTION_PROFILES[actionType] ?? ACTION_PROFILES.调查;
-    const threshold = calculateThreshold(activeMember, selectedDistrict, actionType, brief);
+    const favoredAbility = pathway.favoredActions.includes(actionType);
+    const abilityBonus = abilityIsActive ? (favoredAbility ? pathway.thresholdBonus : Math.floor(pathway.thresholdBonus / 2)) : 0;
+    const threshold = calculateThreshold(activeMember, selectedDistrict, actionType, brief, abilityBonus);
     return {
       threshold,
       risk: threshold >= 70 ? "较稳妥" : threshold >= 52 ? "存在风险" : "高风险",
       profile,
+      progress: profile.progress + (abilityIsActive ? pathway.progressBonus : 0),
+      abilityBonus,
     };
-  }, [actionType, activeMember, brief, selectedDistrict]);
+  }, [abilityIsActive, actionType, activeMember, brief, pathway, selectedDistrict]);
 
   function queueOrder() {
     if (!brief.trim() || game.actionPoints <= 0 || !activeMemberId) return;
@@ -431,24 +507,37 @@ export default function Home() {
       memberId: activeMemberId,
       districtId: selectedDistrict.id,
       brief: brief.trim(),
+      useAbility: abilityIsActive,
     };
     setGame((current) => ({
       ...current,
       actionPoints: current.actionPoints - 1,
+      spirituality: abilityIsActive ? Math.max(0, current.spirituality - 1) : current.spirituality,
       orders: [...current.orders, order],
     }));
     setBrief("");
+    setAbilityArmed(false);
     setUndoOrderId(order.id);
     setToast("指令已加入本周计划");
   }
 
   function removeOrder(orderId: string) {
+    const removedOrder = game.orders.find((order) => order.id === orderId);
     setGame((current) => ({
       ...current,
       actionPoints: Math.min(3, current.actionPoints + 1),
+      spirituality: removedOrder?.useAbility ? Math.min(3, current.spirituality + 1) : current.spirituality,
       orders: current.orders.filter((order) => order.id !== orderId),
     }));
     if (undoOrderId === orderId) setUndoOrderId(null);
+  }
+
+  function prepareSuggestedAction(incident: Incident, nextAction: string, suggestedBrief: string) {
+    setSelectedDistrictId(incident.districtId);
+    setActionType(nextAction);
+    setBrief(suggestedBrief);
+    setView("situation");
+    window.setTimeout(() => document.getElementById("order-composer")?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
   }
 
   function resolveWeek() {
@@ -475,19 +564,24 @@ export default function Home() {
     }
 
     orders.forEach((order, index) => {
-      const member = game.members.find((item) => item.id === order.memberId) ?? selectedMember;
+      const member = operatives.find((item) => item.id === order.memberId) ?? selectedMember;
       const district = game.districts.find((item) => item.id === order.districtId) ?? selectedDistrict;
       const incident = game.incidents.find((item) => item.districtId === order.districtId && item.status === "active");
       const profile = ACTION_PROFILES[order.type] ?? ACTION_PROFILES.调查;
+      const abilityUsed = order.useAbility && member.id === PLAYER_MEMBER_ID;
+      const favoredAbility = pathway.favoredActions.includes(order.type);
+      const abilityBonus = abilityUsed ? (favoredAbility ? pathway.thresholdBonus : Math.floor(pathway.thresholdBonus / 2)) : 0;
       const roll = numberHash(`${game.week}:${order.memberId}:${order.districtId}:${order.type}:${order.brief}`) % 100;
-      const threshold = calculateThreshold(member, district, order.type, order.brief);
+      const threshold = calculateThreshold(member, district, order.type, order.brief, abilityBonus);
       const success = roll < threshold;
-      const progressDelta = incident ? (success ? profile.progress : Math.max(2, Math.floor(profile.progress * .3))) : 0;
+      const baseProgress = profile.progress + (abilityUsed ? pathway.progressBonus : 0);
+      const progressDelta = incident ? (success ? baseProgress : Math.max(2, Math.floor(baseProgress * .3))) : 0;
       let newClue: string | undefined;
 
       moneyDelta -= profile.cost;
-      intelDelta += success ? profile.intel : Math.min(2, profile.intel);
-      concealmentDelta -= success ? profile.exposure : profile.exposure + 2;
+      intelDelta += success ? profile.intel + (abilityUsed ? pathway.intelBonus : 0) : Math.min(2, profile.intel);
+      const exposure = profile.exposure + (abilityUsed ? pathway.exposureModifier : 0);
+      concealmentDelta -= success ? exposure : exposure + 2;
       stabilityDelta += order.type === "休整" ? (success ? 5 : 2) : success ? 0 : order.type === "仪式" ? -4 : -2;
       if (incident) {
         const previousProgress = incident.progress + (progressByIncident[incident.id] ?? 0);
@@ -501,7 +595,9 @@ export default function Home() {
         }
       }
 
-      const detail = actionDetail(order.type, success, member.name, district.name);
+      const baseDetail = actionDetail(order.type, success, member.name, district.name);
+      const abilityEffect = abilityUsed ? abilityResolutionText(pathway, order.type) : undefined;
+      const detail = abilityEffect ? `${baseDetail} ${abilityEffect}` : baseDetail;
       results.push({
         id: order.id,
         memberName: member.name,
@@ -513,6 +609,8 @@ export default function Home() {
         detail,
         progressDelta,
         newClue,
+        abilityName: abilityUsed ? pathway.activeName : undefined,
+        abilityEffect,
       });
 
       entries.push({
@@ -536,6 +634,7 @@ export default function Home() {
       intel: Math.min(100, Math.max(0, current.intel + intelDelta)),
       concealment: Math.min(100, Math.max(0, current.concealment + concealmentDelta)),
       stability: Math.min(100, Math.max(0, current.stability + stabilityDelta)),
+      spirituality: Math.min(3, current.spirituality + 1),
       orders: [],
       incidents: current.incidents.map((incident) => {
         const wasAddressed = Boolean(progressByIncident[incident.id]);
@@ -625,6 +724,51 @@ export default function Home() {
 
       {view === "situation" && (
         <div className="command-grid" id="game-content">
+          <section className="panel mission-control" aria-labelledby="mission-title">
+            <div className="mission-context">
+              <p className="eyebrow icon-eyebrow"><Compass size={12} /> 当前状况 · 原著时间线尚未偏转</p>
+              <h2 id="mission-title">廷根的故事刚刚开始，你拥有一段提前布局的时间</h2>
+              <p>克莱恩·莫雷蒂于今晨苏醒，尚未抵达贝克兰德。你的无许可组织已经在首都站稳脚跟，却同时捕捉到人口失踪、异常药品与可疑货运三条彼此呼应的暗线。现在的任务不是“知道原著答案”，而是把怀疑变成能够影响教会与政府的证据。</p>
+              <div className="stage-tags"><span>发展阶段：秘密立足</span><span>行动点：{game.actionPoints} / 3</span><span>活跃异常：{activeIncidents.length}</span></div>
+            </div>
+
+            <div className="objective-board">
+              <div className="primary-objective">
+                <div className="objective-title"><Target size={16} /><span><small>本局主目标</small><strong>在大雾霾前揭开人口阴谋</strong></span></div>
+                <p>串联东区失踪者、南区异常药品、码头密封货物与政府迁移记录，取得足以采取行动的证据。</p>
+                <div className="objective-progress"><span><i style={{ width: `${conspiracyProgress}%` }} /></span><strong>{conspiracyProgress}%</strong></div>
+              </div>
+              <div className="urgent-objective">
+                <span className="objective-kicker">最近期限</span>
+                {urgentIncident ? (
+                  <>
+                    <strong>{urgentIncident.title}</strong>
+                    <small>{urgentIncident.deadline} 周后恶化 · 风险 {urgentIncident.urgency}</small>
+                  </>
+                ) : <strong>当前公开异常已全部处理</strong>}
+              </div>
+            </div>
+
+            <div className="next-actions">
+              <div className="next-actions-heading"><BookOpen size={14} /><span><strong>行动建议</strong><small>点击即可填入行动计划</small></span></div>
+              {urgentIncident && (
+                <button onClick={() => prepareSuggestedAction(urgentIncident, "调查", `先确认“${urgentIncident.title}”中最可靠的目击记录，标记风险来源并准备安全撤离路线。`)}>
+                  <b>01</b><span><strong>处理最近期限</strong><small>{urgentIncident.title} · {urgentIncident.deadline}周</small></span><ChevronRight size={15} />
+                </button>
+              )}
+              {missingWorkersIncident && (
+                <button onClick={() => prepareSuggestedAction(missingWorkersIncident, "调查", "暗中接触失踪工人的家属，核对最后出现的时间、地点与共同联系人，不惊动警察。") }>
+                  <b>02</b><span><strong>推进主线证据</strong><small>从东区人口失踪切入</small></span><ChevronRight size={15} />
+                </button>
+              )}
+              {formulaIncident && (
+                <button onClick={() => prepareSuggestedAction(formulaIncident, "研究", "比对被涂改配方的墨水、材料与原始抄本，确认它是否是陷阱并追查来源。") }>
+                  <b>03</b><span><strong>获取晋升资源线</strong><small>研究被涂改的魔药配方</small></span><ChevronRight size={15} />
+                </button>
+              )}
+            </div>
+          </section>
+
           <section className="panel map-panel">
             <div className="panel-heading">
               <div>
@@ -671,6 +815,15 @@ export default function Home() {
               <div className="mini-stat"><span>影响</span><strong>{selectedDistrict.influence}</strong></div>
               <div className="mini-stat"><span>情报</span><strong>{selectedDistrict.intel}</strong></div>
             </div>
+            <div className="district-background">
+              <div className="district-lore">
+                <span className="lore-heading"><BookOpen size={13} /> 区域背景</span>
+                <p>{selectedDistrict.background}</p>
+                <div className="landmark-list">{selectedDistrict.landmarks.map((landmark) => <span key={landmark}>{landmark}</span>)}</div>
+              </div>
+              <div className="district-intel-note opportunity"><strong>可利用</strong><p>{selectedDistrict.opportunity}</p></div>
+              <div className="district-intel-note warning"><strong>注意</strong><p>{selectedDistrict.warning}</p></div>
+            </div>
           </section>
 
           <section className="center-stack">
@@ -709,7 +862,7 @@ export default function Home() {
               </button>
             </article>
 
-            <article className="panel order-panel">
+            <article className="panel order-panel" id="order-composer">
               <div className="panel-heading compact">
                 <div>
                   <p className="eyebrow">重点指令</p>
@@ -738,9 +891,33 @@ export default function Home() {
                 <div><Search size={15} /><span>{planForecast.profile.label}</span></div>
                 <dl>
                   <div><dt>预估成功</dt><dd>{planForecast.threshold}% · {planForecast.risk}</dd></div>
-                  <div><dt>预计推进</dt><dd>成功 +{planForecast.profile.progress}%</dd></div>
+                  <div><dt>预计推进</dt><dd>成功 +{planForecast.progress}%</dd></div>
                   <div><dt>行动成本</dt><dd>£ {planForecast.profile.cost}</dd></div>
                 </dl>
+              </div>
+              <div className={`ability-control ${abilityIsActive ? "armed" : ""} ${!canUseAbility ? "locked" : ""}`}>
+                <div className="ability-icon"><Zap size={18} /></div>
+                <div className="ability-copy">
+                  <div><span>途径主动能力</span><strong>{pathway.activeName}</strong></div>
+                  <p>{pathway.activeDescription}</p>
+                  <small>擅长：{pathway.favoredActions.join(" / ")} · 本周灵性 {game.spirituality} / 3</small>
+                </div>
+                {activeMemberId === PLAYER_MEMBER_ID ? (
+                  <button
+                    className="ability-toggle"
+                    onClick={() => setAbilityArmed((current) => !current)}
+                    disabled={!canUseAbility}
+                    aria-pressed={abilityIsActive}
+                  >
+                    {abilityIsActive ? "已启用" : game.spirituality > 0 ? "消耗1灵性" : "灵性耗尽"}
+                  </button>
+                ) : (
+                  <button
+                    className="ability-toggle"
+                    onClick={() => { setSelectedMemberId(PLAYER_MEMBER_ID); setAbilityArmed(true); }}
+                    disabled={!availableMembers.some((member) => member.id === PLAYER_MEMBER_ID) || game.spirituality <= 0}
+                  >负责人亲自出动</button>
+                )}
               </div>
               <label className="brief-field">
                 <span>具体计划</span>
@@ -762,11 +939,11 @@ export default function Home() {
               <article className="panel queue-panel">
                 <p className="eyebrow">待执行计划</p>
                 {game.orders.map((order, index) => {
-                  const member = game.members.find((item) => item.id === order.memberId);
+                  const member = operatives.find((item) => item.id === order.memberId);
                   return (
                     <div className="queued-order" key={order.id}>
                       <span className="queue-index">0{index + 1}</span>
-                      <div><strong>{order.type} · {member?.name}</strong><p>{order.brief}</p></div>
+                      <div><strong>{order.type} · {member?.name}{order.useAbility ? ` · ${pathway.activeName}` : ""}</strong><p>{order.brief}</p></div>
                       <button onClick={() => removeOrder(order.id)} aria-label="撤销指令"><X size={15} /></button>
                     </div>
                   );
@@ -786,6 +963,7 @@ export default function Home() {
                 <div><span>情报储备</span><strong>{game.intel}</strong></div>
                 <div><span>隐秘度</span><strong>{game.concealment}</strong></div>
                 <div><span>组织稳定</span><strong>{game.stability}</strong></div>
+                <div><span>负责人灵性</span><strong>{game.spirituality} / 3</strong></div>
               </div>
               <div className="situation-ring" style={{ "--score": `${situationScore * 3.6}deg` } as React.CSSProperties}>
                 <div><strong>{situationScore}</strong><span>综合态势</span></div>
@@ -799,6 +977,8 @@ export default function Home() {
               </div>
               <div className="pathway-line"><span>{pathway.name}</span><strong>{pathway.ability}</strong></div>
               <p className="muted">{pathway.note}</p>
+              <div className="player-ability-summary"><Zap size={14} /><span><small>可用能力</small><strong>{pathway.activeName}</strong></span></div>
+              <button className="secondary-button" onClick={() => { setSelectedMemberId(PLAYER_MEMBER_ID); setAbilityArmed(true); document.getElementById("order-composer")?.scrollIntoView({ behavior: "smooth", block: "center" }); }} disabled={game.spirituality <= 0 || !availableMembers.some((member) => member.id === PLAYER_MEMBER_ID)}>亲自带队并启用能力</button>
             </section>
 
             <button className="turn-button" onClick={resolveWeek}>
@@ -905,6 +1085,7 @@ export default function Home() {
                       <span>判定 {result.score} / {result.threshold}</span>
                       <span>证据推进 +{result.progressDelta}%</span>
                     </div>
+                    {result.abilityName && <div className="ability-result"><Zap size={14} /><span><b>{result.abilityName} 已生效</b>{result.abilityEffect}</span></div>}
                     {result.newClue && <div className="new-clue"><Lightbulb size={15} /><span><b>发现新线索</b>{result.newClue}</span></div>}
                   </div>
                 </article>

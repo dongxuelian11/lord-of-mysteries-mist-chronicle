@@ -29,6 +29,11 @@ test("server-renders the playable game shell", async () => {
   assert.match(html, /码头区/);
   assert.match(html, /安排本周行动/);
   assert.match(html, /预估成功/);
+  assert.match(html, /当前状况/);
+  assert.match(html, /本局主目标/);
+  assert.match(html, /行动建议/);
+  assert.match(html, /区域背景/);
+  assert.match(html, /途径主动能力/);
   assert.match(html, /结束本周/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
@@ -46,6 +51,10 @@ test("keeps interaction, persistence, and accessibility in the product source", 
   assert.match(page, /TurnReport/);
   assert.match(page, /发现新线索/);
   assert.match(page, /revealedClues/);
+  assert.match(page, /prepareSuggestedAction/);
+  assert.match(page, /spirituality/);
+  assert.match(page, /useAbility/);
+  assert.match(page, /abilityResolutionText/);
   assert.match(page, /aria-label="主要页面"/);
   assert.match(page, /Ctrl|ctrlKey/);
   assert.match(css, /min-height:\s*44px/);
@@ -54,6 +63,9 @@ test("keeps interaction, persistence, and accessibility in the product source", 
   assert.match(css, /env\(safe-area-inset-bottom\)/);
   assert.match(css, /city-map-v1\.png/);
   assert.match(css, /\.turn-report-modal/);
+  assert.match(css, /\.mission-control/);
+  assert.match(css, /\.ability-control/);
+  assert.match(css, /\.district-background/);
   assert.match(layout, /灰雾纪事/);
   assert.match(packageJson, /lucide-react/);
 });
