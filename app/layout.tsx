@@ -6,14 +6,14 @@ export async function generateMetadata(): Promise<Metadata> {
   const incomingHeaders = await headers();
   const host = incomingHeaders.get("x-forwarded-host") ?? incomingHeaders.get("host") ?? "localhost:3000";
   const protocol = incomingHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const imageUrl = `${protocol}://${host}/og.png`;
+  const imageUrl = `${protocol}://${host}/og-v2.png`;
 
   return {
     title: "灰雾纪事｜诡秘之主同人推演",
     description: "经营你的非凡者组织，在原著时间线中调查、抉择并改写历史。",
     icons: {
-      icon: "/og.png",
-      shortcut: "/og.png",
+      icon: "/og-v2.png",
+      shortcut: "/og-v2.png",
     },
     openGraph: {
       title: "灰雾纪事",

@@ -1,6 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  Archive,
+  ArrowRight,
+  Building2,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  CloudFog,
+  Command,
+  Eye,
+  LayoutDashboard,
+  RotateCcw,
+  Settings,
+  ShieldAlert,
+  Sparkles,
+  Undo2,
+  UsersRound,
+  X,
+} from "lucide-react";
 
 type PathwayId = "seer" | "spectator" | "apprentice" | "hunter" | "mystery";
 type OrganizationId = "agency" | "salon" | "clinic" | "caravan";
@@ -190,34 +209,39 @@ export default function Home() {
   const [brief, setBrief] = useState("暗中接触失踪工人的家属，核对他们最后出现的时间与地点。不要惊动警察。");
   const [showSettings, setShowSettings] = useState(false);
   const [showNewGame, setShowNewGame] = useState(false);
+  const [newGameStep, setNewGameStep] = useState(1);
   const [draftPathway, setDraftPathway] = useState<PathwayId>("seer");
   const [draftOrganization, setDraftOrganization] = useState<OrganizationId>("agency");
   const [endpoint, setEndpoint] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [toast, setToast] = useState("");
+  const [undoOrderId, setUndoOrderId] = useState<string | null>(null);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    const savedAi = window.localStorage.getItem(`${STORAGE_KEY}-ai`);
-    if (saved) {
-      try {
-        setGame(JSON.parse(saved) as GameState);
-      } catch {
-        window.localStorage.removeItem(STORAGE_KEY);
+    const timer = window.setTimeout(() => {
+      const saved = window.localStorage.getItem(STORAGE_KEY);
+      const savedAi = window.localStorage.getItem(`${STORAGE_KEY}-ai`);
+      if (saved) {
+        try {
+          setGame(JSON.parse(saved) as GameState);
+        } catch {
+          window.localStorage.removeItem(STORAGE_KEY);
+        }
       }
-    }
-    if (savedAi) {
-      try {
-        const config = JSON.parse(savedAi) as { endpoint?: string; apiKey?: string; model?: string };
-        setEndpoint(config.endpoint ?? "");
-        setApiKey(config.apiKey ?? "");
-        setModel(config.model ?? "");
-      } catch {
-        window.localStorage.removeItem(`${STORAGE_KEY}-ai`);
+      if (savedAi) {
+        try {
+          const config = JSON.parse(savedAi) as { endpoint?: string; apiKey?: string; model?: string };
+          setEndpoint(config.endpoint ?? "");
+          setApiKey(config.apiKey ?? "");
+          setModel(config.model ?? "");
+        } catch {
+          window.localStorage.removeItem(`${STORAGE_KEY}-ai`);
+        }
       }
-    }
-    setHydrated(true);
+      setHydrated(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -226,9 +250,33 @@ export default function Home() {
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 2400);
+    const timer = window.setTimeout(() => {
+      setToast("");
+      setUndoOrderId(null);
+    }, 4200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    function handleKeyboard(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setShowSettings(false);
+        setShowNewGame(false);
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        if (event.shiftKey) resolveWeek();
+        else queueOrder();
+      }
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && event.target === document.body) {
+        if (event.key === "1") setView("situation");
+        if (event.key === "2") setView("organization");
+        if (event.key === "3") setView("archive");
+      }
+    }
+    window.addEventListener("keydown", handleKeyboard);
+    return () => window.removeEventListener("keydown", handleKeyboard);
+  });
 
   const selectedDistrict = game.districts.find((district) => district.id === selectedDistrictId) ?? game.districts[0];
   const selectedIncident = game.incidents.find((incident) => incident.districtId === selectedDistrict.id);
@@ -259,6 +307,7 @@ export default function Home() {
       orders: [...current.orders, order],
     }));
     setBrief("");
+    setUndoOrderId(order.id);
     setToast("指令已加入本周计划");
   }
 
@@ -268,6 +317,7 @@ export default function Home() {
       actionPoints: Math.min(3, current.actionPoints + 1),
       orders: current.orders.filter((order) => order.id !== orderId),
     }));
+    if (undoOrderId === orderId) setUndoOrderId(null);
   }
 
   function resolveWeek() {
@@ -347,6 +397,7 @@ export default function Home() {
     setGame(createInitialState(draftPathway, draftOrganization));
     setSelectedDistrictId("east");
     setShowNewGame(false);
+    setNewGameStep(1);
     setToast("新的历史分支已经建立");
   }
 
@@ -358,12 +409,13 @@ export default function Home() {
 
   return (
     <main className="game-shell">
+      <a className="skip-link" href="#game-content">跳到主要内容</a>
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
 
       <header className="topbar">
         <div className="brand-block">
-          <div className="brand-mark" aria-hidden="true">雾</div>
+          <div className="brand-mark" aria-hidden="true"><Eye size={20} strokeWidth={1.5} /></div>
           <div>
             <p className="eyebrow">诡秘之主 · 同人推演原型</p>
             <h1>灰雾纪事</h1>
@@ -375,27 +427,38 @@ export default function Home() {
           <small>世界线偏转：0.7%</small>
         </div>
         <div className="header-actions">
-          <button className="icon-button" onClick={() => setShowNewGame(true)} aria-label="新游戏">↻</button>
-          <button className="icon-button" onClick={() => setShowSettings(true)} aria-label="模型设置">⚙</button>
+          <button className="icon-button has-tooltip" onClick={() => { setNewGameStep(1); setShowNewGame(true); }} aria-label="建立新的历史分支" data-tooltip="新游戏">
+            <RotateCcw size={17} />
+          </button>
+          <button className="icon-button has-tooltip" onClick={() => setShowSettings(true)} aria-label="模型与游戏设置" data-tooltip="设置">
+            <Settings size={17} />
+          </button>
         </div>
       </header>
 
       <nav className="section-tabs" aria-label="主要页面">
-        <button className={view === "situation" ? "active" : ""} onClick={() => setView("situation")}>局势推演</button>
-        <button className={view === "organization" ? "active" : ""} onClick={() => setView("organization")}>组织与成员</button>
-        <button className={view === "archive" ? "active" : ""} onClick={() => setView("archive")}>历史档案</button>
-        <span className="autosave"><i /> 本地自动存档</span>
+        <button className={view === "situation" ? "active" : ""} onClick={() => setView("situation")}>
+          <LayoutDashboard size={16} /><span>局势</span><kbd>1</kbd>
+        </button>
+        <button className={view === "organization" ? "active" : ""} onClick={() => setView("organization")}>
+          <UsersRound size={16} /><span>组织</span><kbd>2</kbd>
+        </button>
+        <button className={view === "archive" ? "active" : ""} onClick={() => setView("archive")}>
+          <Archive size={16} /><span>档案</span><kbd>3</kbd>
+        </button>
+        <span className="autosave"><i /> 已保存到本机</span>
+        <span className="shortcut-hint"><Command size={12} /> Enter 下达指令</span>
       </nav>
 
       {view === "situation" && (
-        <div className="command-grid">
+        <div className="command-grid" id="game-content">
           <section className="panel map-panel">
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">城市态势</p>
                 <h2>贝克兰德</h2>
               </div>
-              <span className="weather">薄雾 · 12°C</span>
+              <span className="weather"><CloudFog size={13} /> 薄雾 · 12°C</span>
             </div>
 
             <div className="map-field" aria-label="贝克兰德城区地图">
@@ -431,7 +494,7 @@ export default function Home() {
             <article className="panel incident-panel">
               <div className="panel-heading compact">
                 <div>
-                  <p className="eyebrow">本周焦点 · {selectedIncident?.confidence ?? "未知"}</p>
+                  <p className="eyebrow icon-eyebrow"><ShieldAlert size={12} /> 本周焦点 · {selectedIncident?.confidence ?? "未知"}</p>
                   <h2>{selectedIncident?.title ?? "暂无线索"}</h2>
                 </div>
                 <span className={`risk-badge ${(selectedIncident?.urgency ?? 0) > 60 ? "high" : "medium"}`}>
@@ -448,6 +511,9 @@ export default function Home() {
                 <span>可信度：{selectedIncident?.confidence ?? "未知"}</span>
                 <span>剩余窗口：约3周</span>
               </div>
+              <button className="disclosure-button" onClick={() => setView("archive")}>
+                查看证据与事件记录 <ChevronRight size={15} />
+              </button>
             </article>
 
             <article className="panel order-panel">
@@ -486,7 +552,8 @@ export default function Home() {
                 <small>{brief.length}/280 · 计划越具体，准备加成越高</small>
               </label>
               <button className="primary-button" onClick={queueOrder} disabled={!brief.trim() || game.actionPoints <= 0 || !availableMembers.length}>
-                下达指令 <span>消耗1行动点</span>
+                <span className="button-label">下达指令 <small>消耗1行动点</small></span>
+                <ArrowRight size={17} />
               </button>
             </article>
 
@@ -499,7 +566,7 @@ export default function Home() {
                     <div className="queued-order" key={order.id}>
                       <span className="queue-index">0{index + 1}</span>
                       <div><strong>{order.type} · {member?.name}</strong><p>{order.brief}</p></div>
-                      <button onClick={() => removeOrder(order.id)} aria-label="撤销指令">×</button>
+                      <button onClick={() => removeOrder(order.id)} aria-label="撤销指令"><X size={15} /></button>
                     </div>
                   );
                 })}
@@ -510,7 +577,7 @@ export default function Home() {
           <aside className="right-stack">
             <section className="panel organization-card">
               <div className="organization-seal">鸦</div>
-              <p className="eyebrow">当前组织</p>
+              <p className="eyebrow icon-eyebrow"><Building2 size={12} /> 当前组织</p>
               <h2>{organization.name}</h2>
               <p className="muted">{organization.cover}</p>
               <div className="resource-list">
@@ -534,8 +601,8 @@ export default function Home() {
             </section>
 
             <button className="turn-button" onClick={resolveWeek}>
-              <span><small>世界将同步推进</small>结束本周</span>
-              <b>→</b>
+              <span><small>世界将同步推进 · ⇧⌘ Enter</small>结束本周</span>
+              <ArrowRight size={22} />
             </button>
           </aside>
         </div>
@@ -600,14 +667,20 @@ export default function Home() {
       {showSettings && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowSettings(false)}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
-            <button className="modal-close" onClick={() => setShowSettings(false)} aria-label="关闭">×</button>
+            <button className="modal-close" onClick={() => setShowSettings(false)} aria-label="关闭"><X size={18} /></button>
+            <div className="modal-icon"><Settings size={20} /></div>
             <p className="eyebrow">本机配置</p>
             <h2 id="settings-title">AI叙事接口</h2>
-            <p className="modal-copy">不填写也可以游玩。接口只负责对话与叙事，规则结算始终在本地完成。</p>
+            <p className="modal-copy">不填写也可以游玩。模型只负责人物对话与叙事表达，规则结算始终留在本地。</p>
+            <div className={`connection-status ${endpoint && model ? "configured" : "offline"}`}>
+              <i />
+              <span>{endpoint && model ? "已配置自定义模型" : "当前使用离线叙事"}</span>
+              <small>{endpoint && model ? model : "稳定且不产生调用费用"}</small>
+            </div>
             <label><span>OpenAI兼容端点</span><input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://api.example.com/v1" /></label>
             <label><span>模型名称</span><input value={model} onChange={(event) => setModel(event.target.value)} placeholder="model-name" /></label>
             <label><span>API Key</span><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="仅保存在本机" /></label>
-            <button className="primary-button" onClick={saveAiSettings}>保存设置</button>
+            <button className="primary-button" onClick={saveAiSettings}><span className="button-label">保存设置</span><Check size={17} /></button>
             <small className="security-note">当前切片使用离线模板叙事；下一阶段接通实际请求与结构化校验。</small>
           </section>
         </div>
@@ -616,33 +689,77 @@ export default function Home() {
       {showNewGame && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowNewGame(false)}>
           <section className="modal new-game-modal" role="dialog" aria-modal="true" aria-labelledby="new-game-title" onMouseDown={(event) => event.stopPropagation()}>
-            <button className="modal-close" onClick={() => setShowNewGame(false)} aria-label="关闭">×</button>
-            <p className="eyebrow">建立新的历史分支</p>
-            <h2 id="new-game-title">选择你的开局</h2>
-            <div className="choice-grid">
+            <button className="modal-close" onClick={() => setShowNewGame(false)} aria-label="关闭"><X size={18} /></button>
+            <div className="wizard-header">
               <div>
-                <span className="choice-label">非凡途径</span>
-                {(Object.entries(PATHWAYS) as [PathwayId, (typeof PATHWAYS)[PathwayId]][]).map(([id, item]) => (
-                  <button key={id} className={draftPathway === id ? "selected-choice" : ""} onClick={() => setDraftPathway(id)}>
-                    <strong>{item.name}</strong><small>{item.note}</small>
-                  </button>
-                ))}
+                <p className="eyebrow">建立新的历史分支</p>
+                <h2 id="new-game-title">{newGameStep === 1 ? "选择非凡途径" : newGameStep === 2 ? "选择组织掩护" : "确认开局"}</h2>
               </div>
-              <div>
-                <span className="choice-label">组织掩护</span>
-                {(Object.entries(ORGANIZATIONS) as [OrganizationId, (typeof ORGANIZATIONS)[OrganizationId]][]).map(([id, item]) => (
-                  <button key={id} className={draftOrganization === id ? "selected-choice" : ""} onClick={() => setDraftOrganization(id)}>
-                    <strong>{item.name}</strong><small>{item.perk}</small>
-                  </button>
-                ))}
+              <div className="step-indicator" aria-label={`第${newGameStep}步，共3步`}>
+                {[1, 2, 3].map((step) => <i key={step} className={step <= newGameStep ? "active" : ""} />)}
               </div>
             </div>
-            <button className="primary-button" onClick={startNewGame}>进入贝克兰德</button>
+
+            {newGameStep === 1 && (
+              <div className="choice-list pathway-choices">
+                {(Object.entries(PATHWAYS) as [PathwayId, (typeof PATHWAYS)[PathwayId]][]).map(([id, item]) => (
+                  <button key={id} className={draftPathway === id ? "selected-choice" : ""} onClick={() => setDraftPathway(id)}>
+                    <span className="choice-symbol"><Sparkles size={18} /></span>
+                    <span><strong>{item.name}</strong><small>{item.note}</small></span>
+                    <i className="choice-check">{draftPathway === id && <Check size={14} />}</i>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {newGameStep === 2 && (
+              <div className="choice-list organization-choices">
+                {(Object.entries(ORGANIZATIONS) as [OrganizationId, (typeof ORGANIZATIONS)[OrganizationId]][]).map(([id, item]) => (
+                  <button key={id} className={draftOrganization === id ? "selected-choice" : ""} onClick={() => setDraftOrganization(id)}>
+                    <span className="choice-symbol"><Building2 size={18} /></span>
+                    <span><strong>{item.name}</strong><small>{item.perk}</small></span>
+                    <i className="choice-check">{draftOrganization === id && <Check size={14} />}</i>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {newGameStep === 3 && (
+              <div className="opening-summary">
+                <div className="summary-art" role="img" aria-label="雾都贝克兰德中的秘密组织" />
+                <div className="summary-copy">
+                  <span>1349年6月28日 · 贝克兰德</span>
+                  <h3>{ORGANIZATIONS[draftOrganization].name}</h3>
+                  <p>你将以{PATHWAYS[draftPathway].sequence}「{PATHWAYS[draftPathway].name}」的身份，带领四名成员进入尚未偏转的原著时间线。</p>
+                  <dl>
+                    <div><dt>非凡能力</dt><dd>{PATHWAYS[draftPathway].ability}</dd></div>
+                    <div><dt>组织优势</dt><dd>{ORGANIZATIONS[draftOrganization].perk}</dd></div>
+                    <div><dt>开局难度</dt><dd>标准 · 可随时读档</dd></div>
+                  </dl>
+                </div>
+              </div>
+            )}
+
+            <div className="wizard-actions">
+              {newGameStep > 1 ? (
+                <button className="back-button" onClick={() => setNewGameStep((step) => step - 1)}><ChevronLeft size={17} /> 返回</button>
+              ) : <span />}
+              {newGameStep < 3 ? (
+                <button className="primary-button compact-button" onClick={() => setNewGameStep((step) => step + 1)}><span className="button-label">继续</span><ChevronRight size={17} /></button>
+              ) : (
+                <button className="primary-button compact-button" onClick={startNewGame}><span className="button-label">进入贝克兰德</span><ArrowRight size={17} /></button>
+              )}
+            </div>
           </section>
         </div>
       )}
 
-      {toast && <div className="toast" role="status">{toast}</div>}
+      {toast && (
+        <div className="toast" role="status">
+          <span><Check size={15} /> {toast}</span>
+          {undoOrderId && <button onClick={() => { removeOrder(undoOrderId); setToast("已撤销本周指令"); }}><Undo2 size={14} /> 撤销</button>}
+        </div>
+      )}
     </main>
   );
 }
