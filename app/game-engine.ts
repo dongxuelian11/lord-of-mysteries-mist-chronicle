@@ -353,7 +353,7 @@ export function resolveWeek(game: GameState) {
     facts: facts.slice(-80),
     missions,
     schedule: [],
-    chronicle: [chapter, ...game.chronicle].slice(0, 40),
+    chronicle: [chapter, ...game.chronicle],
   };
   return { state: nextState, chapter };
 }

@@ -58,7 +58,7 @@ export default function CompleteGame() {
   const [turnChapter, setTurnChapter] = useState<ChronicleChapter | null>(null);
   const [generationStage, setGenerationStage] = useState("");
   const [generationError, setGenerationError] = useState("");
-  const [readerScale, setReaderScale] = useState(1);
+  const [readerScale, setReaderScale] = useState(1.08);
   const [showSettings, setShowSettings] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [endpoint, setEndpoint] = useState("");
@@ -97,6 +97,7 @@ export default function CompleteGame() {
   const abilities = availableAbilities(game);
   const aiReady = Boolean(endpoint.trim() && apiKey.trim() && model.trim());
   const activeMission = game.missions.find((mission) => mission.state === "active");
+  const latestChapter = game.chronicle[0];
 
   async function prepareContract() {
     if (!intentText.trim() || contractLoading) return;
@@ -260,6 +261,7 @@ export default function CompleteGame() {
 
         <aside className="intent-rail">
           <article className="leader-card complete-card"><p>组织负责人</p><div className="leader-sequence"><span>{game.currentSequence}</span><div><small>{pathway.name}途径</small><strong>{currentSequence.name}</strong></div></div><div className="digestion-mini"><span><i style={{ width: `${game.digestion}%` }} /></span><strong>{game.digestion}%</strong></div><p>{currentSequence.acting}</p><button onClick={() => setView("progression")}>查看能力与晋升 <ChevronRight size={14} /></button></article>
+          {latestChapter && <article className="latest-chronicle complete-card"><header><BookOpen size={15} /><span><small>上一周小说总结</small><strong>{latestChapter.title}</strong></span></header><p>{latestChapter.summary}</p><button onClick={() => setSelectedChapter(latestChapter)}><BookOpen size={14} />重新阅读完整章节</button><button className="all-chronicles" onClick={() => setView("archive")}>查看全部周目纪事 <ChevronRight size={13} /></button></article>}
           <article className="intent-ledger complete-card"><header><span><Target size={14} /> 我的意图</span><small>由你定义重要性</small></header>{game.playerIntents.map((intent) => <div key={intent.id}><button className={intent.pinned ? "pinned" : ""} onClick={() => setGame((current) => ({ ...current, playerIntents: current.playerIntents.map((item) => item.id === intent.id ? { ...item, pinned: !item.pinned } : item) }))}><Target size={12} /></button><span>{intent.text}</span><button onClick={() => applySuggestion(intent.text)}><ArrowRight size={13} /></button></div>)}<label><input value={intentDraft} onChange={(event) => setIntentDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addPlayerIntent(); }} placeholder="写下一个长期意图" /><button onClick={addPlayerIntent}><Plus size={14} /></button></label></article>
           <article className="organization-glance complete-card"><header><Building2 size={14} /><span>{game.organizationName}</span></header><dl><div><dt>成员</dt><dd>{game.members.length + 1}</dd></div><div><dt>设施</dt><dd>{game.facilities.filter((facility) => facility.status === "运转中").length}</dd></div><div><dt>影响</dt><dd>{game.influence}</dd></div><div><dt>稳定</dt><dd>{game.stability}</dd></div></dl><button onClick={() => setView("organization")}>进入组织管理 <ChevronRight size={14} /></button></article>
         </aside>
@@ -307,8 +309,8 @@ export default function CompleteGame() {
       </div>}
 
       {view === "archive" && <div className="archive-page page-enter">
-        <header className="page-title"><p>权威世界账本</p><h1>事实、资产与正式纪事</h1><span>小说不能反向覆盖事实；传闻、假设和确认信息被明确区分。</span></header>
-        <div className="archive-grid"><section className="chronicle-index complete-card"><header className="section-heading"><span><BookOpen size={15} /><strong>正式章节</strong></span><small>{game.chronicle.length}章</small></header>{game.chronicle.length ? game.chronicle.map((chapter) => <button key={chapter.id} onClick={() => setSelectedChapter(chapter)}><span>W{String(chapter.week).padStart(2, "0")}</span><div><strong>{chapter.title}</strong><small>{chapter.date} · {chapter.source === "ai" ? "文学模式" : "本地事实版"}</small></div><ChevronRight size={14} /></button>) : <div className="empty-state"><BookOpen size={24} /><p>结束第一周后，这里会保存正式章节。</p></div>}</section><section className="fact-ledger complete-card"><header className="section-heading"><span><FileKey size={15} /><strong>世界事实</strong></span><small>{game.facts.length}条</small></header>{game.facts.slice().reverse().map((fact) => <article key={fact.id}><b className={fact.certainty}>{fact.certainty}</b><div><strong>{fact.subject}</strong><p>{fact.statement}</p><small>{fact.source} · 第{fact.week}周</small></div></article>)}</section></div>
+        <header className="page-title"><p>权威世界账本</p><h1>事实、资产与正式纪事</h1><span>每周小说总结都会永久保存在这里。点击任意章节即可反复阅读；小说不能反向覆盖已经结算的事实。</span></header>
+        <div className="archive-grid"><section className="chronicle-index complete-card"><header className="section-heading"><span><BookOpen size={15} /><strong>每周小说纪事</strong></span><small>{game.chronicle.length}章 · 可反复阅读</small></header>{game.chronicle.length ? game.chronicle.map((chapter, index) => <button key={chapter.id} className={index === 0 ? "latest" : ""} onClick={() => setSelectedChapter(chapter)} aria-label={`重读第${chapter.week}周：${chapter.title}`}><span>W{String(chapter.week).padStart(2, "0")}</span><div><strong>{chapter.title}</strong><small>{chapter.date} · {chapter.source === "ai" ? "文学模式" : "本地事实版"}</small></div><b>{index === 0 ? "最新" : "重读"}</b><ChevronRight size={14} /></button>) : <div className="empty-state"><BookOpen size={24} /><p>结束第一周后，每周小说总结都会永久保存到这里。</p></div>}</section><section className="fact-ledger complete-card"><header className="section-heading"><span><FileKey size={15} /><strong>世界事实</strong></span><small>{game.facts.length}条</small></header>{game.facts.slice().reverse().map((fact) => <article key={fact.id}><b className={fact.certainty}>{fact.certainty}</b><div><strong>{fact.subject}</strong><p>{fact.statement}</p><small>{fact.source} · 第{fact.week}周</small></div></article>)}</section></div>
       </div>}
     </section>
 

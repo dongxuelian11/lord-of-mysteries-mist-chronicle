@@ -41,11 +41,14 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(app, /普通交谈不消耗行动/);
   assert.match(app, /sendChat/);
   assert.match(app, /character-dialogue/);
+  assert.match(app, /重新阅读完整章节/);
+  assert.match(app, /每周小说总结都会永久保存/);
   assert.match(app, /aria-label="游戏主导航"/);
   assert.match(engine, /interpretIntentWithAi/);
   assert.match(engine, /scheduleContract/);
   assert.match(engine, /resolveWeek/);
   assert.match(engine, /generateLiteraryChapter/);
+  assert.doesNotMatch(engine, /chronicle: \[chapter, \.\.\.game\.chronicle\]\.slice/);
   assert.match(engine, /advanceSequence/);
   assert.match(model, /sequence[s]?:/i);
   assert.match(model, /const RANK_EIGHT_RECIPES/);
@@ -59,6 +62,8 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(css, /prefers-reduced-motion:reduce/);
   assert.match(css, /:focus-visible/);
   assert.match(css, /character-dialogue/);
+  assert.match(css, /Legibility pass/);
+  assert.match(css, /latest-chronicle/);
   assert.match(css, /@media\(max-width:760px\)/);
   assert.match(layout, /complete-game\.css/);
 });
