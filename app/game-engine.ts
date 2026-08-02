@@ -455,10 +455,11 @@ function buildLocalChapter(game: GameState, results: ActionResult[], worldText: 
   if (secondary.length) sections.push({ heading: "其余回报", paragraphs: secondary.map((result) => endSentence(`${result.title}被记为“${result.outcome}”。${result.findings[0]} ${result.consequence}`)) });
   const futureChanges = results.flatMap((result) => result.futureChanges ?? []).slice(0, 4);
   const pressure = game.missions.find((mission) => mission.state === "active");
+  const pressureConsequence = pressure?.consequence.replace(/^若继续(?:搁置|放任)[，,]?\s*/, "");
   sections.push({ heading: "下一次集会之前", paragraphs: [
     ...futureChanges.map((change) => endSentence(`${cleanNarrative(change)}；它已经成为下周可以继续追问或利用的条件`)),
     endSentence(cleanNarrative(worldText)),
-    pressure ? `留在桌面中央的压力仍是“${pressure.title}”。还剩${pressure.deadline}周，当前推进${pressure.progress}%；若继续搁置，${endSentence(pressure.consequence)}` : "本周没有尚未处理的强制压力，但各方势力仍会依照自己的目标行动。",
+    pressure ? `留在桌面中央的压力仍是“${pressure.title}”。还剩${pressure.deadline}周，当前推进${pressure.progress}%；若继续搁置，${endSentence(pressureConsequence ?? pressure.consequence)}` : "本周没有尚未处理的强制压力，但各方势力仍会依照自己的目标行动。",
   ] });
   return {
     id: `chapter-${game.week}-${Date.now()}`,

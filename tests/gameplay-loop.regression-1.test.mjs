@@ -55,6 +55,7 @@ test("map locations expose distinct dossiers, routes and withdrawal conditions",
 test("weekly prose normalizes punctuation and carries consequences into the next council", async () => {
   const source = await read("app/game-engine.ts");
   assert.match(source, /function cleanNarrative/);
+  assert.match(source, /replace\(\/\^若继续\(\?:搁置\|放任\)/);
   assert.match(source, /heading: "下一次集会之前"/);
   assert.match(source, /还剩\$\{pressure\.deadline\}周/);
 });
