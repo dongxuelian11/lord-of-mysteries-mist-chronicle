@@ -5,6 +5,7 @@ import {
 import { LORE_RECORDS } from "./generated-lore-compendium";
 import { retrieveLoreContext } from "./lore-knowledge";
 import { abilitiesFor, abilityRuleSummary } from "./pathway-abilities";
+import { evaluateImmediateActing } from "./progression-system";
 
 type AbilityDraft = Omit<AbilityUseRecord, "id" | "week" | "abilityId" | "abilityName" | "context" | "intent" | "cost"> & {
   lockedFact?: string;
@@ -164,6 +165,7 @@ export function resolveImmediateAbility(game: GameState, ability: Ability, inten
     stability: Math.max(35, 88 - result.mentalLoad * 5),
     turns: [{ id: `scene-turn-${Date.now()}`, playerIntent: intent, response: result.observation, stabilityChange: -result.mentalLoad * 2 }],
   } : null;
+  const actingMark = evaluateImmediateActing(game, ability, intent, record);
   return {
     record,
     state: {
@@ -173,6 +175,8 @@ export function resolveImmediateAbility(game: GameState, ability: Ability, inten
       instability: Math.min(100, game.instability + overdraw * 3),
       playerCondition: overdraw ? { ...game.playerCondition, pollution: Math.min(100, game.playerCondition.pollution + overdraw) } : game.playerCondition,
       abilityJournal: [record, ...game.abilityJournal].slice(0, 120),
+      digestion: Math.min(100, game.digestion + (actingMark?.gain ?? 0)),
+      actingMarks: actingMark ? [...game.actingMarks, actingMark].slice(-80) : game.actingMarks,
       hiddenWorldFacts: hiddenFact ? [...game.hiddenWorldFacts, hiddenFact] : game.hiddenWorldFacts,
       activeAbilityScene: scene,
       worldKernel: { ...game.worldKernel, knowledge: [...game.worldKernel.knowledge, { id: `knowledge-${record.id}`, subject: context.label, statement: record.interpretation, truth: result.confidence === "确认" ? "confirmed" : "likely", visibility: "player", holderIds: ["player"], loreRecordIds: [], acquiredWeek: game.week }].slice(-400) },

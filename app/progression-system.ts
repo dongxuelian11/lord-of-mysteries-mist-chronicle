@@ -1,4 +1,4 @@
-import { ADVANCEMENT_RITUALS, type ActionContract, type ActionResult, type ActingMark, type AdvancementProcess, type GameState, PATHWAYS } from "./game-model.ts";
+import { ADVANCEMENT_RITUALS, type Ability, type AbilityUseRecord, type ActionContract, type ActionResult, type ActingMark, type AdvancementProcess, type GameState, PATHWAYS } from "./game-model.ts";
 
 const ACTING_PRINCIPLES: Record<GameState["pathwayId"], Record<number, string[]>> = {
   seer: {
@@ -59,6 +59,35 @@ export function evaluateActing(game: GameState, contract: ActionContract, outcom
   const base = outcome === "成功" ? 8 : outcome === "部分成功" ? 6 : 3;
   const gain = Math.max(2, base + (contract.abilityIds.length ? 2 : 0) - (repeated ? 3 : 0));
   return { id: `acting-${game.week}-${contract.id}`, week: game.week, sequence: game.currentSequence, principle, evidence: `${contract.title}：${outcome}；${contract.desiredOutcome}`, gain, repeated };
+}
+
+export function evaluateImmediateActing(game: GameState, ability: Ability, intent: string, record: AbilityUseRecord): ActingMark | null {
+  const principles = actingPrinciplesFor(game);
+  const source = `${ability.name} ${ability.verb} ${ability.description} ${intent} ${record.observation} ${record.interpretation}`;
+  const principleSignals: Record<GameState["pathwayId"], RegExp[]> = {
+    seer: [/启示|占卜|预兆|征兆|命运/, /复核|验证|校正|判断/, /边界|未知|无法确认|不替|停止/],
+    spectator: [/观察|旁观|微表情|行为/, /事实|推断|情绪|判断|无法确认/, /矛盾|画像|验证|细微/],
+    apprentice: [/边界|封闭|入口|脱困/, /归路|返回|撤离|坐标/, /技巧|开锁|通路|空间/],
+    hunter: [/追踪|反追踪|猎物/, /环境|弱点|冲突|战术/, /陷阱|避免|替代|收束/],
+    mystery: [/识别|命名|辨认/, /未知|层次|验证|复核/, /污染|边界|停止|不使用/],
+  };
+  const scores = principleSignals[game.pathwayId].map((signals) => signals.test(source) ? 1 : 0);
+  const index = scores.findIndex((score) => score === Math.max(...scores));
+  if (index < 0 || Math.max(...scores) === 0) return null;
+  const principle = principles[index % principles.length];
+  const recentMatches = game.actingMarks.slice(-6).filter((item) => item.sequence === game.currentSequence && item.principle === principle).length;
+  const repeated = recentMatches >= 2;
+  const boundaryBonus = /不施加|不强迫|不把.{0,12}当作事实|只观察|停止条件|撤离|返回|复核|验证/.test(intent) ? 1 : 0;
+  const gain = Math.max(2, 4 + boundaryBonus - (repeated ? 2 : 0));
+  return {
+    id: `acting-${record.id}`,
+    week: game.week,
+    sequence: game.currentSequence,
+    principle,
+    evidence: `${ability.name}：${intent.slice(0, 84)}${intent.length > 84 ? "……" : ""}`,
+    gain,
+    repeated,
+  };
 }
 
 export function createAdvancementProcess(game: GameState): AdvancementProcess {

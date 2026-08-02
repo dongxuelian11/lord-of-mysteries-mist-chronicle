@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createInitialGame } from "../app/game-model.ts";
 import { abilitiesFor } from "../app/pathway-abilities.ts";
-import { actingPrinciplesFor, advanceAdvancementStage, createAdvancementProcess } from "../app/progression-system.ts";
+import { actingPrinciplesFor, advanceAdvancementStage, createAdvancementProcess, evaluateImmediateActing } from "../app/progression-system.ts";
 import { advanceOrganizationCausality } from "../app/organization-causality.ts";
 
 test("five pathways expose cumulative independent sequence 9-5 ability rules", () => {
@@ -37,6 +37,17 @@ test("acting principles are pathway-specific and visible", () => {
   assert.notDeepEqual(seer, hunter);
 });
 
+test("a valid immediate ability use records acting insight and digestion", () => {
+  const game = createInitialGame("spectator");
+  const ability = abilitiesFor("spectator", 9).find((item) => item.name === "行为观察");
+  assert.ok(ability);
+  const record = { id: "ability-use-test", week: game.week, abilityId: ability.id, abilityName: ability.name, context: { kind: "council", label: "每周密议室" }, intent: "", observation: "目标提到名单时小指颤动。", interpretation: "这是可验证的行为矛盾，不是幕后参与的事实。", confidence: "中等", unknown: "动机未知", detection: "未察觉", cost: 1, mentalLoad: 1 };
+  const mark = evaluateImmediateActing(game, ability, "只观察对方谈到名单时的细微反应，把事实、推断与情绪分开，不施加暗示。", record);
+  assert.ok(mark);
+  assert.ok(mark.gain >= 2);
+  assert.match(mark.evidence, /行为观察/);
+});
+
 test("departments and recruits form cross-week governance pressure before irreversible outcomes", () => {
   const game = createInitialGame("spectator");
   game.departments[0].backlog = 69;
@@ -48,4 +59,3 @@ test("departments and recruits form cross-week governance pressure before irreve
   assert.equal(next.recruitPool[0].relationshipStage, "接触");
   assert.ok(next.recruitPool[0].relationshipMomentum < -24);
 });
-
