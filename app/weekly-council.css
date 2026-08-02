@@ -37,6 +37,7 @@
 
 /* Readability boundary: the page sits on the dark shell, while papers retain dark ink. */
 .council-panel{color:#2d2924;background:rgba(255,253,248,.92);box-shadow:0 18px 48px rgba(0,0,0,.18)}
+.council-seat strong{font-size:14px}.council-seat small,.player-chair small{font-size:12px}.council-stages strong{font-size:14px}.council-stages small{font-size:12px}.spoken-reports article>header strong,.member-agendas header strong,.decision-ledger>div>article strong{font-size:14px}.spoken-reports article>header small,.spoken-reports article>p,.spoken-reports li,.member-agendas p,.member-agendas button,.npc-proposals p,.decision-ledger>div>article p{font-size:13px}.panel-advance,.council-composer>footer,.decision-ledger>footer>div{font-size:13px}
 
 .council-dialogue-backdrop{background:rgba(15,15,12,.68);backdrop-filter:blur(14px)}
 .living-dialogue{width:min(720px,calc(100vw - 28px));max-height:min(860px,calc(100vh - 28px));border-color:rgba(173,143,85,.32);background:linear-gradient(180deg,#fbf8f1,#f3eee5);box-shadow:0 30px 100px rgba(0,0,0,.38)}

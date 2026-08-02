@@ -271,3 +271,7 @@
 @media (prefers-reduced-motion: reduce) {
   .council-enter-motion, .council-simulating .council-panel, .council-simulating .council-stages { animation: none; }
 }
+
+/* Council copy is reading material, not dashboard microcopy. */
+.portfolio-board button strong,.topic-list strong,.discussion-summary strong{font-size:14px}.portfolio-board button small,.portfolio-board button em,.city-workspace-head>div>span,.district-workspace>header small{font-size:12px!important;line-height:1.6}.topic-messages header span,.topic-messages header b{font-size:12px}.topic-messages p{max-width:72ch;color:#d0c8b9!important;font-size:15px!important;line-height:1.8!important}.discussion-summary li,.discussion-summary p{font-size:14px!important;line-height:1.7!important}.location-grid button span{font-size:13px}.location-grid button small{font-size:11px!important}.district-workspace>p,.location-brief p{max-width:72ch}.route-brief>span{font-size:13px}.map-query input{font-size:14px}.map-query button{font-size:13px}
+@media(max-width:760px){.portfolio-board button strong,.topic-list strong{font-size:15px}.topic-messages p{font-size:16px!important}.route-brief>span{grid-template-columns:16px 46px 1fr;font-size:14px}.city-workspace-head,.district-workspace{padding-inline:17px}}
