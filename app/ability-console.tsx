@@ -27,7 +27,7 @@ type Props = {
 
 export default function AbilityConsole(props: Props) {
   const [sceneIntent, setSceneIntent] = useState("");
-  const freeMode = props.selectedId === "free-intent";
+  const freeMode = !props.selectedId || props.selectedId === "free-intent";
   const selected = props.abilities.find((item) => item.id === props.selectedId) ?? props.abilities.find((item) => !item.passive) ?? props.abilities[0];
   const displayAbility = freeMode ? { id: "free-intent", name: "按我的意图", verb: "先写目的，再决定是否附加能力或封印物", description: "你可以直接写下想做什么，并明确指定手段、排除条件与停止条件。系统只校验当前序列和世界规则，不会擅自换成吊坠、占卜、仪式或他人协助。", cost: 0, risk: "实际消耗与风险由最终采用的能力、封印物和场景决定。", passive: false } : selected;
   const scene = props.game.activeAbilityScene;
