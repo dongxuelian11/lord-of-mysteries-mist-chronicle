@@ -58,7 +58,8 @@ test("city workspace responds to its own embedded width without horizontal layer
   assert.match(source, /@container city-map \(max-width: 900px\) \{[\s\S]*?\.city-workspace-head \{ grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(source, /@container city-map \(max-width: 560px\) \{[\s\S]*?\.map-query \{ grid-template-columns: auto minmax\(0, 1fr\);/);
   assert.match(source, /\.map-layers \{[^}]*flex-wrap: wrap;[^}]*overflow-x: clip;/);
-  assert.match(source, /\.city-workspace-head h2 \{[^}]*word-break: keep-all;/);
+  assert.match(source, /\.city-workspace-head h2 \{[^}]*color: #eadfca;[^}]*word-break: keep-all;/);
+  assert.match(source, /\.district-workspace > header h3 \{[^}]*color: #eadfca;/);
 });
 
 test("weekly prose normalizes punctuation and carries consequences into the next council", async () => {
