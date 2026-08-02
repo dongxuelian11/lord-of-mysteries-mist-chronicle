@@ -13,6 +13,7 @@ type Props = {
   assistId: string;
   intent: string;
   loading: boolean;
+  error: string;
   result: AbilityUseRecord | null;
   onOpen: () => void;
   onClose: () => void;
@@ -48,6 +49,7 @@ export default function AbilityConsole(props: Props) {
             {!["district", "spirit", "dream"].includes(props.context.kind) && <label className="ability-assist"><span>在场成员协同</span><select value={props.assistId} onChange={(event) => props.onAssist(event.target.value)}><option value="">仅使用自己的能力</option>{props.game.members.filter((member) => member.pathway).map((member) => <option key={member.id} value={member.id}>{member.name} · 序列{member.sequence} {member.pathway} · 疲劳{member.fatigue}</option>)}</select><small>成员会服从正式指令，但不会替你越过其原则和能力边界。</small></label>}
             {artifacts.length > 0 && <div className="artifact-attachments"><span>可自由附加封印物</span>{artifacts.map((item) => <button key={item.id} onClick={() => props.onIntent(`${props.intent}${props.intent.trim() ? "\n" : ""}我明确选择使用封印物“${item.name}”；只按我描述的方式解除必要封存，不自动触发其他用途。`)}><strong>{item.name}</strong><small>{item.location} · {item.risk}</small></button>)}</div>}
             <label><span>{freeMode ? "你具体想做什么？" : "你要如何使用它？"}</span><textarea value={props.intent} onChange={(event) => props.onIntent(event.target.value)} placeholder={freeMode ? `例如：我依靠自身能力主动进入灵界，以${props.context.label}为现实锚点；不占卜、不使用挂坠，先确认安全退路。` : `自由描述对象、观察重点和停止条件。例如：我对${props.context.label}集中使用${displayAbility.name}，只确认情绪变化及其触发点；不进行强制干涉。`} maxLength={900} /></label>
+            {props.error && <div className="ability-inline-feedback" role="alert"><CircleAlert size={16} /><span><strong>这项意图现在无法照原样实现</strong><small>{props.error}</small></span></div>}
             <div className="ability-risk"><CircleAlert size={14} /><span><strong>{displayAbility.passive ? "主动深化被动感知" : displayAbility.risk}</strong><small>{freeMode ? "若当前序列无法使用指定手段，系统会明确说明缺少条件，不会偷换行动。" : props.game.spirituality < (displayAbility.passive ? 1 : displayAbility.cost) ? "灵性不足：继续将产生透支、污染与失控风险。" : "普通能力点击后直接结算；只有明确高危使用才需要额外确认。"}</small></span></div>
             <button className="ability-cast" onClick={props.onUse} disabled={!props.intent.trim() || props.loading}>{props.loading ? <><Sparkles size={16} />感知正在成形</> : <><WandSparkles size={16} />立即发动并获得反馈 <ArrowRight size={16} /></>}</button>
           </>}</article>

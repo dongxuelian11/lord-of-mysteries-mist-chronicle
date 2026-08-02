@@ -62,6 +62,7 @@ export default function CompleteGame() {
   const [abilityAssistId, setAbilityAssistId] = useState("");
   const [abilityIntent, setAbilityIntent] = useState("");
   const [abilityLoading, setAbilityLoading] = useState(false);
+  const [abilityError, setAbilityError] = useState("");
   const [abilityResult, setAbilityResult] = useState<AbilityUseRecord | null>(null);
   const [contract, setContract] = useState<ActionContract | null>(null);
   const [contractLoading, setContractLoading] = useState(false);
@@ -349,6 +350,7 @@ export default function CompleteGame() {
     setAbilitySelectedId(!abilityId || abilityId === "free-intent" ? "free-intent" : preferred?.id ?? "free-intent");
     setAbilityAssistId("");
     setAbilityIntent(prompt);
+    setAbilityError("");
     setAbilityResult(null);
     setAbilityPanelOpen(true);
   }
@@ -356,6 +358,7 @@ export default function CompleteGame() {
   async function castAbility() {
     const intent = abilityIntent.trim();
     if (!intent || abilityLoading) return;
+    setAbilityError("");
     setAbilityLoading(true);
     try {
       const ability = abilitySelectedId === "free-intent" ? abilityForFreeIntent(game, intent) : abilities.find((item) => item.id === abilitySelectedId) ?? abilityForFreeIntent(game, intent);
@@ -386,7 +389,7 @@ export default function CompleteGame() {
       setAbilityPanelOpen(false);
       setAbilityIntent("");
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "能力反馈未能稳定成形");
+      setAbilityError(error instanceof Error ? error.message : "能力反馈未能稳定成形；请补充对象、手段或停止条件后再试。");
     } finally { setAbilityLoading(false); }
   }
 
@@ -614,7 +617,7 @@ export default function CompleteGame() {
       </div>;
     })()}
 
-    <AbilityConsole game={game} abilities={abilities} open={abilityPanelOpen} context={abilityContext} selectedId={abilitySelectedId} assistId={abilityAssistId} intent={abilityIntent} loading={abilityLoading} result={abilityResult} onOpen={() => openAbility()} onClose={() => { setAbilityPanelOpen(false); setAbilityResult(null); }} onSelect={setAbilitySelectedId} onAssist={setAbilityAssistId} onIntent={setAbilityIntent} onUse={() => void castAbility()} onContinueScene={(intent) => void deepenAbilityScene(intent)} onExitScene={() => setGame((current) => ({ ...current, activeAbilityScene: null }))} />
+    <AbilityConsole game={game} abilities={abilities} open={abilityPanelOpen} context={abilityContext} selectedId={abilitySelectedId} assistId={abilityAssistId} intent={abilityIntent} loading={abilityLoading} error={abilityError} result={abilityResult} onOpen={() => openAbility()} onClose={() => { setAbilityPanelOpen(false); setAbilityResult(null); setAbilityError(""); }} onSelect={(id) => { setAbilitySelectedId(id); setAbilityError(""); }} onAssist={setAbilityAssistId} onIntent={(value) => { setAbilityIntent(value); if (abilityError) setAbilityError(""); }} onUse={() => void castAbility()} onContinueScene={(intent) => void deepenAbilityScene(intent)} onExitScene={() => setGame((current) => ({ ...current, activeAbilityScene: null }))} />
 
     {hydrated && !game.prologueComplete && <OpeningPrologue game={game} onBegin={completePrologue} />}
 
