@@ -76,7 +76,7 @@ test("city workspace responds to its own embedded width without horizontal layer
 test("weekly prose normalizes punctuation and carries consequences into the next council", async () => {
   const [source, reader] = await Promise.all([read("app/game-engine.ts"), read("app/complete-game.tsx")]);
   assert.match(source, /function cleanNarrative/);
-  assert.match(source, /replace\(\/\^若继续\(\?:搁置\|放任\)/);
+  assert.match(source, /replace\(\/\^若\(\?:继续\(\?:搁置\|放任\)\|不加干预\)/);
   assert.match(source, /heading: "下一次集会之前"/);
   assert.match(source, /还剩\$\{pressure\.deadline\}周/);
   assert.match(reader, /function normalizeNarrativeGame/);

@@ -95,7 +95,7 @@ function worldEnvelopeIssue(value: Record<string, unknown>, game: GameState, pla
     const candidate = `${String(signal.headline ?? "")} ${String(signal.body ?? "")}`;
     return recentSignals.some((previous) => textSimilarity(candidate, `${previous.headline} ${previous.body}`) >= .78);
   });
-  if (repeatedSignals.length > Math.max(1, Math.floor(validSignals.length / 3))) return "公开消息与最近四周高度复写，数字递增或替换少量名词不算新进展";
+  if (validSignals.length - repeatedSignals.length < 3) return "公开消息与最近四周高度复写，数字递增或替换少量名词不算新进展";
   const genuinelyAdvancedMoves = validMoves.filter((item) => {
     const move = item as Record<string, unknown>;
     const prior = game.factions.find((faction) => faction.id === move.factionId)?.lastMove ?? "";
@@ -694,7 +694,7 @@ function buildLocalChapter(game: GameState, results: ActionResult[], worldText: 
   const weather = ["煤烟把晨光磨成了暗银色", "夜雨停在窗框上，雾却没有散", "街角的马车声比平日来得更早", "事务所的黄铜门牌蒙着一层潮气"][game.week % 4];
   sections.push({ heading: "密议之后", paragraphs: [
     `第${game.week}周，${weather}。散会时留在长桌上的不是任务清单，而是${results.length ? `${results.length}份由你亲自定下目标、边界与退路的行动契约` : "一页没有落款的空白日程"}。`,
-    results.length ? `负责各席的人把命令复述给下属。红线、联络时限和撤离信号被分别封进信封；从这一刻起，组织会按你的方向行动，却仍要为城市的反应付出代价。` : "无人离开据点并不等于世界静止。成员修补掩护与封印，等着凌晨三点的声音再次越过门槛。",
+    results.length ? `负责人在各自职权内拆解命令。红线、联络时限和停止条件被分别记入执行记录；从这一刻起，组织会按你的方向行动，却仍要为城市的反应付出代价。` : "无人离开据点并不等于世界静止。成员修补掩护与封印，等着凌晨三点的声音再次越过门槛。",
   ] });
   if (focus) sections.push({ heading: focus.title, paragraphs: [
     `${handledInsideBase
@@ -708,7 +708,7 @@ function buildLocalChapter(game: GameState, results: ActionResult[], worldText: 
   if (secondary.length) sections.push({ heading: "其余回报", paragraphs: secondary.map((result) => endSentence(`${result.title}被记为“${result.outcome}”。${result.findings[0]} ${result.consequence}`)) });
   const futureChanges = results.flatMap((result) => result.futureChanges ?? []).slice(0, 4);
   const pressure = game.missions.find((mission) => mission.state === "active");
-  const pressureConsequence = pressure?.consequence.replace(/^若继续(?:搁置|放任)[，,]?\s*/, "");
+  const pressureConsequence = pressure?.consequence.replace(/^若(?:继续(?:搁置|放任)|不加干预)[，,]?\s*/, "");
   sections.push({ heading: "下一次集会之前", paragraphs: [
     ...futureChanges.map((change) => endSentence(`${cleanNarrative(change)}；它已经成为下周可以继续追问或利用的条件`)),
     endSentence(cleanNarrative(worldText)),

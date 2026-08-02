@@ -40,6 +40,7 @@ test("world envelopes reject mechanical weekly repetition and repair raw control
   const engine = await read("app/game-engine.ts");
   assert.match(engine, /function textSimilarity/);
   assert.match(engine, /公开消息与最近四周高度复写/);
+  assert.match(engine, /validSignals\.length - repeatedSignals\.length < 3/);
   assert.match(engine, /势力行动只是复述上一周/);
   assert.match(engine, /character\.charCodeAt\(0\) < 32/);
   assert.match(engine, /JSON\.parse\(repaired\)/);
@@ -77,6 +78,7 @@ test("weekly prose distinguishes internal governance, issued orders, and uncommi
   assert.match(engine, /handledInsideBase/);
   assert.match(engine, /你在据点内亲自主持了这项工作/);
   assert.match(engine, /组织执行了本周决议；它没有直接推进当前危机/);
+  assert.match(engine, /不加干预/);
   assert.match(engine, /results\.length[\s\S]*组织本周没有发出正式行动命令/);
   assert.match(app, /readerChapterCommitted/);
   assert.match(app, /本周尚未结算 · 可原样重试/);
