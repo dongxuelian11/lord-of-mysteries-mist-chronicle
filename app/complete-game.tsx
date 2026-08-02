@@ -5,7 +5,7 @@ import {
   Archive, ArrowLeft, ArrowRight, BookOpen, Boxes, Building2, CalendarDays, Check, CheckCircle2,
   ChevronRight, CircleDollarSign, Clock3, CloudFog, Command, Eye, FileKey, FlaskConical,
   GitBranch, Hammer, Landmark, Lightbulb, ListTodo, LockKeyhole, Map, MapPin, Menu, PackageSearch,
-  Plus, RotateCcw, Search, Send, Settings, ShieldAlert, Sparkles, Target, TrendingUp,
+  Plus, Search, Send, Settings, ShieldAlert, Sparkles, Target, TrendingUp,
   UsersRound, WandSparkles, X, Zap,
 } from "lucide-react";
 import {
@@ -13,7 +13,7 @@ import {
   PathwayId, PlayerIntent, RiskLevel, ViewId,
 } from "./game-model";
 import {
-  advanceSequence, AiConfig, availableAbilities, callModel, canAdvance, generateAiWorldDelta, generateLiteraryChapter,
+  advanceSequence, availableAbilities, callModel, canAdvance, generateAiWorldDelta, generateLiteraryChapter,
   connectEvidence, enterSandbox, interpretIntentWithAi, localContract, resolveFatalSituation,
   resolveWeek, scheduleContract, transformOrganization,
 } from "./game-engine";
@@ -21,10 +21,13 @@ import { assignFinaleResource, autoDeployFinale, chooseFinaleDoctrine, resolveFi
 import InvestigationBoard from "./investigation-board";
 import OrganizationOperations from "./organization-operations";
 import GreatSmogFinale from "./great-smog-finale";
+import AiSettings from "./ai-settings";
+import { AiConfig, DEEPSEEK_FLASH_PRESET, testModelConnection } from "./ai-client";
 
 const SAVE_KEY = "mist-chronicle-complete-v8";
 const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
 const AI_KEY = "mist-chronicle-save-v3-ai";
+const AI_SESSION_KEY = "mist-chronicle-session-ai-key";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Command }[] = [
@@ -69,9 +72,9 @@ export default function CompleteGame() {
   const [readerScale, setReaderScale] = useState(1.08);
   const [showSettings, setShowSettings] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
-  const [endpoint, setEndpoint] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("");
+  const [aiConfig, setAiConfig] = useState<AiConfig>({ ...DEEPSEEK_FLASH_PRESET });
+  const [rememberApiKey, setRememberApiKey] = useState(false);
+  const [connectionState, setConnectionState] = useState<{ status: "idle" | "testing" | "success" | "error"; message: string }>({ status: "idle", message: "" });
   const [draftPathway, setDraftPathway] = useState<PathwayId>("seer");
   const [intentDraft, setIntentDraft] = useState("");
   const [toast, setToast] = useState("");
@@ -95,7 +98,12 @@ export default function CompleteGame() {
         } catch { /* 旧存档只用于读取纪事，损坏时不影响新游戏。 */ }
       }
       if (savedAi) {
-        try { const value = JSON.parse(savedAi) as Partial<AiConfig>; setEndpoint(value.endpoint ?? ""); setApiKey(value.apiKey ?? ""); setModel(value.model ?? ""); }
+        try {
+          const value = JSON.parse(savedAi) as Partial<AiConfig> & { rememberKey?: boolean };
+          const sessionKey = window.sessionStorage.getItem(AI_SESSION_KEY) ?? "";
+          setAiConfig({ ...DEEPSEEK_FLASH_PRESET, ...value, provider: value.provider ?? (value.endpoint?.includes("api.deepseek.com") ? "deepseek" : "compatible"), apiKey: value.apiKey || sessionKey });
+          setRememberApiKey(Boolean(value.rememberKey && value.apiKey));
+        }
         catch { window.localStorage.removeItem(AI_KEY); }
       }
       setHydrated(true);
@@ -109,7 +117,7 @@ export default function CompleteGame() {
   const currentSequence = pathway.sequences.find((sequence) => sequence.rank === game.currentSequence)!;
   const nextSequence = pathway.sequences.find((sequence) => sequence.rank === game.currentSequence - 1);
   const abilities = availableAbilities(game);
-  const aiReady = Boolean(endpoint.trim() && apiKey.trim() && model.trim());
+  const aiReady = Boolean(aiConfig.endpoint.trim() && aiConfig.apiKey.trim() && aiConfig.model.trim());
   const activeMission = game.missions.find((mission) => mission.state === "active");
   const latestChapter = game.chronicle[0];
 
@@ -125,7 +133,7 @@ export default function CompleteGame() {
     setContractLoading(true); setGenerationError("");
     const args = { intent: intentText.trim(), game, leaderId: selectedLeaderId, districtId: selectedDistrictId, abilityIds: selectedLeaderId === "player" ? selectedAbilityIds : [] };
     try {
-      const next = aiReady ? await interpretIntentWithAi({ endpoint, apiKey, model }, args) : localContract(args);
+      const next = aiReady ? await interpretIntentWithAi(aiConfig, args) : localContract(args);
       setContract(next);
     } catch (error) {
       setContract(localContract(args));
@@ -160,11 +168,11 @@ export default function CompleteGame() {
     setGame(resolved.state); setTurnChapter(resolved.chapter); setView("investigation"); setGenerationError("");
     if (!aiReady || !resolved.chapter.results.length) return;
     try {
-      const literary = await generateLiteraryChapter({ endpoint, apiKey, model }, resolved.state, resolved.chapter, setGenerationStage);
+      const literary = await generateLiteraryChapter(aiConfig, resolved.state, resolved.chapter, setGenerationStage);
       setTurnChapter(literary);
       const narratedState = { ...resolved.state, chronicle: resolved.state.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) };
-      const simulatedState = await generateAiWorldDelta({ endpoint, apiKey, model }, narratedState, literary, setGenerationStage);
-      setGame((current) => ({ ...current, factions: simulatedState.factions, canonActors: simulatedState.canonActors, missions: simulatedState.missions, worldMoves: simulatedState.worldMoves, chronicle: current.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) }));
+      const simulatedState = await generateAiWorldDelta(aiConfig, narratedState, literary, setGenerationStage);
+      setGame((current) => ({ ...current, factions: simulatedState.factions, canonActors: simulatedState.canonActors, missions: simulatedState.missions, evidenceNodes: simulatedState.evidenceNodes, opportunities: simulatedState.opportunities, worldMoves: simulatedState.worldMoves, chronicle: current.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) }));
     } catch (error) {
       setGenerationError(`${error instanceof Error ? error.message : "文学模式失败"}；本地事实章节已保留。`);
     } finally { setGenerationStage(""); }
@@ -186,7 +194,7 @@ export default function CompleteGame() {
     if (next.ending.phase === "ended") setView("ending");
     if (!aiReady || !localChapter || localChapter.id === game.chronicle[0]?.id) return;
     try {
-      const literary = await generateLiteraryChapter({ endpoint, apiKey, model }, next, localChapter, setGenerationStage);
+      const literary = await generateLiteraryChapter(aiConfig, next, localChapter, setGenerationStage);
       setTurnChapter(literary);
       setGame((current) => ({ ...current, chronicle: current.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) }));
     } catch (error) {
@@ -224,7 +232,19 @@ export default function CompleteGame() {
   }
 
   function saveSettings() {
-    window.localStorage.setItem(AI_KEY, JSON.stringify({ endpoint, apiKey, model })); setShowSettings(false); setToast(aiReady ? "文学与自由推演接口已保存" : "已切换为离线试玩模式");
+    const stored = { ...aiConfig, apiKey: rememberApiKey ? aiConfig.apiKey : "", rememberKey: rememberApiKey };
+    window.localStorage.setItem(AI_KEY, JSON.stringify(stored));
+    if (rememberApiKey) window.sessionStorage.removeItem(AI_SESSION_KEY); else window.sessionStorage.setItem(AI_SESSION_KEY, aiConfig.apiKey);
+    setShowSettings(false); setToast(aiReady ? `${aiConfig.model} 已启用` : "已切换为离线试玩模式");
+  }
+
+  async function testConnection() {
+    if (!aiReady || connectionState.status === "testing") return;
+    setConnectionState({ status: "testing", message: "正在发送最小测试请求，不会消耗游戏回合" });
+    try {
+      const result = await testModelConnection(aiConfig);
+      setConnectionState({ status: "success", message: `${aiConfig.model} 已回应 · ${result.latencyMs}ms` });
+    } catch (error) { setConnectionState({ status: "error", message: error instanceof Error ? error.message : "连接测试失败" }); }
   }
 
   function openMemberChat(memberId: string) {
@@ -246,7 +266,7 @@ export default function CompleteGame() {
     }
     setChatMessages((current) => [...current, { role: "player", text }]); setChatInput(""); setChatLoading(true);
     try {
-      const reply = aiReady ? await callModel({ endpoint, apiKey, model }, `你扮演${member.name}。固定背景：${member.background}。性格核心：${member.core}。说话习惯：${member.voice}。当前人物弧线：${member.arc}。忠诚${member.loyalty}，疲劳${member.fatigue}。只讨论角色已知事实，不泄露隐藏真相，不无条件服从，不替玩家做决定。用100字以内自然中文回答。`, `玩家说：${text}\n可知事实：${JSON.stringify(game.facts.slice(-12))}`) : `“我只能先说我亲眼确认的部分。”${member.name}停顿片刻，随后围绕自己的职责说明了当前担忧；更深的请求需要一次正式谈话。`;
+      const reply = aiReady ? await callModel(aiConfig, `你扮演${member.name}。固定背景：${member.background}。性格核心：${member.core}。说话习惯：${member.voice}。当前人物弧线：${member.arc}。忠诚${member.loyalty}，疲劳${member.fatigue}。只讨论角色已知事实，不泄露隐藏真相，不无条件服从，不替玩家做决定。用100字以内自然中文回答。`, `玩家说：${text}\n可知事实：${JSON.stringify(game.facts.slice(-12))}`, { maxTokens: 260, temperature: .75 }) : `“我只能先说我亲眼确认的部分。”${member.name}停顿片刻，随后围绕自己的职责说明了当前担忧；更深的请求需要一次正式谈话。`;
       setChatMessages((current) => [...current, { role: "member", text: reply }]);
     } catch { setChatMessages((current) => [...current, { role: "member", text: "“接口没有回应。”对话没有写入任何新的世界事实，你可以稍后重试。" }]); }
     finally { setChatLoading(false); }
@@ -386,7 +406,7 @@ export default function CompleteGame() {
 
     {(turnChapter || selectedChapter) && <div className="complete-reader-backdrop" onMouseDown={() => { if (!generationStage) { setTurnChapter(null); setSelectedChapter(null); } }}><section className="complete-reader" role="dialog" aria-modal="true" aria-labelledby="reader-title" onMouseDown={(event) => event.stopPropagation()}><header className="reader-commandbar"><div><small>第 {(turnChapter ?? selectedChapter)!.week} 周 · {(turnChapter ?? selectedChapter)!.date}</small><span>{(turnChapter ?? selectedChapter)!.source === "ai" ? "文学模式" : "本地事实版"}</span></div><div><button onClick={() => setReaderScale((value) => Math.max(.9, value - .1))}>A−</button><button onClick={() => setReaderScale(1)}>A</button><button onClick={() => setReaderScale((value) => Math.min(1.25, value + .1))}>A＋</button><button onClick={() => { if (!generationStage) { setTurnChapter(null); setSelectedChapter(null); } }}><X size={16} /></button></div></header>{generationStage && <div className="reader-generation"><Sparkles size={15} /><span><strong>规则事实已经锁定</strong><small>{generationStage}；完成后章节会自动更新。</small></span><i /><i /><i /></div>}{generationError && <div className="inline-warning reader-warning"><ShieldAlert size={14} />{generationError}</div>}<article className="reader-page" style={{ "--reader-scale": readerScale } as React.CSSProperties}><div className="folio"><span>灰雾纪事</span><i /><span>W{String((turnChapter ?? selectedChapter)!.week).padStart(2, "0")}</span></div><h1 id="reader-title">{(turnChapter ?? selectedChapter)!.title}</h1>{(turnChapter ?? selectedChapter)!.sections.map((section, index) => <section key={`${section.heading}-${index}`}><h2>{section.heading}</h2>{section.paragraphs.map((paragraph, paragraphIndex) => <p key={`${index}-${paragraphIndex}`}>{paragraph}</p>)}</section>)}<div className="reader-end"><CloudFog size={18} /><span>本章完</span></div></article>{(turnChapter ?? selectedChapter)!.results.length > 0 && <details className="reader-appendix"><summary><span><ListTodo size={15} />行动、证据与规则附录</span><small>{(turnChapter ?? selectedChapter)!.summary}</small></summary><div>{(turnChapter ?? selectedChapter)!.results.map((result) => <article key={result.id}><header><strong>{result.title}</strong><b className={result.outcome}>{result.outcome}</b></header><p>{result.contract.rawIntent}</p><ul>{result.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul><footer><span>消化 +{result.digestionGain}</span><span>任务推进 +{result.missionProgress}%</span><span>资金 {result.resourceChanges.money}</span></footer></article>)}</div></details>}<footer className="reader-actions"><button onClick={() => { setTurnChapter(null); setSelectedChapter(null); setView("archive"); }}><Archive size={14} />进入纪事档案</button><button className="complete-primary compact" onClick={() => { setTurnChapter(null); setSelectedChapter(null); }} disabled={Boolean(generationStage)}>{game.ending.phase === "finale" ? "返回终局作战桌" : game.ending.phase === "ended" ? "查看最终结局" : `继续第 ${game.week} 周`} <ArrowRight size={15} /></button></footer></section></div>}
 
-    {showSettings && <div className="complete-sheet-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本机配置</p><h2>AI推演与新游戏</h2></div><button onClick={() => setShowSettings(false)}><X size={17} /></button></header><div className={`ai-mode-card ${aiReady ? "ready" : "offline"}`}><Sparkles size={18} /><span><strong>{aiReady ? "完整AI推演已配置" : "当前为离线试玩"}</strong><small>{aiReady ? `${model} · 自由契约与三阶段文学模式` : "配置后开放动态世界、自由对话与小说生成"}</small></span></div><label><span>OpenAI兼容端点</span><input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://api.example.com/v1" /></label><label><span>模型名称</span><input value={model} onChange={(event) => setModel(event.target.value)} placeholder="model-name" /></label><label><span>API Key</span><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="仅保存在本浏览器" /></label><small className="settings-note">规则、世界事实和存档留在本地；密钥由浏览器直接发送到你的模型端点。接口需允许浏览器跨域请求。</small><button className="complete-primary" onClick={saveSettings}><Check size={15} />保存接口设置</button><div className="settings-divider"><span>建立新历史分支</span></div><div className="pathway-choice">{Object.values(PATHWAYS).map((item) => <button key={item.id} className={draftPathway === item.id ? "selected" : ""} onClick={() => setDraftPathway(item.id)}><span>{item.name}</span><small>序列9 · {item.sequences[0].name}</small></button>)}</div><button className="danger-reset" onClick={startNewGame}><RotateCcw size={14} />以所选途径开始新游戏</button></section></div>}
+    {showSettings && <div className="complete-sheet-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本机配置</p><h2 id="settings-title">AI推演与新游戏</h2></div><button onClick={() => setShowSettings(false)} aria-label="关闭设置"><X size={17} /></button></header><AiSettings config={aiConfig} rememberKey={rememberApiKey} connection={connectionState} draftPathway={draftPathway} onChange={(patch) => { setAiConfig((current) => ({ ...current, ...patch })); setConnectionState({ status: "idle", message: "配置已改变，请重新测试" }); }} onRememberKey={setRememberApiKey} onTest={() => void testConnection()} onSave={saveSettings} onPathway={setDraftPathway} onNewGame={startNewGame} /></section></div>}
 
     {chatMemberId && (() => {
       const member = game.members.find((item) => item.id === chatMemberId)!;

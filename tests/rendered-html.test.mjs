@@ -9,6 +9,13 @@ async function render() {
   return worker.fetch(new Request("http://localhost/", { headers: { accept: "text/html" } }), { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
 }
 
+async function requestWorker(request) {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("api-test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  return worker.fetch(request, { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
+}
+
 test("server-renders the complete free-intent game shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
@@ -25,10 +32,19 @@ test("server-renders the complete free-intent game shell", async () => {
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
+test("DeepSeek relay validates requests without exposing an open proxy", async () => {
+  const response = await requestWorker(new Request("http://localhost/api/ai/deepseek", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) }));
+  assert.equal(response.status, 400);
+  assert.match(await response.text(), /DeepSeek API Key/);
+});
+
 test("implements the complete simulation systems and accessible Apple-style UI", async () => {
-  const [app, engine, finale, finaleView, model, board, operations, css, finaleCss, layout] = await Promise.all([
+  const [app, engine, aiClient, aiSettings, aiRoute, finale, finaleView, model, board, operations, css, finaleCss, apiCss, layout] = await Promise.all([
     readFile(new URL("../app/complete-game.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game-engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/ai-client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/ai-settings.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/ai/deepseek/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/finale-system.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/great-smog-finale.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game-model.ts", import.meta.url), "utf8"),
@@ -36,6 +52,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
     readFile(new URL("../app/organization-operations.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/complete-game.css", import.meta.url), "utf8"),
     readFile(new URL("../app/finale-campaign.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/api-settings.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(app, /localStorage/);
@@ -69,6 +86,8 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /resolveFatalSituation/);
   assert.match(engine, /resolveFinale/);
   assert.match(engine, /generateAiWorldDelta/);
+  assert.match(engine, /emergentLead/);
+  assert.match(engine, /ai-emergent/);
   assert.match(engine, /connectEvidence/);
   assert.match(engine, /transformOrganization/);
   assert.match(engine, /buildPivots/);
@@ -82,6 +101,16 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(finaleView, /城市中的其他行动者/);
   assert.match(finaleView, /此前阶段战报/);
   assert.match(finaleView, /不会被叙事直接判死/);
+  assert.match(aiClient, /deepseek-v4-flash/);
+  assert.match(aiClient, /response_format/);
+  assert.match(aiClient, /testModelConnection/);
+  assert.match(aiClient, /请求过于频繁或账户额度不足/);
+  assert.match(aiSettings, /DeepSeek V4 Flash/);
+  assert.match(aiSettings, /测试真实连接/);
+  assert.match(aiSettings, /小说生成模式/);
+  assert.match(aiRoute, /api\.deepseek\.com\/chat\/completions/);
+  assert.match(aiRoute, /ALLOWED_MODELS/);
+  assert.match(aiRoute, /Cache-Control/);
   assert.match(model, /sequence[s]?:/i);
   assert.match(model, /const RANK_EIGHT_RECIPES/);
   assert.match(model, /INITIAL_FACILITIES/);
@@ -115,6 +144,9 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(css, /@media\(max-width:760px\)/);
   assert.match(finaleCss, /smog-crises/);
   assert.match(finaleCss, /prefers-reduced-motion:reduce/);
+  assert.match(apiCss, /provider-choice/);
+  assert.match(apiCss, /prefers-reduced-motion:reduce/);
   assert.match(layout, /complete-game\.css/);
   assert.match(layout, /finale-campaign\.css/);
+  assert.match(layout, /api-settings\.css/);
 });
