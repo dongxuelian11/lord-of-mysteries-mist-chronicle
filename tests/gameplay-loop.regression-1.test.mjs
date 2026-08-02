@@ -26,6 +26,8 @@ test("offline council replies cite state, responsibility and a concrete next ste
   assert.match(source, /createLocalCouncilReplies/);
   assert.match(source, /第\$\{fact\.week\}周·\$\{fact\.source\}/);
   assert.match(source, /topic\.includes\(fact\.subject\) \? 120 : 0/);
+  assert.match(source, /explicitSubjects\.includes\(item\.fact\.subject\)/);
+  assert.match(source, /const evidenceText = evidence\[index\]/);
   assert.match(source, /已确认\|联系\|来源/);
   assert.match(source, /封印物\|挂坠\|异常/);
   assert.match(source, /停止条件|撤离方向|交叉验证/);

@@ -58,6 +58,7 @@ function topicTerms(text: string) {
 
 function topicEvidence(game: GameState, topic: string) {
   const terms = topicTerms(topic);
+  const explicitSubjects = [...new Set(game.facts.map((fact) => fact.subject).filter((subject) => topic.includes(subject)))];
   const district = DISTRICTS.find((item) => topic.includes(item.name) || item.landmarks.some((landmark) => topic.includes(landmark)));
   const facts = game.facts
     .map((fact, index) => {
@@ -68,7 +69,7 @@ function topicEvidence(game: GameState, topic: string) {
         + (fact.certainty === "确认" ? 8 : 0);
       return { fact, score, index };
     })
-    .filter((item) => item.score > 0)
+    .filter((item) => item.score > 0 && (explicitSubjects.length === 0 || explicitSubjects.includes(item.fact.subject)))
     .sort((a, b) => b.score - a.score || b.fact.week - a.fact.week || b.index - a.index)
     .slice(0, 3)
     .map((item) => item.fact);
@@ -99,7 +100,7 @@ export function createLocalCouncilReplies(game: GameState, topic: string): Counc
   const evidence = topicEvidence(game, topic);
   return relevantCouncilMembers(game, topic, 3).map((member, index) => {
     const portfolio = portfoliosForMember(game, member.id).find((item) => item.keywords.test(topic)) ?? portfoliosForMember(game, member.id)[0] ?? COUNCIL_PORTFOLIOS[index];
-    const evidenceText = evidence[index] ?? evidence[0];
+    const evidenceText = evidence[index];
     const prefix = index === 0 ? `${game.playerAddress}，我直接回答这项议题。` : `${member.name}等主责席说完，才向你欠身补充。`;
     const known = evidenceText ? `现有记录能落到纸面的一项是：${evidenceText}` : "档案中还没有与这项说法直接对应的已证实记录；现在只能提出核验方法，不能替您宣布结论。";
     return {
