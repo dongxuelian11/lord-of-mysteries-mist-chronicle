@@ -53,13 +53,20 @@ test("map locations expose distinct dossiers, routes and withdrawal conditions",
 });
 
 test("city workspace responds to its own embedded width without horizontal layer scrolling", async () => {
-  const source = await read("app/experience-v12.css");
+  const [source, council, component] = await Promise.all([read("app/experience-v12.css"), read("app/weekly-council.css"), read("app/weekly-council.tsx")]);
+  assert.match(council, /\.agenda-panel>\.city-workspace\{grid-column:1\/-1;inline-size:100%;margin-top:0\}/);
   assert.match(source, /\.city-workspace \{ container: city-map \/ inline-size;/);
   assert.match(source, /@container city-map \(max-width: 900px\) \{[\s\S]*?\.city-workspace-head \{ grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(source, /@container city-map \(max-width: 560px\) \{[\s\S]*?\.map-query \{ grid-template-columns: auto minmax\(0, 1fr\);/);
   assert.match(source, /\.map-layers \{[^}]*flex-wrap: wrap;[^}]*overflow-x: clip;/);
   assert.match(source, /\.city-workspace-head h2 \{[^}]*color: #eadfca;[^}]*word-break: keep-all;/);
   assert.match(source, /\.district-workspace > header h3 \{[^}]*color: #eadfca;/);
+  assert.match(source, /\.council-table\.refined \{[^}]*top: 50%;[^}]*left: 42%;[^}]*translate: -50% -50%;[^}]*transform: none;/);
+  assert.match(source, /\.council-seat\.inner-seat \{[^}]*right: auto;[^}]*bottom: auto;/);
+  assert.match(source, /@media \(max-width: 900px\) \{[\s\S]*?\.council-seat\.seat-6 \{ left: auto; top: auto; right: 3%; bottom: 29%; \}/);
+  assert.match(component, /COUNCIL_STAGE_COPY/);
+  assert.match(component, /className="council-session-state"/);
+  assert.match(component, /className="supervisor-rail-label"/);
 });
 
 test("weekly prose normalizes punctuation and carries consequences into the next council", async () => {

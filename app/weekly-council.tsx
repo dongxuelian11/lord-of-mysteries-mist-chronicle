@@ -37,6 +37,12 @@ type Props = {
 };
 
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+const COUNCIL_STAGE_COPY: Record<CouncilStage, { title: string; detail: string }> = {
+  reports: { title: "上周述职", detail: "结果与余波正在宣读" },
+  agenda: { title: "治理议题", detail: "职责、城市与异常正在过桌" },
+  discussion: { title: "自由讨论", detail: "议长开放内部发言" },
+  orders: { title: "形成决议", detail: "等待议长最终拍板" },
+};
 function riskClass(risk: string) { return risk === "致命" ? "fatal" : risk === "高" ? "high" : risk === "中" ? "medium" : "low"; }
 
 function sourceLabel(game: GameState, memberId: string) {
@@ -56,6 +62,7 @@ export default function WeeklyCouncil(props: Props) {
   const supervisors = game.members.filter((member) => !member.pathway);
   const activeTopic = game.councilTopics.find((item) => item.id === activeTopicId) ?? game.councilTopics[0];
   const pinnedTopics = game.councilTopics.filter((item) => item.pinned).slice(0, 3);
+  const activeStageCopy = COUNCIL_STAGE_COPY[stage];
   const bringToDecision = (text: string, districtId?: string) => { props.onUseSuggestion(text, districtId); setStage("orders"); };
 
   const memberAgendas = useMemo(() => game.members.slice(0, 4).map((member) => {
@@ -88,6 +95,7 @@ export default function WeeklyCouncil(props: Props) {
 
     <section className="council-room council-enter-motion" aria-label="组织内部最高议会">
       <div className="council-haze" aria-hidden="true" />
+      <div className="council-session-state"><Gavel size={15} /><span>第 {game.week} 周 · 最高议会</span><strong>{activeStageCopy.title}进行中</strong></div>
       <div className="council-table refined" aria-hidden="true"><span /><i /><b /><em /></div>
       <div className="chair player-chair"><span>议长席</span><strong>{game.playerName || "你"}</strong><small>{game.playerAddress} · 序列{game.currentSequence} {currentSequence.name}</small></div>
       {Array.from({ length: 8 }, (_, index) => {
@@ -95,8 +103,8 @@ export default function WeeklyCouncil(props: Props) {
         return member ? <button key={member.id} className={`council-seat inner-seat seat-${index + 1}`} onClick={() => props.onQuestionMember(member.id)} aria-label={`点名${member.name}发言`}><i>{member.name.slice(0, 1)}</i><span><strong>{member.name}</strong><small>正式参席 · {sourceLabel(game, member.id)}</small></span></button>
           : <div key={`empty-${index}`} className={`council-seat inner-seat empty seat-${index + 1}`}><i>{index + 1}</i><span><strong>空席</strong><small>等待非凡者任命</small></span></div>;
       })}
-      <div className="outer-supervisors">{supervisors.slice(0, 4).map((member) => <button key={member.id} onClick={() => props.onQuestionMember(member.id)}><i>{member.name.slice(0, 1)}</i><span><strong>{member.name}</strong><small>{sourceLabel(game, member.id)}主管</small></span></button>)}</div>
-      <div className="table-docket"><Map size={14} /><span>贝克兰德测绘图</span><b>{game.schedule.length}项决议</b></div>
+      <div className="outer-supervisors"><span className="supervisor-rail-label">内部主管列席 · 受议长问询</span>{supervisors.slice(0, 4).map((member) => <button key={member.id} onClick={() => props.onQuestionMember(member.id)}><i>{member.name.slice(0, 1)}</i><span><strong>{member.name}</strong><small>{sourceLabel(game, member.id)}主管</small></span></button>)}</div>
+      <div className="table-docket"><Map size={14} /><span>{activeStageCopy.title}</span><b>{stage === "orders" ? `${game.schedule.length}项待确认` : activeStageCopy.detail}</b></div>
       <div className="room-caption"><span>密议室 · 门已反锁</span><i /><span>外部人士不得入内</span></div>
     </section>
 
