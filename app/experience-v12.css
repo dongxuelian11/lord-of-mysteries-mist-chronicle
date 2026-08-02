@@ -92,6 +92,7 @@
 .location-brief p { color: #aca597; line-height: 1.65; }
 .location-brief footer { display: grid; gap: 5px; color: #7f7869; }
 .location-brief footer span { display: flex; align-items: flex-start; gap: 6px; }
+.location-brief p b { color: #d4bb89; font-weight: 650; }.route-brief { display: grid; gap: 7px; margin: 12px 0; padding: 11px; border: 1px solid rgba(201,168,106,.1); border-radius: 10px; background: rgba(201,168,106,.035); }.route-brief > span { display: grid; grid-template-columns: 16px 42px 1fr; gap: 5px; align-items: start; color: #a9a294; font-size: 12px; line-height: 1.55; }.route-brief svg { margin-top: 3px; color: #b89b65; }.route-brief strong { color: #d2c4a7; }
 .map-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 13px; }
 .map-actions button { display: flex; justify-content: center; align-items: center; gap: 7px; padding: 10px; color: #c9c1b1; background: rgba(255,255,255,.03); border: 1px solid rgba(201,168,106,.14); border-radius: 10px; }
 .map-actions button.primary { grid-column: 1 / -1; color: #171712; background: #b89a61; }

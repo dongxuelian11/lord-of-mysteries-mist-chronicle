@@ -24,6 +24,33 @@ const EXTRA_LOCATIONS: Record<string, [string, string][]> = {
   dock: [["检疫泊位", "受控港区"], ["潮痕仓库群", "灰色货运"]],
 };
 
+const ROUTE_NOTES: Record<string, { outward: string; returnPath: string; exposure: string }> = {
+  north: { outward: "乔伍德—西区—北区的公共马车线，约55分钟", returnPath: "沿大学街向西撤入出版社街，再换乘有轨车", exposure: "教会与大学门房会记录反复来访者" },
+  empress: { outward: "乔伍德—希尔斯顿—皇后区的换乘线，约50分钟", returnPath: "不走原门，借仆役后巷退向希尔斯顿区", exposure: "贵族宅邸的访客名册会留下身份痕迹" },
+  west: { outward: "从事务所沿剧院街向西步行，约25分钟", returnPath: "沿律师街进入两处公开营业场所后分散返回", exposure: "教会、律师与私人侦探的视线彼此重叠" },
+  hillston: { outward: "沿商业马车环线直达银行街，约30分钟", returnPath: "穿过大型百货，从西侧公共出口离开", exposure: "银行与交易所保安会核对时间和着装" },
+  cherwood: { outward: "据点周边步行圈，5至18分钟", returnPath: "事务所后巷与旧剧院街均可返回据点", exposure: "同一面孔频繁活动会暴露组织的固定锚点" },
+  government: { outward: "乔伍德—希尔斯顿—政府区公车线，约40分钟", returnPath: "从市政厅南侧进入桥区交通网", exposure: "证件、申请与查档都会形成可检索记录" },
+  east: { outward: "先至桥区换乘，再从招工市场进入东区，约65分钟", returnPath: "沿烟囱巷向南退至诊所网络，避免原路返回", exposure: "帮派、工头与便衣会注意不属于本地的人" },
+  bridge: { outward: "从乔伍德沿南向马车线直达总站，约35分钟", returnPath: "通过旧货市场更换交通工具后返回", exposure: "换乘点人多但黑市会记住打听特殊货物的人" },
+  south: { outward: "经桥区南岸换乘场进入，约55分钟", returnPath: "借诊所与洗衣工会的社区通道向西撤离", exposure: "外来者容易被紧密的社区关系识别" },
+  dock: { outward: "经桥区货运线抵达港务外围，约75分钟", returnPath: "优先走水手区公共码头，必要时改走水路", exposure: "海关、走私者与港务雇员同时记录货物动向" },
+};
+
+function publicLocationIntel(name: string, type: string) {
+  const entrances = /档案|图书馆|博物馆|事务/.test(name) ? "公开柜台、工作人员入口和闭馆后的货运门"
+    : /教堂|会馆|俱乐部|沙龙|宅邸|宫殿/.test(name) ? "正门受身份约束，服务人员与固定供应商另有出入口"
+      : /工厂|仓库|泊位|货运|煤气/.test(name) ? "人员、货物和夜班交接分别使用不同通道"
+        : /市场|酒吧|旅馆|百货|药房/.test(name) ? "营业时段人流足以掩护观察，但熟客网络会记住生面孔"
+          : "公开道路可抵达，侧巷与服务门构成第二条离开路线";
+  const observable = /档案|图书馆|事务|律师|保险/.test(`${name}${type}`) ? "登记时间、签章、经手人和纸张来源"
+    : /交通|马车|栈桥|泊位|货运/.test(`${name}${type}`) ? "车次、停留点、装卸时间与最终去向"
+      : /社区|诊所|工会|救济|招工/.test(`${name}${type}`) ? "人员姓名、缺勤、病例与互助关系"
+        : /教堂|宅邸|会馆|俱乐部|沙龙/.test(`${name}${type}`) ? "访客时段、供应清单和服务人员证词"
+          : "出入频率、灯光、声音与周边营业规律";
+  return { entrances, observable };
+}
+
 function knownMarker(game: GameState, districtId: string, label: string) {
   const evidence = game.evidenceNodes.find((item) => item.discovered && (item.summary.includes(label) || item.label.includes(label)));
   if (evidence) return evidence.certainty;
@@ -46,7 +73,10 @@ export default function CityMapWorkspace(props: Props) {
   const [selectedLocation, setSelectedLocation] = useState(district.landmarks[0]);
   const locations = useMemo(() => [...district.landmarks.map((name, index) => [name, index === 0 ? "主要地标" : "固定地点"] as [string, string]), ...(EXTRA_LOCATIONS[district.id] ?? [])], [district]);
   const activeLocation = locations.find(([name]) => name === selectedLocation)?.[0] ?? locations[0]?.[0] ?? district.name;
-  const knownEvidence = props.game.evidenceNodes.filter((item) => item.discovered && (item.summary.includes(district.name) || item.source.includes(district.name))).slice(0, 3);
+  const activeType = locations.find(([name]) => name === activeLocation)?.[1] ?? "固定地点";
+  const knownEvidence = props.game.evidenceNodes.filter((item) => item.discovered && (item.summary.includes(activeLocation) || item.label.includes(activeLocation) || item.tags.some((tag) => activeLocation.includes(tag)))).slice(0, 3);
+  const publicIntel = publicLocationIntel(activeLocation, activeType);
+  const route = ROUTE_NOTES[district.id];
 
   function chooseDistrict(id: string) {
     const next = DISTRICTS.find((item) => item.id === id) ?? DISTRICTS[0];
@@ -70,11 +100,11 @@ export default function CityMapWorkspace(props: Props) {
         <header><span><MapPin size={15} /></span><div><small>{district.subtitle}</small><h3>{district.name}</h3></div><b className={district.danger >= 65 ? "danger" : ""}>{district.danger} 风险</b></header>
         <p>{district.background}</p>
         <div className="location-grid">{locations.map(([name, type]) => <button key={name} className={activeLocation === name ? "active" : ""} onClick={() => setSelectedLocation(name)}><span>{name}</span><small>{type} · {knownMarker(props.game, district.id, name)}</small></button>)}</div>
-        <article className="location-brief"><header><strong>{activeLocation}</strong><span>{layer === "occult" ? "神秘锚点尚待确认" : "当前议题落点"}</span></header><p>{knownEvidence.length ? knownEvidence.map((item) => item.summary).join("；") : `组织目前只掌握${activeLocation}的公开用途与常规出入方式。更深处的关系、异常和封锁仍需验证。`}</p><footer><span><Eye size={12} />情报不会超出组织已知范围</span><span><ShieldAlert size={12} />{district.warning}</span></footer></article>
+        <article className="location-brief"><header><strong>{activeLocation}</strong><span>{layer === "occult" ? "神秘锚点尚待确认" : `${activeType} · 地点档案`}</span></header><p><b>已确认：</b>{knownEvidence.length ? knownEvidence.map((item) => `${item.label}——${item.summary}`).join("；") : `${activeLocation}的公开用途属于“${activeType}”；可观察入口包括${publicIntel.entrances}。`}</p><p><b>可核验：</b>无需预设阴谋即可检查{publicIntel.observable}。这些结果只能形成地点证据，不能直接证明幕后主体。</p><div className="route-brief"><span><Route size={13} /><strong>去程</strong>{route.outward}</span><span><Route size={13} /><strong>撤离</strong>{route.returnPath}</span><span><ShieldAlert size={13} /><strong>暴露</strong>{route.exposure}</span></div><footer><span><Eye size={12} />地点情报与区域推断已分开记录</span><span><ShieldAlert size={12} />{district.warning}</span></footer></article>
         <div className="map-actions">
           <button onClick={() => props.onUseAbility({ kind: "district", targetId: `${district.id}:${activeLocation}`, label: `${district.name}·${activeLocation}` }, `我以${activeLocation}为明确空间目标，自由使用选定能力；只采用我随后指定的手段，不得擅自改用仪式、吊坠或其他封印物。`)}><Sparkles size={14} />立即使用能力</button>
-          <button onClick={() => props.onOpenDiscussion(`围绕${district.name}的${activeLocation}展开内部自由讨论。请先说明组织已经确认的事实、信息来源与当前缺口，不要预设行动路线。`)}><MessageSquareText size={14} />自由讨论</button>
-          <button className="primary" onClick={() => props.onFormDirection(`以${district.name}·${activeLocation}为主要空间落点。`, district.id)}><UsersRound size={14} />形成行动方向</button>
+          <button onClick={() => props.onOpenDiscussion(`围绕${district.name}的${activeLocation}展开内部自由讨论。地点档案显示可核验${publicIntel.observable}；去程为${route.outward}，预备撤离为${route.returnPath}。请区分事实、推断与未知，并指出是否值得投入本周资源。`)}><MessageSquareText size={14} />自由讨论</button>
+          <button className="primary" onClick={() => props.onFormDirection(`以${district.name}·${activeLocation}为主要空间落点；先核验${publicIntel.observable}。采用${route.outward}，若${route.exposure}导致警戒升高，则沿${route.returnPath}撤离。`, district.id)}><UsersRound size={14} />形成行动方向</button>
         </div>
       </aside>
     </div>
