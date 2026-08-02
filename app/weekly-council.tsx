@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   ArrowRight, BookOpen, CalendarDays, CheckCircle2, ChevronRight, CircleDollarSign, Command,
-  FileText, Gavel, Map, MessageSquareText, Pin, Plus, ShieldAlert, Sparkles, Target,
+  FileText, Gavel, Map, MessageSquareText, Newspaper, Pin, Plus, RadioTower, ShieldAlert, Sparkles, Target,
   UsersRound, WandSparkles, X,
 } from "lucide-react";
 import CityMapWorkspace from "./city-map-workspace";
@@ -63,6 +63,9 @@ export default function WeeklyCouncil(props: Props) {
   const activeTopic = game.councilTopics.find((item) => item.id === activeTopicId) ?? game.councilTopics[0];
   const pinnedTopics = game.councilTopics.filter((item) => item.pinned).slice(0, 3);
   const activeStageCopy = COUNCIL_STAGE_COPY[stage];
+  const reportWeek = latestChapter?.week ?? Math.max(1, game.week - 1);
+  const worldSnapshot = game.worldSnapshots?.find((snapshot) => snapshot.week === reportWeek);
+  const worldSignals = (game.worldSignals ?? []).filter((signal) => signal.week === reportWeek).slice(0, 6);
   const bringToDecision = (text: string, districtId?: string) => { props.onUseSuggestion(text, districtId); setStage("orders"); };
 
   const memberAgendas = useMemo(() => game.members.slice(0, 4).map((member) => {
@@ -71,8 +74,8 @@ export default function WeeklyCouncil(props: Props) {
     return {
       member,
       title: member.personalEventState === "active" && member.personalEvent ? member.personalEvent : `${role?.name ?? member.role}本周汇报`,
-      detail: role ? `${member.name}对${role.mandate}负有汇总责任；内容包括亲历、下属报告、推断和仍未回报的事项。` : `${member.name}负责整理与其专长有关的内部事务。`,
-      prompt: `请以${role?.name ?? member.role}负责人的身份汇报本周情况。把亲历、下属报告、个人推断与未知分别说清，并指出最需要我拍板的问题。`,
+      detail: role ? `${member.name}对${role.mandate}负有汇总责任；他的回答会随本周世界变化、下属回报和过往谈话而改变。` : `${member.name}负责整理与其专长有关的内部事务。`,
+      prompt: `从你作为${role?.name ?? member.role}负责人此刻真正掌握的情况说起。不要套汇报格式；告诉我这周发生了什么、你在意什么，以及有什么话需要当面说。`,
     };
   }), [game]);
 
@@ -117,11 +120,11 @@ export default function WeeklyCouncil(props: Props) {
 
     {stage === "reports" && <section className="council-panel reports-panel">
       <header><div><p>书记员已展开上周记录</p><h2>{latestChapter?.title ?? "第一次内部集会"}</h2></div>{latestChapter && <button onClick={() => props.onReadChapter(latestChapter)}><BookOpen size={15} />重读小说章节</button>}</header>
-      {latestChapter ? <><p className="report-summary">{latestChapter.summary}</p><div className="spoken-reports">{latestChapter.results.map((result) => <article key={result.id}><header><span className={`risk-dot ${riskClass(result.contract.risk)}`} /><div><strong>{result.title}</strong><small>{result.contract.rawIntent}</small></div><b>{result.outcome}</b></header><p>{result.consequence}</p><ul>{result.findings.map((finding) => <li key={finding}><CheckCircle2 size={13} />{finding}</li>)}</ul>{result.futureChanges?.[0] && <footer><ArrowRight size={13} /><span>余波：{result.futureChanges[0]}</span></footer>}</article>)}</div></> : <div className="first-council"><Gavel size={25} /><div><strong>没有上一周可以述职。</strong><p>黑玻璃挂坠、补写的工人名单和失踪信使已经摆在桌上。它们是最初压力，不是预设道路。</p></div></div>}
+      {latestChapter ? <><p className="report-summary">{latestChapter.summary}</p>{worldSnapshot && <section className="world-opening-report"><header><RadioTower size={15} /><span><small>独立世界推演 · 第{worldSnapshot.week}周</small><strong>密议室之外，城市同样度过了一周</strong></span></header><p>{worldSnapshot.atmosphere}</p>{worldSnapshot.changes.length > 0 && <div>{worldSnapshot.changes.slice(0, 4).map((change) => <span key={change}>{change}</span>)}</div>}</section>}{worldSignals.length > 0 && <section className="council-news-desk"><header><Newspaper size={15} /><span><strong>送上议桌的报纸与传闻</strong><small>消息来源决定可信度；它们不是自动生成的任务。</small></span></header><div>{worldSignals.map((signal) => <article key={signal.id}><header><span>{signal.channel}</span><b>{signal.reliability}</b></header><strong>{signal.headline}</strong><p>{signal.body}</p></article>)}</div></section>}<div className="spoken-reports">{latestChapter.results.map((result) => <article key={result.id}><header><span className={`risk-dot ${riskClass(result.contract.risk)}`} /><div><strong>{result.title}</strong><small>{result.contract.rawIntent}</small></div><b>{result.outcome}</b></header><p>{result.consequence}</p><ul>{result.findings.map((finding) => <li key={finding}><CheckCircle2 size={13} />{finding}</li>)}</ul>{result.futureChanges?.[0] && <footer><ArrowRight size={13} /><span>余波：{result.futureChanges[0]}</span></footer>}</article>)}</div>{latestChapter.results.length === 0 && <div className="no-order-world"><RadioTower size={20} /><p>上周没有形成组织决议，但世界状态、势力计划和公开消息仍已完成结算。</p></div>}</> : <div className="first-council"><Gavel size={25} /><div><strong>没有上一周可以述职。</strong><p>黑玻璃挂坠、补写的工人名单和失踪信使已经摆在桌上。它们是最初压力，不是预设道路。</p></div></div>}
       <footer className="panel-advance"><span>报告只说明发生了什么，不替你决定接下来做什么。</span><button onClick={() => setStage("agenda")}>进入治理议题 <ArrowRight size={15} /></button></footer>
     </section>}
 
-    {stage === "agenda" && <section className="council-panel agenda-panel governance-panel">
+    {stage === "agenda" && <section className={`council-panel agenda-panel governance-panel ${activeMission ? "has-pressure" : "no-pressure"}`}>
       {activeMission && <article className="council-pressure"><header><span><ShieldAlert size={15} />必须知情的压力</span><b>{activeMission.deadline}周后越过临界点</b></header><h2>{activeMission.title}</h2><p>{activeMission.premise}</p><div><span><i style={{ width: `${activeMission.progress}%` }} /></span><strong>{activeMission.progress}%</strong></div><footer><small>若不处理</small><p>{activeMission.consequence}</p></footer></article>}
       <section className="portfolio-board"><header><div><p>职责不是菜单，而是组织的问责路径</p><h2>八项治理领域</h2></div><small>点击负责人进入其持续部门对话</small></header><div>{COUNCIL_PORTFOLIOS.map((portfolio) => { const owner = portfolioOwner(game, portfolio); return <button key={portfolio.id} onClick={() => owner && props.onQuestionMember(owner.id, `请汇报${portfolio.name}。即使具体事务由下属执行，也请说明最后一次回报、信息来源和您尚不确定的部分。`)}><span><strong>{portfolio.name}</strong><small>{portfolio.mandate}</small></span><b>{owner?.name ?? "待任命"}<em>{owner?.pathway ? "参席" : "主管"}</em></b></button>; })}</div></section>
       <div className="member-agendas">{memberAgendas.map(({ member, title, detail, prompt }) => <article key={member.id}><header><i>{member.name.slice(0, 1)}</i><span><small>{sourceLabel(game, member.id)}负责人</small><strong>{title}</strong></span></header><p>{detail}</p><button onClick={() => props.onQuestionMember(member.id, prompt)}><MessageSquareText size={14} />进入负责人的治理对话</button></article>)}</div>

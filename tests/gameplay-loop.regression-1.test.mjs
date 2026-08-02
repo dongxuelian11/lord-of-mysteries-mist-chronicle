@@ -20,18 +20,22 @@ test("free ability use defaults to player intent and reports rule rejection inli
   assert.match(gameSource, /setAbilityError\(error instanceof Error/);
 });
 
-test("offline council replies cite state, responsibility and a concrete next step", async () => {
-  const source = await read("app/council-system.ts");
-  assert.match(source, /function topicEvidence/);
-  assert.match(source, /createLocalCouncilReplies/);
-  assert.match(source, /第\$\{fact\.week\}周·\$\{fact\.source\}/);
-  assert.match(source, /topic\.includes\(fact\.subject\) \? 120 : 0/);
-  assert.match(source, /explicitSubjects\.includes\(item\.fact\.subject\)/);
-  assert.match(source, /const evidenceText = evidence\[index\]/);
-  assert.match(source, /topic\.includes\(item\.shortName\)/);
-  assert.match(source, /已确认\|联系\|来源/);
-  assert.match(source, /封印物\|挂坠\|异常/);
-  assert.match(source, /停止条件|撤离方向|交叉验证/);
+test("NPC speech is AI generated and a quiet week still requires AI world simulation", async () => {
+  const [game, engine, council] = await Promise.all([
+    read("app/complete-game.tsx"),
+    read("app/game-engine.ts"),
+    read("app/council-ai.ts"),
+  ]);
+  assert.match(game, /自由人物对话需要先连接AI模型/);
+  assert.match(game, /本周没有结算，你可以检查接口后原样重试/);
+  assert.match(game, /本地规则不会伪造世界事件/);
+  assert.doesNotMatch(game, /我分四层讲|亲历、下属报告、个人推断与未知分别说清/);
+  assert.match(engine, /playerIssuedNoOrders/);
+  assert.match(engine, /玩家无行动绝不等于世界无事件/);
+  assert.match(engine, /世界模型没有生成足够的报纸、传闻或公开征兆/);
+  assert.match(engine, /世界模型没有让足够的独立势力采取行动/);
+  assert.match(council, /不得使用“亲历\/下属报告\/个人推断\/未知”四段式标签/);
+  assert.doesNotMatch(council, /亲历、下属报告、个人推断与未知分别说清/);
 });
 
 test("investigation wording cannot silently create a facility", async () => {

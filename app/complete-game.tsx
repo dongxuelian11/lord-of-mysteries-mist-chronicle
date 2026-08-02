@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Archive, ArrowLeft, ArrowRight, BookOpen, Boxes, Building2, CalendarDays, Check, CheckCircle2,
   ChevronRight, CircleDollarSign, Clock3, CloudFog, Command, Eye, FileKey, FlaskConical,
@@ -13,9 +13,9 @@ import {
   AbilityContext, AbilityUseRecord, PathwayId, PlayerOrigin, RiskLevel, ViewId,
 } from "./game-model";
 import {
-  advanceSequence, availableAbilities, canAdvance, generateAiWorldDelta, generateLiteraryChapter, generateNpcDialogue,
-  connectEvidence, enterSandbox, interpretIntentWithAi, localContract, resolveFatalSituation,
-  resolveWeek, scheduleContract, transformOrganization,
+  advanceSequence, availableAbilities, canAdvance, generateAiWorldDelta, generateLiteraryChapter, generateNpcDialogue, generateSituationBrief,
+  connectEvidence, enterSandbox, interpretIntentWithAi, resolveFatalSituation,
+  resolveWeek, scheduleContract, SituationBrief, transformOrganization,
 } from "./game-engine";
 import { assignFinaleResource, autoDeployFinale, chooseFinaleDoctrine, resolveFinalePhase } from "./finale-system";
 import InvestigationBoard from "./investigation-board";
@@ -26,9 +26,10 @@ import { AiConfig, DEEPSEEK_FLASH_PRESET, testModelConnection } from "./ai-clien
 import WeeklyCouncil from "./weekly-council";
 import OpeningPrologue from "./opening-prologue";
 import AbilityConsole from "./ability-console";
+import { SituationOpening, TitleScreen } from "./title-screen";
 import { abilityForFreeIntent, continueAbilityScene, generateAbilityDraft, generateSceneResponse, resolveImmediateAbility } from "./ability-system";
 import { generateCouncilReplies, generateCouncilSummary } from "./council-ai";
-import { createLocalCouncilReplies, localCouncilSummary } from "./council-system";
+import { localCouncilSummary } from "./council-system";
 
 const SAVE_KEY = "mist-chronicle-complete-v12";
 const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v11", "mist-chronicle-complete-v10", "mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
@@ -41,7 +42,7 @@ function displayNarrative(text: string) {
 }
 
 function normalizeNarrativeGame(game: GameState): GameState {
-  return { ...game, chronicle: game.chronicle.map((chapter) => ({ ...chapter, sections: chapter.sections.map((section) => ({ ...section, paragraphs: section.paragraphs.map(displayNarrative) })) })) };
+  return { ...game, worldSignals: game.worldSignals ?? [], worldSnapshots: game.worldSnapshots ?? [], chronicle: game.chronicle.map((chapter) => ({ ...chapter, sections: chapter.sections.map((section) => ({ ...section, paragraphs: section.paragraphs.map(displayNarrative) })) })) };
 }
 
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Command }[] = [
@@ -61,6 +62,11 @@ function editableContractField(contract: ActionContract, setContract: (value: Ac
 export default function CompleteGame() {
   const [game, setGame] = useState<GameState>(() => createInitialGame());
   const [hydrated, setHydrated] = useState(false);
+  const [entry, setEntry] = useState<"title" | "game">("title");
+  const [hasSave, setHasSave] = useState(false);
+  const [situationBrief, setSituationBrief] = useState<SituationBrief | null>(null);
+  const [situationLoading, setSituationLoading] = useState(false);
+  const situationDismissed = useRef(false);
   const [view, setView] = useState<ViewId>("intent");
   const [intentText, setIntentText] = useState("");
   const [selectedDistrictId, setSelectedDistrictId] = useState("cherwood");
@@ -102,11 +108,12 @@ export default function CompleteGame() {
       const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
-        try { const value = JSON.parse(saved) as GameState; if (value.version === 12) setGame(normalizeNarrativeGame(value)); }
+        try { const value = JSON.parse(saved) as GameState; if (value.version === 12) { setGame(normalizeNarrativeGame(value)); setHasSave(Boolean(value.prologueComplete)); } }
         catch { window.localStorage.removeItem(SAVE_KEY); }
       } else if (legacySaved) {
         try {
           const legacy = JSON.parse(legacySaved) as Partial<GameState>;
+          setHasSave(Boolean(legacy.prologueComplete ?? true));
           const fresh = createInitialGame(legacy.pathwayId ?? "seer");
           const abilityFields = { version: 12, spirituality: Math.max(12, legacy.spirituality ?? 12), spiritualityMax: 18, mentalLoad: legacy.mentalLoad ?? 0, lastMeditationWeek: legacy.lastMeditationWeek ?? 0, abilityJournal: legacy.abilityJournal ?? [], hiddenWorldFacts: legacy.hiddenWorldFacts ?? fresh.hiddenWorldFacts, activeAbilityScene: legacy.activeAbilityScene ?? null, playerOrigin: legacy.playerOrigin ?? fresh.playerOrigin, councilTopics: legacy.councilTopics ?? [] };
           if (legacy.version === 11 || legacy.version === 10) setGame({ ...(legacy as GameState), ...abilityFields });
@@ -129,7 +136,7 @@ export default function CompleteGame() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  useEffect(() => { if (hydrated) window.localStorage.setItem(SAVE_KEY, JSON.stringify(game)); }, [game, hydrated]);
+  useEffect(() => { if (hydrated && game.prologueComplete) window.localStorage.setItem(SAVE_KEY, JSON.stringify(game)); }, [game, hydrated]);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(""), 3600); return () => window.clearTimeout(timer); }, [toast]);
   const pathway = PATHWAYS[game.pathwayId];
   const currentSequence = pathway.sequences.find((sequence) => sequence.rank === game.currentSequence)!;
@@ -141,14 +148,14 @@ export default function CompleteGame() {
   async function prepareContract() {
     const freeIntent = intentText.trim();
     if (!freeIntent || contractLoading) return;
+    if (!aiReady) { setShowSettings(true); setToast("自由决议必须先连接 AI；本地规则不会代替模型理解你的意图"); return; }
     setContractLoading(true); setGenerationError("");
     const args = { intent: freeIntent, game, leaderId: "organization", districtId: selectedDistrictId, abilityIds: [] as string[] };
     try {
-      const next = aiReady ? await interpretIntentWithAi(aiConfig, args) : localContract(args);
+      const next = await interpretIntentWithAi(aiConfig, args);
       setContract(next);
     } catch (error) {
-      setContract(localContract(args));
-      setGenerationError(`${error instanceof Error ? error.message : "模型解析失败"}；已使用本地保守解释。`);
+      setGenerationError(`${error instanceof Error ? error.message : "模型解析失败"}；没有写入任何机械替代决议，请检查后重试。`);
     } finally { setContractLoading(false); }
   }
 
@@ -179,8 +186,13 @@ export default function CompleteGame() {
   async function endWeek() {
     if (generationStage) return;
     if (game.fatalSituation || game.ending.phase === "finale" || game.ending.phase === "ended") return;
+    if (!aiReady) {
+      setGenerationError("这是 AI 推演游戏。请先配置人物／叙事模型；每一周都必须由模型完成独立世界推演后才能结算。");
+      setToast("尚未配置模型，世界推演没有开始");
+      setShowSettings(true);
+      return;
+    }
     const resolved = resolveWeek(game);
-    setCouncilDecisionSignal(0);
     const councilState: GameState = {
       ...resolved.state,
       councilRecords: [
@@ -188,16 +200,17 @@ export default function CompleteGame() {
         ...(resolved.state.councilRecords.some((record) => record.week === resolved.state.week) ? [] : [{ week: resolved.state.week, status: "convened" as const, decisions: [] }]),
       ],
     };
-    setGame(councilState); setTurnChapter(resolved.chapter); setView("intent"); setGenerationError("");
-    if (!aiReady || !resolved.chapter.results.length) return;
+    setGenerationError("");
     try {
       const simulatedState = await generateAiWorldDelta(aiConfig, councilState, resolved.chapter, setGenerationStage);
       const enrichedChapter = simulatedState.chronicle.find((chapter) => chapter.id === resolved.chapter.id) ?? resolved.chapter;
       const literary = await generateLiteraryChapter(aiConfig, simulatedState, enrichedChapter, setGenerationStage);
+      setCouncilDecisionSignal(0);
       setTurnChapter(literary);
+      setView("intent");
       setGame({ ...simulatedState, chronicle: simulatedState.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) });
     } catch (error) {
-      setGenerationError(`${error instanceof Error ? error.message : "文学模式失败"}；本地事实章节已保留。`);
+      setGenerationError(`${error instanceof Error ? error.message : "AI 世界推演失败"}；本周没有结算，你可以检查接口后原样重试。`);
     } finally { setGenerationStage(""); }
   }
 
@@ -236,13 +249,11 @@ export default function CompleteGame() {
   async function startCouncilDiscussion(text: string) {
     const raw = text.trim();
     if (!raw) return null;
+    if (!aiReady) { setShowSettings(true); setToast("自由讨论需要先连接AI模型；离线规则不会伪装成人物发言"); return null; }
     const topicId = `council-topic-${Date.now()}`;
-    const fallbackReplies = createLocalCouncilReplies(game, raw);
-    let replies = fallbackReplies;
-    if (aiReady) {
-      try { const generated = await generateCouncilReplies(aiConfig, game, raw); if (generated.length) replies = generated; }
-      catch { /* 自由讨论保持在世界内，不暴露模型错误。 */ }
-    }
+    let replies: Awaited<ReturnType<typeof generateCouncilReplies>> = [];
+    try { replies = await generateCouncilReplies(aiConfig, game, raw); }
+    catch (error) { setToast(error instanceof Error ? error.message : "成员没有形成可用回应"); return null; }
     setGame((current) => ({
       ...current,
       councilTopics: [{
@@ -290,19 +301,35 @@ export default function CompleteGame() {
     catch (error) { setToast(error instanceof Error ? error.message : "尚不能晋升"); }
   }
 
+  async function openSituation(next: GameState) {
+    situationDismissed.current = false;
+    setSituationBrief({ title: "城市正在醒来", dateline: `${next.date} · 贝克兰德 · ${next.organizationName}`, paragraphs: [] });
+    setSituationLoading(true);
+    if (!aiReady) { setSituationLoading(false); setSituationBrief(null); setShowSettings(true); return; }
+    try { const generated = await generateSituationBrief(aiConfig, next); if (!situationDismissed.current) setSituationBrief(generated); }
+    catch (error) { setSituationBrief(null); setGenerationError(`${error instanceof Error ? error.message : "AI 局势生成失败"}；请检查接口后重新进入。`); }
+    finally { setSituationLoading(false); }
+  }
+
+  function continueSavedGame() {
+    setEntry("game"); setView("intent"); setShowSettings(false);
+    void openSituation(game);
+  }
+
   function startNewGame() {
-    setGame(createInitialGame(draftPathway)); setSelectedRank(9); setAbilityPanelOpen(false); setAbilityResult(null); setCouncilDecisionSignal(0); setShowSettings(false); setView("intent"); setToast("新的历史分支已经建立");
+    if (!aiReady) { setShowSettings(true); setToast("先连接 AI 模型，再建立新的世界分支"); return; }
+    const next = createInitialGame(draftPathway);
+    setGame(next); setEntry("game"); setSituationBrief(null); setSelectedRank(9); setAbilityPanelOpen(false); setAbilityResult(null); setCouncilDecisionSignal(0); setShowSettings(false); setView("intent"); setToast("新的历史分支已经建立");
   }
 
   function completePrologue(name: string, address: string, pathwayId: PathwayId, origin: PlayerOrigin) {
-    setGame((current) => {
-      const base = current.pathwayId === pathwayId ? current : createInitialGame(pathwayId);
-      const allCandidates = [...INITIAL_MEMBERS, ...FIXED_RECRUIT_POOL];
-      const chosen = allCandidates.filter((member) => origin.foundingMemberIds.includes(member.id)).map((member) => ({ ...member, status: "可安排", relationshipStage: "正式成员" as const }));
-      const reserve = allCandidates.filter((member) => !origin.foundingMemberIds.includes(member.id)).map((member) => ({ ...member, status: "尚未接触", relationshipStage: "接触" as const }));
-      const fieldLead = chosen.find((member) => /追踪|调查|警|码头|路线/.test(`${member.specialty}${member.role}`)) ?? chosen[0];
-      const supportLead = chosen.find((member) => member.id !== fieldLead?.id && /账|档案|机械|研究|身份/.test(`${member.specialty}${member.role}`)) ?? chosen.find((member) => member.id !== fieldLead?.id) ?? chosen[0];
-      return {
+    const base = game.pathwayId === pathwayId ? game : createInitialGame(pathwayId);
+    const allCandidates = [...INITIAL_MEMBERS, ...FIXED_RECRUIT_POOL];
+    const chosen = allCandidates.filter((member) => origin.foundingMemberIds.includes(member.id)).map((member) => ({ ...member, status: "可安排", relationshipStage: "正式成员" as const }));
+    const reserve = allCandidates.filter((member) => !origin.foundingMemberIds.includes(member.id)).map((member) => ({ ...member, status: "尚未接触", relationshipStage: "接触" as const }));
+    const fieldLead = chosen.find((member) => /追踪|调查|警|码头|路线/.test(`${member.specialty}${member.role}`)) ?? chosen[0];
+    const supportLead = chosen.find((member) => member.id !== fieldLead?.id && /账|档案|机械|研究|身份/.test(`${member.specialty}${member.role}`)) ?? chosen.find((member) => member.id !== fieldLead?.id) ?? chosen[0];
+    const next: GameState = {
       ...base,
       prologueComplete: true,
       playerName: name,
@@ -318,16 +345,17 @@ export default function CompleteGame() {
         { id: `fact-player-origin-${Date.now()}`, subject: "组织负责人", statement: `公开身份为${origin.identityLabel}；关键经历是${origin.experienceLabel}${origin.experienceDetail ? `：${origin.experienceDetail}` : ""}。`, certainty: "确认" as const, source: "创立档案", week: base.week },
       ],
     };
-    });
+    setGame(next);
+    setHasSave(true);
     setSelectedRank(9);
-    setToast(`成员已经落座，等待${address}主持会议`);
+    void openSituation(next);
   }
 
   function saveSettings() {
     const stored = { ...aiConfig, apiKey: rememberApiKey ? aiConfig.apiKey : "", rememberKey: rememberApiKey };
     window.localStorage.setItem(AI_KEY, JSON.stringify(stored));
     if (rememberApiKey) window.sessionStorage.removeItem(AI_SESSION_KEY); else window.sessionStorage.setItem(AI_SESSION_KEY, aiConfig.apiKey);
-    setShowSettings(false); setToast(aiReady ? `${aiConfig.model} 已启用` : "已切换为离线试玩模式");
+    setShowSettings(false); setToast(aiReady ? `${aiConfig.model} 已启用` : "模型配置尚未完成，世界推演保持暂停");
   }
 
   async function testConnection() {
@@ -359,13 +387,14 @@ export default function CompleteGame() {
   async function castAbility() {
     const intent = abilityIntent.trim();
     if (!intent || abilityLoading) return;
+    if (!aiReady) { setAbilityError("非凡能力反馈必须由 AI 根据你的自由意图与现场状态生成；请先连接模型。"); setShowSettings(true); return; }
     setAbilityError("");
     setAbilityLoading(true);
     try {
       const ability = abilitySelectedId === "free-intent" ? abilityForFreeIntent(game, intent) : abilities.find((item) => item.id === abilitySelectedId) ?? abilityForFreeIntent(game, intent);
       const assistant = game.members.find((item) => item.id === abilityAssistId && item.pathway);
       const effectiveIntent = assistant ? `${intent}\n在场协同：${assistant.name}以其${assistant.pathway}途径能力提供辅助观察，但不得替负责人越过能力边界。` : intent;
-      const draft = aiReady ? await generateAbilityDraft(aiConfig, game, ability, effectiveIntent, abilityContext) : undefined;
+      const draft = await generateAbilityDraft(aiConfig, game, ability, effectiveIntent, abilityContext);
       const resolved = resolveImmediateAbility(game, ability, intent, abilityContext, draft);
       let next = resolved.state;
       if (assistant) {
@@ -396,21 +425,13 @@ export default function CompleteGame() {
 
   async function deepenAbilityScene(intent: string) {
     if (abilityLoading) return;
+    if (!aiReady) { setShowSettings(true); setToast("灵界与梦境场景需要 AI 持续生成"); return; }
     setAbilityLoading(true);
     try {
-      const response = aiReady ? await generateSceneResponse(aiConfig, game, intent) : undefined;
+      const response = await generateSceneResponse(aiConfig, game, intent);
       setGame((current) => continueAbilityScene(current, intent, response));
     } catch (error) { setToast(error instanceof Error ? error.message : "深层场景暂时失去回应"); }
     finally { setAbilityLoading(false); }
-  }
-
-  function passiveInsight(memberId: string) {
-    if (game.pathwayId === "spectator") return "被动观察：对方的礼貌是真实的，但有一个词让他的身体反应比回答快了半拍。你可以集中观察，确认情绪来源。";
-    if (game.pathwayId === "seer") return "危险直觉：这场谈话本身没有迫近威胁，但某个未说出口的名字与据点外的注视短暂重合。";
-    if (game.pathwayId === "apprentice") return "空间直觉：门外走廊与窗边都是正常边界；桌后墙体有一处适合作为紧急撤离方向的薄弱点。";
-    if (game.pathwayId === "hunter") return "猎人直觉：对方选择的座位同时看得见门与窗。这是长期习惯，不是今天临时产生的戒备。";
-    const member = game.members.find((item) => item.id === memberId);
-    return `神秘学辨识：${member?.name ?? "对方"}身上没有正在运转的明显仪式，但衣物边缘沾有极淡的灵性材料粉末。`;
   }
 
   function meditate() {
@@ -420,15 +441,10 @@ export default function CompleteGame() {
   }
 
   function openMemberChat(memberId: string, seed = "", context: "council" | "private" = "council") {
-    const member = game.members.find((item) => item.id === memberId)!;
     setChatMemberId(memberId); setChatContext(context); setChatInput(seed);
     setGame((current) => {
       if (current.dialogueThreads.some((item) => item.memberId === memberId)) return current;
-      const pressure = current.missions.find((item) => item.state === "active");
-      const opener = context === "council"
-        ? `${member.name}起身向你致意，随后才重新落座。“${current.playerAddress}，我已经准备好汇报。您可以问上周的结果，也可以让我陈述这周最值得警惕的事。”`
-        : `${member.name}关上门，在你对面的椅子坐下。“这里没有书记员，${current.playerAddress}。请您直说。”`;
-      return { ...current, dialogueThreads: [...current.dialogueThreads, { memberId, messages: [{ id: `dialogue-${Date.now()}-open`, role: "member", text: pressure ? `${opener}他把写着“${pressure.title}”的纸页推开了半寸。` : opener, week: current.week, context, mood: "审慎" }], memories: [], lastMood: "审慎", lastUpdatedWeek: current.week }] };
+      return { ...current, dialogueThreads: [...current.dialogueThreads, { memberId, messages: [], memories: [], lastMood: "等待发言", lastUpdatedWeek: current.week }] };
     });
   }
 
@@ -436,18 +452,12 @@ export default function CompleteGame() {
     const text = chatInput.trim();
     const member = game.members.find((item) => item.id === chatMemberId);
     if (!text || !member || chatLoading) return;
+    if (!aiReady) { setShowSettings(true); setToast("自由人物对话需要先连接AI模型；游戏不会再用固定台词冒充回应"); return; }
     const playerMessage = { id: `dialogue-${Date.now()}-player`, role: "player" as const, text, week: game.week, context: chatContext };
     setGame((current) => ({ ...current, dialogueThreads: current.dialogueThreads.map((thread) => thread.memberId === member.id ? { ...thread, messages: [...thread.messages, playerMessage], lastUpdatedWeek: current.week } : thread) }));
     setChatInput(""); setChatLoading(true);
     try {
-      const fallback = member.id === "mara"
-        ? { reply: `玛拉将手从地图上收回，微微欠身。“${game.playerAddress}，请允许我补充一项风险。若目标只写成‘查清楚’，外勤会无法判断何时撤离。我建议保留两条撤退路线，也不要把名单上的人当作诱饵。最后如何决定，由您拍板。”`, mood: "郑重进言", memory: `${game.playerAddress}愿意在会上听取撤退条件。`, trustDelta: 0, proposal: null }
-        : member.id === "cedric"
-          ? { reply: `塞德里克合上账本，语气依旧恭谨。“${game.playerAddress}，这项方向可以执行。不过在写入记录前，我恳请您给出资金与身份文件的上限，也说明失败后是否允许我们中止。若您坚持维持原案，我会服从，只会把预计代价如实记在旁注里。”`, mood: "恭谨陈情", memory: `${game.playerAddress}要求成员如实陈述命令成本。`, trustDelta: 0, proposal: null }
-          : member.id === "ines"
-            ? { reply: `伊妮丝先向你点头，才提起昨晚那封匿名来信。“${game.playerAddress}，我愿意照您的方向追问。只是每一个被写下的名词，也会向对方暴露我们知道多少。若您准许，我会保留目标不变，只把问题换成更安全的说法。”`, mood: "谨慎请示", memory: `${game.playerAddress}曾在会上询问敏感目标。`, trustDelta: 0, proposal: null }
-            : { reply: `罗文低头致意。“${game.playerAddress}，如果这是命令，我会遵从其中不违背禁忌的部分。若您是在征询，我恳请先把推测与亲眼所见分开。异常不会因为我们叫对了名字就更容易处理，但您的最终判断，我会准确执行。”`, mood: "肃然提醒", memory: `${game.playerAddress}愿意讨论非凡风险的边界。`, trustDelta: 0, proposal: null };
-      const result = aiReady ? await generateNpcDialogue(aiConfig, game, member.id, text, chatContext) : fallback;
+      const result = await generateNpcDialogue(aiConfig, game, member.id, text, chatContext);
       setGame((current) => ({
         ...current,
         members: current.members.map((item) => item.id === member.id ? { ...item, trust: Math.max(0, Math.min(100, (item.trust ?? item.loyalty) + result.trustDelta)) } : item),
@@ -471,14 +481,13 @@ export default function CompleteGame() {
     const previous = thread?.messages.slice().reverse().find((message) => message.role === "player")?.text ?? "";
     const decisionText = chatInput.trim() || previous;
     if (!member || !decisionText || dialogueDecisionLoading) { setToast("请先说清希望形成决议的做法与目标"); return; }
+    if (!aiReady) { setShowSettings(true); setToast("人物复述与自由决议必须由 AI 生成"); return; }
     setDialogueDecisionLoading(true);
     try {
       const args = { intent: decisionText, game, leaderId: "organization", districtId: selectedDistrictId, abilityIds: [] as string[] };
-      const interpreted = aiReady ? await interpretIntentWithAi(aiConfig, args) : localContract(args);
+      const interpreted = await interpretIntentWithAi(aiConfig, args);
       const scheduled = scheduleContract(game, interpreted);
-      const restatement = aiReady
-        ? await generateNpcDialogue(aiConfig, game, member.id, `【正式决议】${game.playerAddress}已经按以下原意拍板：“${decisionText}”。请先称呼${game.playerAddress}，再准确复述目标、方法、预期结果与底线；不得替负责人改变原意，也不要再提出新提案。`, "council")
-        : { reply: `${member.name}起身，向你郑重致意。“遵照您的决议，${game.playerAddress}：${decisionText}。组织会依照这段原意分工执行；我会把目标、方法和底线一并写入本周记录，不作擅自增删。”`, mood: "领命复述", memory: `${game.playerAddress}将“${decisionText.slice(0, 80)}”确认为正式决议。`, trustDelta: 1 };
+      const restatement = await generateNpcDialogue(aiConfig, game, member.id, `【正式决议】${game.playerAddress}已经按以下原意拍板：“${decisionText}”。自然地确认你理解的执行方向与不能越过的边界；保持对负责人的尊重，但不要套用固定领命句式。`, "council");
       const now = Date.now();
       setGame((current) => ({
         ...current,
@@ -492,6 +501,11 @@ export default function CompleteGame() {
     } catch (error) { setToast(error instanceof Error ? error.message : "这项决议暂时无法写入本周记录"); }
     finally { setDialogueDecisionLoading(false); }
   }
+
+  if (entry === "title") return <>
+    <TitleScreen hydrated={hydrated} hasSave={hasSave} save={game} onContinue={continueSavedGame} onNewGame={startNewGame} onSettings={() => setShowSettings(true)} />
+    {showSettings && <div className="complete-sheet-backdrop title-settings-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="title-settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本地配置</p><h2 id="title-settings-title">模型、世界推演与设定资料</h2></div><button onClick={() => setShowSettings(false)} aria-label="关闭设置"><X size={17} /></button></header><AiSettings config={aiConfig} rememberKey={rememberApiKey} connection={connectionState} draftPathway={draftPathway} onChange={(patch) => { setAiConfig((current) => ({ ...current, ...patch })); setConnectionState({ status: "idle", message: "配置已改变，请重新测试" }); }} onRememberKey={setRememberApiKey} onTest={() => void testConnection()} onSave={saveSettings} onPathway={setDraftPathway} onNewGame={startNewGame} /></section></div>}
+  </>;
 
   return <main className="complete-game-shell">
     <a className="complete-skip-link" href="#complete-content">跳到主要内容</a>
@@ -515,7 +529,8 @@ export default function CompleteGame() {
     </nav>
 
     <section className="complete-content" id="complete-content">
-      {!aiReady && <button className="offline-banner" onClick={() => setShowSettings(true)}><ShieldAlert size={15} /><span><strong>离线试玩模式</strong><small>规则、晋升和建设可用；配置模型后开放完整自由解析、动态世界与文学叙事。</small></span><ChevronRight size={15} /></button>}
+      {!aiReady && <button className="offline-banner" onClick={() => setShowSettings(true)}><ShieldAlert size={15} /><span><strong>AI 世界推演已暂停</strong><small>连接模型后才能理解自由决议、回应人物、使用能力或结算新一周；本地规则不会伪造世界事件。</small></span><ChevronRight size={15} /></button>}
+      {generationError && !contract && !turnChapter && <div className="inline-warning world-generation-warning" role="alert"><ShieldAlert size={15} /><span>{generationError}</span><button onClick={() => setShowSettings(true)}>检查模型</button></div>}
 
       {view === "intent" && <WeeklyCouncil key={councilDecisionSignal} game={game} intentText={intentText} selectedDistrictId={selectedDistrictId} contractLoading={contractLoading} generationStage={generationStage} decisionSignal={councilDecisionSignal} latestChapter={latestChapter} onIntentText={setIntentText} onDistrict={setSelectedDistrictId} onInspectDistrict={setSelectedDistrictDetail} onPrepare={() => void prepareContract()} onRemoveAction={removeAction} onEndWeek={() => void endWeek()} onQuestionMember={(memberId, seed) => openMemberChat(memberId, seed, "council")} onReadChapter={setSelectedChapter} onUseSuggestion={(text, districtId) => { applySuggestion(text, districtId); }} onView={setView} onUseAbility={(context, prompt) => openAbility(context, "free-intent", prompt)} onStartDiscussion={startCouncilDiscussion} onSummarizeTopic={summarizeCouncilTopic} onPinTopic={pinCouncilTopic} />}
 
@@ -609,7 +624,7 @@ export default function CompleteGame() {
           <header><div><p>{chatContext === "council" ? "议桌发言" : "私下谈话"} · {member.role}</p><h2 id="character-title">{member.name}</h2><span>当前态度：{thread?.lastMood ?? "审慎"} · 信任 {member.trust ?? member.loyalty} · 疲劳 {member.fatigue}</span></div><button onClick={() => setChatMemberId(null)} aria-label="结束点名"><X size={17} /></button></header>
           <details className="character-dossier"><summary>查看人物档案与长期关系记忆</summary><div className="character-core"><div><small>背景</small><p>{member.background}</p></div><div><small>性格核心</small><p>{member.core}</p></div><div><small>成长矛盾</small><p>{member.arc}</p></div></div>{thread?.memories.length ? <ul>{thread.memories.map((memory) => <li key={memory}>{memory}</li>)}</ul> : <p>还没有形成值得长期记住的关系事实。</p>}</details>
           <div className="dialogue-rule"><MessageSquareText size={14} /><span><strong>这是自由对话，不是关键词菜单</strong><small>成员会尊重你的领导身份，也会以正式方式陈述异议、隐瞒、误判或请求澄清；普通谈话不会自动消耗行动。</small></span></div>
-          <p className="passive-insight"><strong>{PATHWAYS[game.pathwayId].startingAbilities.find((item) => item.passive)?.name ?? "非凡直觉"}</strong>：{passiveInsight(member.id)}</p>
+          <div className="dialogue-rule"><WandSparkles size={14} /><span><strong>被动直觉不会再输出固定答案</strong><small>选择下方任一能力并写明你要观察什么，结果会由当前人物、地点、世界状态和已知事实即时生成。</small></span></div>
           <div className="character-dialogue" aria-live="polite">{thread?.messages.map((message) => <p key={message.id} className={message.role}><strong>{message.role === "player" ? game.playerAddress : message.role === "ability" ? "非凡感知" : member.name}</strong><span>{message.text}</span>{message.mood && <small>{message.mood}</small>}</p>)}{chatLoading && <p className="member pending"><strong>{member.name}</strong><span>油灯安静地烧着。他正在斟酌怎样准确而恭敬地回应……</span></p>}</div>
           <div className="dialogue-ability-strip"><span><WandSparkles size={13} />即时使用，不打断谈话</span>{abilities.slice(0, 3).map((ability) => <button key={ability.id} onClick={() => openAbility({ kind: "dialogue", targetId: member.id, label: member.name }, ability.id, `我在不惊动${member.name}的前提下使用${ability.name}，重点观察刚才谈话中的矛盾、情绪变化或非自然影响；只记录可感知现象。`)}><Eye size={12} />{ability.name}</button>)}</div>
           <label className="chat-input"><span>直接说任何话。Enter发送，Shift+Enter换行；你也可以把输入框中的最终说法直接形成决议。</span><textarea value={chatInput} onChange={(event) => setChatInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendChat(); } }} placeholder={`向${member.name}询问、解释或写下你希望他复述的最终决议……`} maxLength={1200} /><button className="complete-secondary" onClick={() => void sendChat()} disabled={!chatInput.trim() || chatLoading}><Send size={15} />继续交谈</button></label>
@@ -621,6 +636,7 @@ export default function CompleteGame() {
     <AbilityConsole game={game} abilities={abilities} open={abilityPanelOpen} context={abilityContext} selectedId={abilitySelectedId} assistId={abilityAssistId} intent={abilityIntent} loading={abilityLoading} error={abilityError} result={abilityResult} onOpen={() => openAbility()} onClose={() => { setAbilityPanelOpen(false); setAbilityResult(null); setAbilityError(""); }} onSelect={(id) => { setAbilitySelectedId(id); setAbilityError(""); }} onAssist={setAbilityAssistId} onIntent={(value) => { setAbilityIntent(value); if (abilityError) setAbilityError(""); }} onUse={() => void castAbility()} onContinueScene={(intent) => void deepenAbilityScene(intent)} onExitScene={() => setGame((current) => ({ ...current, activeAbilityScene: null }))} />
 
     {hydrated && !game.prologueComplete && <OpeningPrologue game={game} onBegin={completePrologue} />}
+    {situationBrief && game.prologueComplete && <SituationOpening brief={situationBrief} loading={situationLoading} onEnter={() => { situationDismissed.current = true; setSituationBrief(null); }} />}
 
     {toast && <div className="complete-toast"><CheckCircle2 size={15} />{toast}</div>}
   </main>;

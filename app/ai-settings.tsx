@@ -29,7 +29,7 @@ export default function AiSettings({ config, rememberKey, connection, draftPathw
   return <>
     <div className={`api-health ${connection.status === "success" ? "success" : connection.status === "error" ? "error" : ready ? "ready" : "offline"}`}>
       {connection.status === "testing" ? <LoaderCircle className="spin" size={19} /> : connection.status === "success" ? <ShieldCheck size={19} /> : connection.status === "error" ? <CircleAlert size={19} /> : <Sparkles size={19} />}
-      <span><strong>{connection.status === "testing" ? "正在验证真实请求" : connection.status === "success" ? "模型连接可用" : connection.status === "error" ? "连接尚未通过" : ready ? "配置完整，尚未测试" : "当前使用离线规则"}</strong><small>{connection.message || (ready ? `${config.model} · 点击测试后再保存` : "配置后开放自由契约、人物对话、世界推演与小说章节")}</small></span>
+      <span><strong>{connection.status === "testing" ? "正在验证真实请求" : connection.status === "success" ? "模型连接可用" : connection.status === "error" ? "连接尚未通过" : ready ? "配置完整，尚未测试" : "AI 世界推演已暂停"}</strong><small>{connection.message || (ready ? `${config.model} · 点击测试后再保存` : "游戏不会用本地事件表冒充人物回应或世界变化")}</small></span>
     </div>
 
     <section className="provider-choice" aria-label="模型服务商">
@@ -42,13 +42,15 @@ export default function AiSettings({ config, rememberKey, connection, draftPathw
     <label className="api-key-field"><span><KeyRound size={13} />API Key</span><input type="password" autoComplete="off" value={config.apiKey} onChange={(event) => onChange({ apiKey: event.target.value })} placeholder={provider === "deepseek" ? "sk-… 仅用于调用 DeepSeek" : "仅发送给你填写的模型端点"} /></label>
     <label className="remember-key"><button className={rememberKey ? "on" : ""} onClick={() => onRememberKey(!rememberKey)} role="switch" aria-checked={rememberKey}><i /></button><span><strong>在这台设备长期保存密钥</strong><small>{rememberKey ? "密钥会写入本浏览器本地存储" : "默认只保留到当前浏览器会话结束"}</small></span></label>
 
-    <div className="api-actions"><button className="connection-test" disabled={!ready || connection.status === "testing"} onClick={onTest}><Gauge size={15} />{connection.status === "testing" ? "正在测试…" : "测试真实连接"}</button><button className="complete-primary" onClick={onSave}><Check size={15} />保存并启用</button></div>
+    <div className="api-actions"><button className="connection-test" disabled={!ready || connection.status === "testing"} onClick={onTest}><Gauge size={15} />{connection.status === "testing" ? "正在测试…" : "测试真实连接"}</button><button className="complete-primary" disabled={!ready} onClick={onSave}><Check size={15} />保存并启用</button></div>
 
     <details className="api-advanced">
       <summary><span>高级接口选项</span><small>模型、端点、思考与章节质量</small><ChevronDown size={15} /></summary>
       <div>
         <label><span>接口基础地址</span><input value={config.endpoint} onChange={(event) => onChange({ endpoint: event.target.value })} placeholder="https://api.example.com/v1" readOnly={provider === "deepseek"} /></label>
         <label><span>模型名称</span><input value={config.model} onChange={(event) => onChange({ model: event.target.value })} placeholder="model-name" readOnly={provider === "deepseek"} /></label>
+        <label><span>专用世界推演模型（可选）</span><input value={config.worldModel ?? ""} onChange={(event) => onChange({ worldModel: event.target.value })} placeholder="留空则与人物对话共用当前模型" /><small>每周会先运行世界，再处理人物对话与小说化叙事。</small></label>
+        <label className="world-bible-field"><span>世界设定资料（可选）</span><textarea value={config.worldBible ?? ""} onChange={(event) => onChange({ worldBible: event.target.value.slice(0, 24000) })} placeholder="建议粘贴你整理的时间线、地点、势力、人物公开经历与不可越过的设定边界；无需粘贴整部小说。" rows={8} /><small>{(config.worldBible ?? "").length}/24000 · 仅保存在本地并随模型请求发送</small></label>
         <div className="api-option-row"><span><strong>思考模式</strong><small>复杂推演更稳，但响应更慢、消耗更多</small></span><button className={config.thinking ? "option-toggle on" : "option-toggle"} onClick={() => onChange({ thinking: !config.thinking })} role="switch" aria-checked={Boolean(config.thinking)}><i /></button></div>
         {config.thinking && <label><span>推理强度</span><select value={config.reasoningEffort ?? "high"} onChange={(event) => onChange({ reasoningEffort: event.target.value as "high" | "max" })}><option value="high">High · 常规推演</option><option value="max">Max · 关键终局</option></select></label>}
         <div className="quality-choice"><span><strong>小说生成模式</strong><small>平衡模式每回合减少两次模型调用</small></span>{([[
@@ -61,6 +63,6 @@ export default function AiSettings({ config, rememberKey, connection, draftPathw
 
     <div className="settings-divider"><span>建立新历史分支</span></div>
     <div className="pathway-choice">{Object.values(PATHWAYS).map((item) => <button key={item.id} className={draftPathway === item.id ? "selected" : ""} onClick={() => onPathway(item.id)}><span>{item.name}</span><small>序列9 · {item.sequences[0].name}</small></button>)}</div>
-    <button className="danger-reset" onClick={onNewGame}><RotateCcw size={14} />以所选途径开始新游戏</button>
+    <button className="danger-reset" disabled={!ready} onClick={onNewGame}><RotateCcw size={14} />{ready ? "以所选途径开始新游戏" : "连接模型后开始新游戏"}</button>
   </>;
 }

@@ -13,6 +13,8 @@ import {
   TimelineEvent,
   WorldFact,
   WorldMove,
+  WorldSignal,
+  WorldSnapshot,
 } from "./game-model";
 import { createFinaleCampaign } from "./finale-system";
 import { callModel as invokeModel, type AiConfig } from "./ai-client";
@@ -363,6 +365,27 @@ function factionTurn(factions: FactionState[], game: GameState, evidence: Eviden
   return { factions: next, moves };
 }
 
+function localWorldSignals(game: GameState, moves: WorldMove[]): WorldSignal[] {
+  const channelFor = (factionId: string): WorldSignal["channel"] => factionId === "press" ? "报纸" : factionId === "police" || factionId === "night-church" || factionId === "steam-church" ? "官方通告" : factionId === "black-market" ? "行业消息" : "街谈";
+  const reliabilityFor = (move: WorldMove): WorldSignal["reliability"] => move.visibility === "确认" ? "公开事实" : move.visibility === "获知" ? "多源传闻" : "单一消息";
+  const visible = moves.slice(0, 4).map((move, index) => ({
+    id: `signal-${game.week}-${move.factionId}-${index}`,
+    week: game.week,
+    channel: channelFor(move.factionId),
+    headline: move.title.replace(/的本周动向$/, ""),
+    body: move.detail,
+    reliability: reliabilityFor(move),
+    relatedFactionId: move.factionId,
+  } satisfies WorldSignal));
+  const activeTimeline = game.timeline.find((event) => event.status === "active");
+  const cityNoise: WorldSignal[] = [
+    { id: `signal-${game.week}-street`, week: game.week, channel: "街谈", headline: "清晨马车夫谈起了几条临时封闭的街道", body: "说法彼此矛盾：有人归因于煤气检修，有人声称夜里见过没有标识的货车。书记员只把共同出现的时间与街区写进了记录。", reliability: "多源传闻", districtId: game.organizationProfile.headquartersDistrictId },
+    { id: `signal-${game.week}-occult`, week: game.week, channel: "神秘征兆", headline: "据点周围的灵性噪声出现了新的节律", body: game.missions.some((mission) => mission.state === "active" && mission.deadline <= 2) ? "变化与当前压力的临界窗口重合，但现有观察无法证明两者来自同一源头。" : "变化很轻，尚不足以定位来源；它至少说明首都的神秘活动没有因为组织沉默而停止。", reliability: "异常感知" },
+    ...(activeTimeline ? [{ id: `signal-${game.week}-timeline`, week: game.week, channel: "私人来信" as const, headline: "一封外埠来信提到了远方正在变化的人与事", body: activeTimeline.summary, reliability: "单一消息" as const }] : []),
+  ];
+  return [...visible, ...cityNoise].slice(0, 6);
+}
+
 function canonTurn(game: GameState, nextWeek: number) {
   return game.canonActors.map((actor) => {
     if (actor.id === "klein" && nextWeek >= 10) return { ...actor, location: "贝克兰德", publicIdentity: "夏洛克·莫里亚蒂", state: "以私人侦探身份进入首都，并独立追查新的委托。", awareness: game.influence >= 45 ? "间接听闻" as const : actor.awareness, lastMove: "在桥区接下了一宗看似普通的调查；他的行动有自己的目标，不受玩家调度。" };
@@ -638,8 +661,6 @@ export function resolveWeek(game: GameState) {
   if (quarters) members = members.map((member) => ({ ...member, fatigue: Math.max(0, member.fatigue - (2 + quarters.level * 2)) }));
   const overAutonomous = game.departments.filter((item) => item.autonomy >= 70);
   if (overAutonomous.length) secrecy -= overAutonomous.length * 2;
-  const factionResolution = factionTurn(factions, game, evidenceNodes);
-  factions = factionResolution.factions;
   const hostileSuspicion = Math.max(...factions.map((item) => item.suspicion), 0);
   evidenceNodes = evidenceNodes.map((item) => {
     if (!item.discovered || item.compromised) return item;
@@ -666,10 +687,9 @@ export function resolveWeek(game: GameState) {
   if (game.week >= 21 && !missions.some((mission) => mission.id === "smog-endgame")) {
     missions = [...missions, { id: "smog-endgame", title: "雾正在等待命令", premise: "煤气、人口、仪式材料与行政封锁已经进入最后汇合阶段。组织必须决定阻止、利用、改变还是逃离。", deadline: 3, urgency: 96, progress: Math.min(85, evidenceNodes.filter((item) => item.discovered).length * 7 + factions.find((item) => item.id === "night-church")!.planProgress / 3), consequence: "大雾霾将按现有条件爆发，并永久改变贝克兰德与所有相关人物。", hints: ["向教会提交完整证据", "破坏仪式材料", "疏散不可见人口", "追查王室工程核心", "准备撤离贝克兰德"], state: "active" }];
   }
-  const visibleWorldMoves = factionResolution.moves.slice(0, 2).map((move) => move.detail).join(" ");
   const worldText = `${totalMissionProgress
     ? "挂坠相关的压力暂时受到干预，但城市其他区域没有停止。"
-    : "原初压力没有得到处理。凌晨三点的敲门声变得更清楚，像是某个看不见的访客已经学会辨认事务所内部的距离。"} ${visibleWorldMoves || "组织暂时没有取得足以辨认幕后行动的新迹象。"}`;
+    : "组织本周没有发出正式行动命令。"} 城市之外的变化将由独立世界模型推演，而不是由本地事件表代写。`;
   const chapter = buildLocalChapter(game, results, worldText);
   const nextWeek = game.week + 1;
   const coverIncome = 48 + Math.floor(game.influence / 5);
@@ -696,7 +716,10 @@ export function resolveWeek(game: GameState) {
   const occultUses = results.reduce((sum, result) => sum + (result.contract.methodTags?.includes("occult") ? result.contract.abilityIds.length : 0), 0);
   const playerCondition = { ...game.playerCondition, pollution: Math.min(100, game.playerCondition.pollution + occultUses + (dangerousPlayerResult ? 3 : 0)), health: Math.min(100, game.playerCondition.health + (results.some((item) => item.contract.kind === "休整") ? 8 : 0)), injuries: [...game.playerCondition.injuries] };
   members = members.map((member) => ({ ...member, personalEventState: member.personalEventState === "dormant" && (member.fatigue >= 45 || nextWeek >= 8 + hash(member.id) % 8) ? "active" as const : member.personalEventState }));
-  const canonActors = canonTurn(game, nextWeek);
+  // Canon characters are advanced by the AI world simulator after the rules
+  // transaction succeeds. Keeping them unchanged here prevents a local event
+  // table from impersonating a living world.
+  const canonActors = game.canonActors.map((actor) => ({ ...actor }));
   const cases = updateCases(game, evidenceNodes, nextWeek);
   const ending = game.ending.phase === "running" && nextWeek >= 21
     ? { ...game.ending, phase: "finale" as const, campaign: createFinaleCampaign() }
@@ -731,7 +754,9 @@ export function resolveWeek(game: GameState) {
     opportunities,
     factions,
     timeline,
-    worldMoves: [...factionResolution.moves, ...departmentMoves, ...game.worldMoves].slice(0, 80),
+    worldMoves: [...departmentMoves, ...game.worldMoves].slice(0, 80),
+    worldSignals: game.worldSignals ?? [],
+    worldSnapshots: game.worldSnapshots ?? [],
     economyHistory: [economyEntry, ...game.economyHistory].slice(0, 60),
     organizationConditions: conditions,
     cases,
@@ -752,7 +777,7 @@ function validateChapter(value: Record<string, unknown>) {
     const paragraphs = Array.isArray(candidate.paragraphs) ? candidate.paragraphs.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
     return typeof candidate.heading === "string" && paragraphs.length ? [{ heading: candidate.heading, paragraphs }] : [];
   }) : [];
-  if (sections.length < 3) throw new Error("文学章节结构不完整");
+  if (sections.length < 1) throw new Error("文学章节没有形成正文");
   return { title, sections };
 }
 
@@ -767,20 +792,22 @@ export async function generateLiteraryChapter(config: AiConfig, game: GameState,
     discoveredEvidence: game.evidenceNodes.filter((item) => item.discovered),
     availableOpportunities: game.opportunities.filter((item) => item.state === "available"),
     visibleFactionMoves: game.worldMoves.slice(0, 8),
+    worldState: game.worldSnapshots?.find((snapshot) => snapshot.week === local.week) ?? null,
+    publicSignals: game.worldSignals?.filter((signal) => signal.week === local.week).slice(0, 8) ?? [],
     localReference: local.sections,
     forbidden: ["改变行动成败", "新增未经结算的线索", "泄露幕后真相", "替玩家决定内心信念", "擅自判定玩家死亡"],
   };
-  const system = "你为原创维多利亚神秘主义互动小说《灰雾纪事》工作。第三人称有限视角，克制悬疑，不复制任何现有小说句子。只能表达事实包，不能新增事实。只返回JSON。";
+  const system = "你为原创维多利亚神秘主义互动小说《灰雾纪事》工作。使用第三人称有限视角和克制的神秘悬疑文风，不复制任何现有小说句子。不要套用固定的周报结构、固定开场、固定收尾、信息分类标题或‘首先/其次/最后’式模板；根据这一周真正发生的事情自行决定场景、节奏、详略和分节数量。即使玩家没有发布命令，也要以报纸、街谈、远方人物和城市暗流写出世界继续运行的实感。只能表达事实包，不能新增事实。只返回JSON。";
   if ((config.quality ?? "balanced") === "balanced") {
     onStage("小说引擎正在把规则结果写成章节");
-    const written = extractJson(await callModel(config, system, `根据事实包直接写成700至1100字章节。需要3至5个分节，必须包含负责人视角、一个重点场景、次要汇报和结尾压力。返回JSON：{"title":"章名","sections":[{"heading":"分节","paragraphs":["完整段落"]}]}。不得改变成败或新增线索。\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 5600, temperature: .75 }));
+    const written = extractJson(await callModel(config, system, `根据事实包写成600至1400字的完整章节。分节数量由内容决定，允许一段连续场景，也允许多地点交错；不要为了凑结构重复信息。返回JSON：{"title":"章名","sections":[{"heading":"自然分节名","paragraphs":["完整段落"]}]}。不得改变成败或新增线索。\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6200, temperature: .86 }));
     const chapter = validateChapter(written);
     return { ...local, ...chapter, source: "ai" };
   }
   onStage("叙事导演正在安排重点场景");
-  const director = extractJson(await callModel(config, `${system}\n你是叙事导演。`, `制定700至1200字章节提纲，包含负责人锚点、一个重点场景、次要汇报和结尾压力。返回JSON。\n${JSON.stringify(factPack)}`, { json: true, maxTokens: 2200, temperature: .45 }));
+  const director = extractJson(await callModel(config, `${system}\n你是叙事导演。`, `根据事实的戏剧重量制定600至1500字章节提纲，自行决定视角锚点、场景数量和结尾位置，不使用固定周报结构。返回JSON。\n${JSON.stringify(factPack)}`, { json: true, maxTokens: 2600, temperature: .62 }));
   onStage("正文作者正在写作");
-  const writer = extractJson(await callModel(config, `${system}\n你是正文作者。`, `按提纲写3至5个分节。返回{"title":"章名","sections":[{"heading":"分节","paragraphs":["完整段落"]}]}。\n提纲：${JSON.stringify(director)}\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6200, temperature: .8 }));
+  const writer = extractJson(await callModel(config, `${system}\n你是正文作者。`, `按提纲完成正文，分节数量服从故事而不是模板。返回{"title":"章名","sections":[{"heading":"分节","paragraphs":["完整段落"]}]}。\n提纲：${JSON.stringify(director)}\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6800, temperature: .9 }));
   onStage("连续性编辑正在校对世界事实");
   const edited = extractJson(await callModel(config, `${system}\n你是连续性编辑，只能压缩、校正视角和人物语气。`, `校订并返回同样JSON。不得改变以下初稿所引用的事实。\n事实：${JSON.stringify(factPack)}\n初稿：${JSON.stringify(writer)}`, { json: true, maxTokens: 6200, temperature: .35 }));
   const chapter = validateChapter(edited);
@@ -795,18 +822,64 @@ export type NpcDialogueResult = {
   proposal: null;
 };
 
+export type SituationBrief = {
+  title: string;
+  dateline: string;
+  paragraphs: string[];
+};
+
+export function localSituationBrief(game: GameState): SituationBrief {
+  const pressure = game.missions.find((mission) => mission.state === "active");
+  const snapshot = game.worldSnapshots?.[0];
+  const signals = (game.worldSignals ?? []).filter((signal) => signal.week >= Math.max(1, game.week - 1)).slice(0, 3);
+  return {
+    title: game.week === 1 ? "雨水还留在门槛上" : `第${game.week}周 · 城市没有等候`,
+    dateline: `${game.date} · 贝克兰德 · ${game.organizationName}`,
+    paragraphs: [
+      game.week === 1
+        ? `廷根的一名年轻人刚从死亡中醒来。数百里外，贝克兰德的煤烟正压在屋脊之间；你的事务所已经收到一件不属于普通委托的东西。黑玻璃挂坠被锁进储藏间，浸水名单摊在灯下，送信的人却没有回来。`
+        : snapshot?.atmosphere ?? `你离开密议室的这些日子里，贝克兰德继续吞吐煤烟、货物、消息与失踪者。组织保存下来的记录只照亮了其中很小的一部分。`,
+      pressure ? `${pressure.premise} 这不是替你规定道路的任务，而是一件正在发生、会在${pressure.deadline}周后自行越过临界点的事。` : "眼下没有一项压力要求你立刻回应，但各方计划仍在向前推进。",
+      signals.length ? signals.map((signal) => `${signal.channel}带来一条消息：“${signal.headline}”。${signal.body}`).join(" ") : "桌面上还没有足够的新消息。窗外仍有马车经过，城市的沉默并不等于安全。",
+      `你以序列${game.currentSequence}·${PATHWAYS[game.pathwayId].sequences.find((sequence) => sequence.rank === game.currentSequence)?.name}的身份主持这个未获许可的组织。你可以召集成员、追问消息、发动能力、改变据点与组织结构，也可以整周不下达命令；无论选择什么，世界都会继续运行。`,
+    ],
+  };
+}
+
+export async function generateSituationBrief(config: AiConfig, game: GameState): Promise<SituationBrief> {
+  const fallback = localSituationBrief(game);
+  const payload = {
+    week: game.week,
+    date: game.date,
+    player: { name: game.playerName, address: game.playerAddress, pathway: PATHWAYS[game.pathwayId].name, sequence: game.currentSequence, origin: game.playerOrigin },
+    organization: { name: game.organizationName, cover: game.coverIdentity, conditions: game.organizationConditions, members: game.members.map((member) => ({ name: member.name, role: member.role, status: member.status })) },
+    pressures: game.missions.filter((mission) => mission.state === "active"),
+    lastChapter: game.chronicle[0] ? { title: game.chronicle[0].title, summary: game.chronicle[0].summary } : null,
+    currentWorld: game.worldSnapshots?.[0] ?? null,
+    publicSignals: game.worldSignals?.slice(0, 8) ?? [],
+    knownFacts: game.facts.slice(-16),
+    worldBible: config.worldBible?.trim().slice(0, 20000) || null,
+  };
+  const raw = extractJson(await callModel(config, "你为原创维多利亚神秘主义互动小说《灰雾纪事》写玩家进入存档时看到的当前现状。它必须像小说真正开始的一页，不是教程、任务清单、系统摘要或模板化周报。使用有限视角、具体物件、声音、天气、人物动作与消息来源，让玩家理解此刻身在何处、世界刚发生了什么、什么压力正在逼近以及自己可以自由行动。不要替玩家决定情绪或选择，不泄露角色未知的幕后真相，不复制任何现成小说句子。只返回JSON。", `写一个标题、日期行和3至6个自然段。段落可以长短不一，不要使用“当前状况/你的目标/建议行动”之类标签。返回{"title":"小说式标题","dateline":"日期与地点","paragraphs":["完整段落"]}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 3200, temperature: .92 }));
+  const title = typeof raw.title === "string" && raw.title.trim() ? raw.title.trim().slice(0, 80) : fallback.title;
+  const dateline = typeof raw.dateline === "string" && raw.dateline.trim() ? raw.dateline.trim().slice(0, 120) : fallback.dateline;
+  const paragraphs = Array.isArray(raw.paragraphs) ? raw.paragraphs.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim().slice(0, 1200)).slice(0, 6) : [];
+  return { title, dateline, paragraphs: paragraphs.length ? paragraphs : fallback.paragraphs };
+}
+
 export async function generateNpcDialogue(config: AiConfig, game: GameState, memberId: string, playerText: string, context: "council" | "private" = "council"): Promise<NpcDialogueResult> {
   const member = game.members.find((item) => item.id === memberId);
   if (!member) throw new Error("没有找到这名成员");
   const thread = game.dialogueThreads.find((item) => item.memberId === memberId);
   const currentPressure = game.missions.find((item) => item.state === "active");
-  const system = `你正在扮演原创人物${member.name}，参加维多利亚神秘组织的${context === "council" ? "每周密议" : "私下谈话"}。组织领导人是${game.playerName || "尚未登记姓名的负责人"}，你应称其为“${game.playerAddress || "会长阁下"}”。你不是菜单、助手或任务发布器，而是一个有局限、有利益、有情绪的人。
+  const system = `你正在扮演原创人物${member.name}，参加维多利亚神秘组织的${context === "council" ? "每周密议" : "私下谈话"}。组织领导人是${game.playerName || "尚未登记姓名的负责人"}，正式场合应自然地称其为“${game.playerAddress || "会长阁下"}”，但不要每一段都重复称呼。你不是菜单、助手或任务发布器，而是一个有局限、有利益、有情绪、有当下注意力的人。
 固定背景：${member.background ?? "未登记"}
 性格核心：${member.core ?? "谨慎"}
 说话习惯：${member.voice ?? "自然交谈"}
 当前成长矛盾：${member.arc ?? "仍在观察组织"}
 隐藏事实（只用于潜台词，除非现有关系与游戏证据足以支持，绝对不得直接泄露）：${member.secret ?? "无"}
-忠诚${member.loyalty}，信任${member.trust ?? member.loyalty}，疲劳${member.fatigue}。你尊重组织层级：可以保留意见、请求澄清、陈述风险、婉拒违背原则的命令，但必须使用克制而正式的措辞，不得无礼顶撞、讥讽、贬低或反过来命令负责人；只有进入明确背叛或敌对状态后才可破例。只能使用人物可能知道的事实，不能读取原著幕后真相，不能替规则宣布行动成功、资源变化或人物死亡。只返回严格JSON。`;
+忠诚${member.loyalty}，信任${member.trust ?? member.loyalty}，疲劳${member.fatigue}。你尊重组织层级：可以保留意见、请求澄清、陈述风险、婉拒违背原则的命令，但必须使用克制而正式的措辞，不得无礼顶撞、讥讽、贬低或反过来命令负责人；只有进入明确背叛或敌对状态后才可破例。只能使用人物可能知道的事实，不能读取原著幕后真相，不能替规则宣布行动成功、资源变化或人物死亡。
+严格避免模板腔：不要说“我分几层讲”，不要逐项标注“亲历/下属报告/个人推断/未知”，不要机械复述玩家原话，不要总用“谨慎为上、请您示下、最后由您拍板”收尾。信息来源应该自然地藏在动作、回忆、引用和措辞中；若问题很简单，可以只答一句。只返回严格JSON。`;
   const payload = {
     week: game.week,
     playerSaid: playerText,
@@ -815,9 +888,12 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
     currentPressure: currentPressure ? { title: currentPressure.title, premise: currentPressure.premise, consequence: currentPressure.consequence } : null,
     lastWeek: game.chronicle[0] ? { summary: game.chronicle[0].summary, results: game.chronicle[0].results.map((item) => ({ title: item.title, outcome: item.outcome, findings: item.findings })) } : null,
     knownFacts: game.facts.slice(-14),
+    currentWorld: game.worldSnapshots?.[0] ?? null,
+    recentSignals: game.worldSignals?.slice(0, 8) ?? [],
+    worldBible: config.worldBible?.trim().slice(0, 16000) || null,
     scheduledOrders: game.schedule.map((item) => ({ title: item.title, leaderId: item.leaderId, risk: item.risk })),
   };
-  const raw = extractJson(await callModel(config, system, `自然回应玩家。回复长度由内容决定，通常120至360字；复杂议题可以更长。成员必须承认玩家的最终领导权：可以恭敬地进言、请求澄清、说明代价或因原则正式请辞，但不得顶撞、嘲讽、贬低或命令玩家。普通谈话不要生成任务或提案卡。返回：{"reply":"带人物动作与自然口语的完整回应","mood":"不超过8字的当前状态","memory":"值得此人以后记住的关系事实或null","trustDelta":-2到2}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 1400, temperature: .88 }));
+  const raw = extractJson(await callModel(config, system, `像真实人物一样回应此刻这一句话。长度完全服从内容：可以20字，也可以在复杂问题中达到500字；不要为满足格式凭空扩写。普通谈话不要生成任务或提案卡。返回：{"reply":"自然动作与口语组成的回应，不包含分类标签","mood":"不超过8字的当前状态","memory":"真正值得以后记住的关系事实或null","trustDelta":-2到2}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 1900, temperature: .96 }));
   const reply = typeof raw.reply === "string" ? raw.reply.trim().slice(0, 1200) : "";
   if (!reply) throw new Error("人物没有形成可用回应");
   const mood = typeof raw.mood === "string" ? raw.mood.trim().slice(0, 16) : "克制";
@@ -827,17 +903,24 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
 }
 
 export async function generateAiWorldDelta(config: AiConfig, game: GameState, chapter: ChronicleChapter, onStage: (value: string) => void): Promise<GameState> {
-  onStage("世界推演器正在生成受约束的势力回应");
+  onStage(chapter.results.length ? "世界推演器正在结算城市对本周行动的回应" : "世界推演器正在推进没有玩家干预的这一周");
+  const worldConfig = { ...config, model: config.worldModel?.trim() || config.model };
   const payload = {
-    week: game.week,
+    resolvingWeek: chapter.week,
+    currentWeek: game.week,
+    playerIssuedNoOrders: chapter.results.length === 0,
     chapter: chapter.results.map((item) => ({ actionId: item.id, outcome: item.outcome, contract: item.contract.rawIntent, target: item.contract.target, districtId: item.contract.districtId, approach: item.contract.approach, findings: item.findings, futureChanges: item.futureChanges })),
     factions: game.factions.map((item) => ({ id: item.id, name: item.name, currentPlan: item.currentPlan, trust: item.trust, suspicion: item.suspicion, planProgress: item.planProgress, lastMove: item.lastMove })),
     canonActors: game.canonActors.map((item) => ({ id: item.id, name: item.name, location: item.location, agenda: item.agenda, awareness: item.awareness, state: item.state })),
     pivots: game.pivots,
+    timeline: game.timeline,
+    recentWorld: game.worldSnapshots?.slice(0, 4) ?? [],
+    recentSignals: game.worldSignals?.slice(0, 10) ?? [],
     knownEvidence: game.evidenceNodes.filter((item) => item.discovered).map((item) => ({ label: item.label, certainty: item.certainty, summary: item.summary })),
+    worldBible: config.worldBible?.trim().slice(0, 24000) || null,
   };
-  const raw = extractJson(await callModel(config, "你是AI原生回合制世界状态推演器。玩家可以下达任何自然语言命令。规则已经锁定成败、资源与生死边界；你负责让具体人物、现场与势力产生合乎因果的回应。不得新增核心幕后真相，不改变已结算成败，不杀死玩家，不控制玩家意志。只返回严格JSON。", `根据可见状态生成本周后续回应。每一项玩家命令都必须得到具体而有信息量的现场报告，不能只复述成功或失败。返回：{"actionReports":[{"actionId":"本周已有actionId","fieldReport":"像成员在集会上述职一样报告现场过程、人物反应与阻碍","observableFacts":["2至4条可观察、可核验的具体事实"],"followUp":"由结果自然产生但不强迫玩家接受的下一步"}],"factionMoves":[{"factionId":"已有id","title":"短标题","detail":"可被玩家观察到的具体行动","visibility":"迹象|获知|确认","suspicionDelta":-4到6,"progressDelta":0到5}],"canonMoves":[{"actorId":"已有id","lastMove":"自主行动","awareness":"未知|间接听闻|注意|直接接触"}],"emergentPressure":{"title":"可选的新压力","premise":"由玩家行动后果产生","consequence":"放任后果","deadline":2到6}|null,"emergentLead":{"districtId":"已有城区id","label":"玩家可理解的线索名","summary":"仅描述可观察事实，不揭露幕后","source":"消息来源","tags":["document|track|social|occult|official|protect"],"followUp":"可以自由调查的具体下一步"}|null}。最多3个势力行动、2个原著人物行动；只能从事实推断局部回应。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 4400, temperature: .48 }));
-  const moves = Array.isArray(raw.factionMoves) ? raw.factionMoves.slice(0, 3) : [];
+  const raw = extractJson(await callModel(worldConfig, "你是《灰雾纪事》专用的持续世界模拟器。每一周必须先推进整个世界，再考虑玩家是否介入。势力、原著人物、城市生活、公共机构和神秘异常都拥有自己的目标与惯性；玩家无行动绝不等于世界无事件。规则引擎已经锁定玩家行动成败、资源和生死边界，你不得改写这些结算，不得杀死玩家，不得控制玩家意志，也不得把隐藏真相直接变成角色知识。公开信息必须通过报纸、街谈、通告、行业消息、私人来信或可感知征兆进入玩家视野。只返回严格JSON。", `独立完成这一周的世界推演。先在内部推演各方计划，再输出玩家实际能接触到的结果。没有玩家命令时，actionReports必须为空，但世界动向、原著人物行动、城市消息和时间线仍须推进。避免重复上一周措辞，避免所有事件都围绕玩家组织发生。返回：{"worldSummary":{"atmosphere":"本周首都整体气氛，80至180字","changes":["3至6条客观变化"],"undercurrents":["2至4条玩家目前只能间接察觉的暗流"]},"publicSignals":[{"channel":"报纸|街谈|官方通告|行业消息|神秘征兆|私人来信","headline":"自然标题","body":"具体可见信息，60至220字","reliability":"公开事实|多源传闻|单一消息|异常感知","districtId":"已有城区id或空","relatedFactionId":"已有势力id或空"}],"actionReports":[{"actionId":"已有actionId","fieldReport":"小说化现场述职","observableFacts":["2至4条可核验事实"],"followUp":"自然产生的可能方向"}],"factionMoves":[{"factionId":"已有id","title":"短标题","detail":"该势力自主推进的具体行动","visibility":"迹象|获知|确认","suspicionDelta":-4到6,"progressDelta":1到8}],"canonMoves":[{"actorId":"已有id","lastMove":"独立于玩家的自主行动","awareness":"未知|间接听闻|注意|直接接触"}],"emergentPressure":{"title":"只在因果确实形成时出现","premise":"来源","consequence":"放任后果","deadline":2到6}|null,"emergentLead":{"districtId":"已有城区id","label":"线索名","summary":"可观察事实","source":"来源","tags":["document|track|social|occult|official|protect"],"followUp":"可自由调查的方向"}|null}。每周给出3至6条publicSignals、3至5个factionMoves、1至3个canonMoves；它们之间应有跨周连续性，但不要把所有暗流强行连成同一阴谋。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 6200, temperature: .72 }));
+  const moves = Array.isArray(raw.factionMoves) ? raw.factionMoves.slice(0, 5) : [];
   const factions = game.factions.map((item) => ({ ...item }));
   const worldMoves: WorldMove[] = [];
   for (const [index, move] of moves.entries()) {
@@ -853,13 +936,39 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     faction.lastMove = value.detail.slice(0, 240);
     worldMoves.push({ id: `ai-move-${game.week}-${index}-${faction.id}`, factionId: faction.id, title: value.title.slice(0, 40), detail: value.detail.slice(0, 240), week: game.week, visibility });
   }
-  const canonMoves = Array.isArray(raw.canonMoves) ? raw.canonMoves.slice(0, 2) : [];
+  const canonMoves = Array.isArray(raw.canonMoves) ? raw.canonMoves.slice(0, 3) : [];
   const canonActors = game.canonActors.map((actor) => {
     const move = canonMoves.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).actorId === actor.id) as Record<string, unknown> | undefined;
     if (!move || typeof move.lastMove !== "string") return actor;
     const awareness = ["未知", "间接听闻", "注意", "直接接触"].includes(String(move.awareness)) ? move.awareness as typeof actor.awareness : actor.awareness;
     return { ...actor, lastMove: move.lastMove.slice(0, 220), awareness };
   });
+  const allowedChannels = new Set<WorldSignal["channel"]>(["报纸", "街谈", "官方通告", "行业消息", "神秘征兆", "私人来信"]);
+  const allowedReliability = new Set<WorldSignal["reliability"]>(["公开事实", "多源传闻", "单一消息", "异常感知"]);
+  const publicSignals: WorldSignal[] = Array.isArray(raw.publicSignals) ? raw.publicSignals.slice(0, 6).flatMap((item, index) => {
+    if (!item || typeof item !== "object") return [];
+    const value = item as Record<string, unknown>;
+    const headline = typeof value.headline === "string" ? value.headline.trim().slice(0, 70) : "";
+    const body = typeof value.body === "string" ? value.body.trim().slice(0, 420) : "";
+    if (!headline || !body) return [];
+    const channel = allowedChannels.has(String(value.channel) as WorldSignal["channel"]) ? String(value.channel) as WorldSignal["channel"] : "街谈";
+    const reliability = allowedReliability.has(String(value.reliability) as WorldSignal["reliability"]) ? String(value.reliability) as WorldSignal["reliability"] : "单一消息";
+    const districtId = typeof value.districtId === "string" && DISTRICTS.some((district) => district.id === value.districtId) ? value.districtId : undefined;
+    const relatedFactionId = typeof value.relatedFactionId === "string" && game.factions.some((faction) => faction.id === value.relatedFactionId) ? value.relatedFactionId : undefined;
+    return [{ id: `ai-signal-${chapter.week}-${index}-${hash(headline)}`, week: chapter.week, channel, headline, body, reliability, districtId, relatedFactionId }];
+  }) : [];
+  if (publicSignals.length < 3) throw new Error("世界模型没有生成足够的报纸、传闻或公开征兆，本周拒绝结算");
+  if (worldMoves.length < 2) throw new Error("世界模型没有让足够的独立势力采取行动，本周拒绝结算");
+  const summaryValue = raw.worldSummary && typeof raw.worldSummary === "object" && !Array.isArray(raw.worldSummary) ? raw.worldSummary as Record<string, unknown> : {};
+  const list = (value: unknown, limit: number) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, limit).map((item) => item.slice(0, 260)) : [];
+  const latestLocalSnapshot = (game.worldSnapshots ?? []).find((snapshot) => snapshot.week === chapter.week);
+  const worldSnapshot: WorldSnapshot = {
+    week: chapter.week,
+    date: chapter.date,
+    atmosphere: typeof summaryValue.atmosphere === "string" && summaryValue.atmosphere.trim() ? summaryValue.atmosphere.trim().slice(0, 420) : latestLocalSnapshot?.atmosphere ?? "城市在组织视野之外继续运转。",
+    changes: list(summaryValue.changes, 6).length ? list(summaryValue.changes, 6) : latestLocalSnapshot?.changes ?? [],
+    undercurrents: list(summaryValue.undercurrents, 4).length ? list(summaryValue.undercurrents, 4) : latestLocalSnapshot?.undercurrents ?? [],
+  };
   let missions = game.missions;
   const pressure = raw.emergentPressure;
   if (pressure && typeof pressure === "object" && !Array.isArray(pressure)) {
@@ -906,7 +1015,18 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   });
   const enrichedChapter = { ...chapter, results: enrichedResults };
   const chronicle = game.chronicle.map((item) => item.id === chapter.id ? enrichedChapter : item);
-  return { ...game, factions, canonActors, missions, evidenceNodes, opportunities, worldMoves: [...worldMoves, ...game.worldMoves].slice(0, 80), chronicle };
+  return {
+    ...game,
+    factions,
+    canonActors,
+    missions,
+    evidenceNodes,
+    opportunities,
+    worldMoves: [...worldMoves, ...game.worldMoves].slice(0, 80),
+    worldSignals: [...publicSignals, ...(game.worldSignals ?? []).filter((signal) => signal.week !== chapter.week || !publicSignals.length)].slice(0, 120),
+    worldSnapshots: [worldSnapshot, ...(game.worldSnapshots ?? []).filter((snapshot) => snapshot.week !== chapter.week)].slice(0, 60),
+    chronicle,
+  };
 }
 
 export function canAdvance(game: GameState) {

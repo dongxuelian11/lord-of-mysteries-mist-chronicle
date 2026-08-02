@@ -321,6 +321,25 @@ export type WorldMove = {
   visibility: "迹象" | "获知" | "确认";
 };
 
+export type WorldSignal = {
+  id: string;
+  week: number;
+  channel: "报纸" | "街谈" | "官方通告" | "行业消息" | "神秘征兆" | "私人来信";
+  headline: string;
+  body: string;
+  reliability: "公开事实" | "多源传闻" | "单一消息" | "异常感知";
+  districtId?: string;
+  relatedFactionId?: string;
+};
+
+export type WorldSnapshot = {
+  week: number;
+  date: string;
+  atmosphere: string;
+  changes: string[];
+  undercurrents: string[];
+};
+
 export type CaseFile = {
   id: string;
   title: string;
@@ -557,6 +576,8 @@ export type GameState = {
   factions: FactionState[];
   timeline: TimelineEvent[];
   worldMoves: WorldMove[];
+  worldSignals: WorldSignal[];
+  worldSnapshots: WorldSnapshot[];
   economyHistory: EconomyLedger[];
   organizationConditions: string[];
   cases: CaseFile[];
@@ -943,6 +964,8 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     factions: INITIAL_FACTIONS.map((item) => ({ ...item })),
     timeline: INITIAL_TIMELINE.map((item) => ({ ...item })),
     worldMoves: [],
+    worldSignals: [],
+    worldSnapshots: [],
     economyHistory: [],
     organizationConditions: ["未获许可", "掩护业务稳定", "成员仍在观察负责人"],
     cases: [

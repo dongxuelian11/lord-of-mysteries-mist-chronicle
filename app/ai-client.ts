@@ -6,6 +6,8 @@ export type AiConfig = {
   endpoint: string;
   apiKey: string;
   model: string;
+  worldModel?: string;
+  worldBible?: string;
   thinking?: boolean;
   reasoningEffort?: "high" | "max";
   quality?: AiQuality;
