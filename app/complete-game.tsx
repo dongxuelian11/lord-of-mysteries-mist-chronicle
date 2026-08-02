@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import {
   ActionContract, ADVANCEMENT_RITUALS, ChronicleChapter, createInitialGame, DISTRICTS, Facility, GameState, PATHWAYS,
-  PathwayId, RiskLevel, ViewId,
+  AbilityContext, AbilityUseRecord, PathwayId, RiskLevel, ViewId,
 } from "./game-model";
 import {
   advanceSequence, availableAbilities, canAdvance, generateAiWorldDelta, generateLiteraryChapter, generateNpcDialogue,
@@ -25,9 +25,11 @@ import AiSettings from "./ai-settings";
 import { AiConfig, DEEPSEEK_FLASH_PRESET, testModelConnection } from "./ai-client";
 import WeeklyCouncil from "./weekly-council";
 import OpeningPrologue from "./opening-prologue";
+import AbilityConsole from "./ability-console";
+import { continueAbilityScene, generateAbilityDraft, generateSceneResponse, resolveImmediateAbility } from "./ability-system";
 
-const SAVE_KEY = "mist-chronicle-complete-v10";
-const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
+const SAVE_KEY = "mist-chronicle-complete-v11";
+const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v10", "mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
 const AI_KEY = "mist-chronicle-save-v3-ai";
 const AI_SESSION_KEY = "mist-chronicle-session-ai-key";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -52,8 +54,13 @@ export default function CompleteGame() {
   const [view, setView] = useState<ViewId>("intent");
   const [intentText, setIntentText] = useState("");
   const [selectedDistrictId, setSelectedDistrictId] = useState("cherwood");
-  const [selectedAbilityIds, setSelectedAbilityIds] = useState<string[]>([]);
-  const [abilityIntentText, setAbilityIntentText] = useState("");
+  const [abilityPanelOpen, setAbilityPanelOpen] = useState(false);
+  const [abilityContext, setAbilityContext] = useState<AbilityContext>({ kind: "council", label: "每周密议室" });
+  const [abilitySelectedId, setAbilitySelectedId] = useState("");
+  const [abilityAssistId, setAbilityAssistId] = useState("");
+  const [abilityIntent, setAbilityIntent] = useState("");
+  const [abilityLoading, setAbilityLoading] = useState(false);
+  const [abilityResult, setAbilityResult] = useState<AbilityUseRecord | null>(null);
   const [contract, setContract] = useState<ActionContract | null>(null);
   const [contractLoading, setContractLoading] = useState(false);
   const [selectedDistrictDetail, setSelectedDistrictDetail] = useState<string | null>(null);
@@ -84,13 +91,15 @@ export default function CompleteGame() {
       const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
-        try { const value = JSON.parse(saved) as GameState; if (value.version === 10) setGame(value); }
+        try { const value = JSON.parse(saved) as GameState; if (value.version === 11) setGame(value); }
         catch { window.localStorage.removeItem(SAVE_KEY); }
       } else if (legacySaved) {
         try {
           const legacy = JSON.parse(legacySaved) as Partial<GameState>;
-          if (legacy.version === 9) setGame({ ...(legacy as GameState), version: 10, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [] });
-          else if (legacy.version === 8) setGame({ ...(legacy as GameState), version: 10, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [], dialogueThreads: [], councilRecords: [{ week: legacy.week ?? 1, status: "convened", decisions: [] }] });
+          const abilityFields = { version: 11, spirituality: Math.max(12, legacy.spirituality ?? 12), spiritualityMax: 18, mentalLoad: 0, lastMeditationWeek: 0, abilityJournal: [], hiddenWorldFacts: createInitialGame(legacy.pathwayId ?? "seer").hiddenWorldFacts, activeAbilityScene: null };
+          if (legacy.version === 10) setGame({ ...(legacy as GameState), ...abilityFields });
+          else if (legacy.version === 9) setGame({ ...(legacy as GameState), ...abilityFields, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [] });
+          else if (legacy.version === 8) setGame({ ...(legacy as GameState), ...abilityFields, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [], dialogueThreads: [], councilRecords: [{ week: legacy.week ?? 1, status: "convened", decisions: [] }] });
           else if ([5, 6, 7].includes(legacy.version ?? 0) && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));
         } catch { /* 旧存档只用于读取纪事，损坏时不影响新游戏。 */ }
       }
@@ -117,18 +126,11 @@ export default function CompleteGame() {
   const aiReady = Boolean(aiConfig.endpoint.trim() && aiConfig.apiKey.trim() && aiConfig.model.trim());
   const latestChapter = game.chronicle[0];
 
-  async function prepareContract(source: "council" | "ability" = "council") {
-    const freeIntent = source === "ability" ? abilityIntentText.trim() : intentText.trim();
+  async function prepareContract() {
+    const freeIntent = intentText.trim();
     if (!freeIntent || contractLoading) return;
-    const selectedAbilityCost = abilities
-      .filter((ability) => selectedAbilityIds.includes(ability.id) && !ability.passive)
-      .reduce((sum, ability) => sum + ability.cost, 0);
-    if (source === "ability" && selectedAbilityCost > game.spirituality) {
-      setToast(`所选能力需要 ${selectedAbilityCost} 点灵性，当前只有 ${game.spirituality} 点。请减少能力，或先恢复灵性。`);
-      return;
-    }
     setContractLoading(true); setGenerationError("");
-    const args = { intent: freeIntent, game, leaderId: source === "ability" ? "player" : "organization", districtId: selectedDistrictId, abilityIds: source === "ability" ? selectedAbilityIds : [] };
+    const args = { intent: freeIntent, game, leaderId: "organization", districtId: selectedDistrictId, abilityIds: [] as string[] };
     try {
       const next = aiReady ? await interpretIntentWithAi(aiConfig, args) : localContract(args);
       setContract(next);
@@ -141,7 +143,7 @@ export default function CompleteGame() {
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") { setContract(null); setSelectedDistrictDetail(null); setSelectedFacility(null); setSelectedChapter(null); setShowSettings(false); setChatMemberId(null); }
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !event.shiftKey && !chatMemberId) { event.preventDefault(); void prepareContract(view === "progression" ? "ability" : "council"); }
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !event.shiftKey && !chatMemberId && view === "intent") { event.preventDefault(); void prepareContract(); }
     }
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   });
@@ -155,7 +157,7 @@ export default function CompleteGame() {
         schedule: [...current.schedule.map((item) => contract.focus ? { ...item, focus: false } : item), scheduled],
         councilRecords: current.councilRecords.map((record) => record.week === current.week ? { ...record, decisions: [...record.decisions, { id: `decision-${scheduled.id}`, title: scheduled.title, rawIntent: scheduled.rawIntent, proposerId: "player", status: "scheduled" }] } : record),
       }));
-      setContract(null); setIntentText(""); setAbilityIntentText(""); setSelectedAbilityIds([]);
+      setContract(null); setIntentText("");
       setToast(`已排入${DAY_NAMES[scheduled.startDay - 1]}，持续${scheduled.days}天`);
     } catch (error) { setToast(error instanceof Error ? error.message : "无法加入日程"); }
   }
@@ -231,7 +233,7 @@ export default function CompleteGame() {
   }
 
   function startNewGame() {
-    setGame(createInitialGame(draftPathway)); setSelectedRank(9); setSelectedAbilityIds([]); setAbilityIntentText(""); setCouncilDecisionSignal(0); setShowSettings(false); setView("intent"); setToast("新的历史分支已经建立");
+    setGame(createInitialGame(draftPathway)); setSelectedRank(9); setAbilityPanelOpen(false); setAbilityResult(null); setCouncilDecisionSignal(0); setShowSettings(false); setView("intent"); setToast("新的历史分支已经建立");
   }
 
   function completePrologue(name: string, address: string, pathwayId: PathwayId) {
@@ -264,6 +266,84 @@ export default function CompleteGame() {
       const result = await testModelConnection(aiConfig);
       setConnectionState({ status: "success", message: `${aiConfig.model} 已回应 · ${result.latencyMs}ms` });
     } catch (error) { setConnectionState({ status: "error", message: error instanceof Error ? error.message : "连接测试失败" }); }
+  }
+
+  function defaultAbilityContext(): AbilityContext {
+    if (view === "organization") return { kind: "organization", label: `${game.organizationName}主据点` };
+    if (view === "progression") return { kind: "self", label: game.playerName || "组织负责人" };
+    return { kind: "council", label: "每周密议室" };
+  }
+
+  function openAbility(context = defaultAbilityContext(), abilityId = "", prompt = "") {
+    const preferred = abilities.find((item) => item.id === abilityId) ?? abilities.find((item) => !item.passive) ?? abilities[0];
+    setAbilityContext(context);
+    setAbilitySelectedId(preferred?.id ?? "");
+    setAbilityAssistId("");
+    setAbilityIntent(prompt);
+    setAbilityResult(null);
+    setAbilityPanelOpen(true);
+  }
+
+  async function castAbility() {
+    const ability = abilities.find((item) => item.id === abilitySelectedId) ?? abilities.find((item) => !item.passive) ?? abilities[0];
+    const intent = abilityIntent.trim();
+    if (!ability || !intent || abilityLoading) return;
+    setAbilityLoading(true);
+    try {
+      const assistant = game.members.find((item) => item.id === abilityAssistId && item.pathway);
+      const effectiveIntent = assistant ? `${intent}\n在场协同：${assistant.name}以其${assistant.pathway}途径能力提供辅助观察，但不得替负责人越过能力边界。` : intent;
+      const draft = aiReady ? await generateAbilityDraft(aiConfig, game, ability, effectiveIntent, abilityContext) : undefined;
+      const resolved = resolveImmediateAbility(game, ability, intent, abilityContext, draft);
+      let next = resolved.state;
+      if (assistant) {
+        resolved.record.observation += `\n\n${assistant.name}依照命令进行了交叉观察，并把能够确认的部分与个人判断分开汇报。`;
+        next = { ...next, members: next.members.map((item) => item.id === assistant.id ? { ...item, fatigue: Math.min(100, item.fatigue + 3) } : item) };
+      }
+      if (abilityContext.targetId && !/未发现|没有确认|没有察觉/.test(resolved.record.detection)) {
+        next = { ...next, members: next.members.map((item) => item.id === abilityContext.targetId ? { ...item, trust: Math.max(0, (item.trust ?? item.loyalty) - 2) } : item) };
+      }
+      if (abilityContext.kind === "dialogue" && abilityContext.targetId) {
+        next = {
+          ...next,
+          dialogueThreads: next.dialogueThreads.map((thread) => thread.memberId === abilityContext.targetId ? {
+            ...thread,
+            messages: [...thread.messages, { id: `dialogue-${resolved.record.id}`, role: "ability" as const, text: `${resolved.record.observation}\n判断（${resolved.record.confidence}）：${resolved.record.interpretation}`, week: next.week, context: chatContext, mood: `${ability.name} · ${resolved.record.detection}` }],
+            lastUpdatedWeek: next.week,
+          } : thread),
+        };
+      }
+      setGame(next);
+      setAbilityResult(resolved.record);
+      setAbilityPanelOpen(false);
+      setAbilityIntent("");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "能力反馈未能稳定成形");
+    } finally { setAbilityLoading(false); }
+  }
+
+  async function deepenAbilityScene(intent: string) {
+    if (abilityLoading) return;
+    setAbilityLoading(true);
+    try {
+      const response = aiReady ? await generateSceneResponse(aiConfig, game, intent) : undefined;
+      setGame((current) => continueAbilityScene(current, intent, response));
+    } catch (error) { setToast(error instanceof Error ? error.message : "深层场景暂时失去回应"); }
+    finally { setAbilityLoading(false); }
+  }
+
+  function passiveInsight(memberId: string) {
+    if (game.pathwayId === "spectator") return "被动观察：对方的礼貌是真实的，但有一个词让他的身体反应比回答快了半拍。你可以集中观察，确认情绪来源。";
+    if (game.pathwayId === "seer") return "危险直觉：这场谈话本身没有迫近威胁，但某个未说出口的名字与据点外的注视短暂重合。";
+    if (game.pathwayId === "apprentice") return "空间直觉：门外走廊与窗边都是正常边界；桌后墙体有一处适合作为紧急撤离方向的薄弱点。";
+    if (game.pathwayId === "hunter") return "猎人直觉：对方选择的座位同时看得见门与窗。这是长期习惯，不是今天临时产生的戒备。";
+    const member = game.members.find((item) => item.id === memberId);
+    return `神秘学辨识：${member?.name ?? "对方"}身上没有正在运转的明显仪式，但衣物边缘沾有极淡的灵性材料粉末。`;
+  }
+
+  function meditate() {
+    if (game.lastMeditationWeek === game.week) { setToast("本周已经进行过一次有效冥想；继续勉强入静只会增加疲劳"); return; }
+    setGame((current) => ({ ...current, spirituality: Math.min(current.spiritualityMax, current.spirituality + 4), mentalLoad: Math.max(0, current.mentalLoad - 6), lastMeditationWeek: current.week }));
+    setToast("短暂冥想完成：灵性恢复4点，精神负荷降低6点");
   }
 
   function openMemberChat(memberId: string, seed = "", context: "council" | "private" = "council") {
@@ -364,7 +444,7 @@ export default function CompleteGame() {
     <section className="complete-content" id="complete-content">
       {!aiReady && <button className="offline-banner" onClick={() => setShowSettings(true)}><ShieldAlert size={15} /><span><strong>离线试玩模式</strong><small>规则、晋升和建设可用；配置模型后开放完整自由解析、动态世界与文学叙事。</small></span><ChevronRight size={15} /></button>}
 
-      {view === "intent" && <WeeklyCouncil key={councilDecisionSignal} game={game} intentText={intentText} selectedDistrictId={selectedDistrictId} contractLoading={contractLoading} generationStage={generationStage} decisionSignal={councilDecisionSignal} latestChapter={latestChapter} onIntentText={setIntentText} onDistrict={setSelectedDistrictId} onInspectDistrict={setSelectedDistrictDetail} onPrepare={() => void prepareContract("council")} onRemoveAction={removeAction} onEndWeek={() => void endWeek()} onQuestionMember={(memberId, seed) => openMemberChat(memberId, seed, "council")} onReadChapter={setSelectedChapter} onUseSuggestion={(text, districtId) => { applySuggestion(text, districtId); }} onView={setView} />}
+      {view === "intent" && <WeeklyCouncil key={councilDecisionSignal} game={game} intentText={intentText} selectedDistrictId={selectedDistrictId} contractLoading={contractLoading} generationStage={generationStage} decisionSignal={councilDecisionSignal} latestChapter={latestChapter} onIntentText={setIntentText} onDistrict={setSelectedDistrictId} onInspectDistrict={setSelectedDistrictDetail} onPrepare={() => void prepareContract()} onRemoveAction={removeAction} onEndWeek={() => void endWeek()} onQuestionMember={(memberId, seed) => openMemberChat(memberId, seed, "council")} onReadChapter={setSelectedChapter} onUseSuggestion={(text, districtId) => { applySuggestion(text, districtId); }} onView={setView} />}
 
       {view === "investigation" && <InvestigationBoard game={game} onConnectEvidence={(from, to, label) => setGame((current) => connectEvidence(current, from, to, label))} onUseOpportunity={(opportunity) => { setIntentText(opportunity.suggestedIntent); setSelectedDistrictId(opportunity.districtId); setView("intent"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
 
@@ -385,17 +465,17 @@ export default function CompleteGame() {
           </aside>
         </div>
         <section className="departments complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>部门授权</strong></span><small>扩大自主权提高效率，也会增加隐瞒与派系风险</small></header><div>{game.departments.map((department) => <article key={department.id}><header><span>{department.name}</span><b>{department.status}</b></header><p>{department.mandate}</p><label><span>自主权 {department.autonomy}%</span><input type="range" min="0" max="100" value={department.autonomy} onChange={(event) => setGame((current) => ({ ...current, departments: current.departments.map((item) => item.id === department.id ? { ...item, autonomy: Number(event.target.value) } : item) }))} /></label><footer><span>负责人：{game.members.find((member) => member.id === department.leadMemberId)?.name}</span><span>预算 £{department.budget}/周</span></footer></article>)}</div></section>
-        <section className="roster complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>核心成员</strong></span><small>成员有自己的晋升意志、疲劳与忠诚</small></header><div>{game.members.map((member) => <article key={member.id}><div className="member-monogram">{member.name.slice(0, 1)}</div><h3>{member.name}</h3><p>{member.role}{member.pathway ? ` · 序列${member.sequence} ${member.pathway}` : " · 普通人"}</p><dl><div><dt>专长</dt><dd>{member.specialty}</dd></div><div><dt>忠诚</dt><dd>{member.loyalty}</dd></div><div><dt>疲劳</dt><dd>{member.fatigue}</dd></div></dl><button onClick={() => openMemberChat(member.id)}>档案与自由对话 <ChevronRight size={13} /></button></article>)}</div></section>
+        <section className="roster complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>核心成员</strong></span><small>成员有自己的晋升意志、疲劳与忠诚</small></header><div>{game.members.map((member) => <article key={member.id}><div className="member-monogram">{member.name.slice(0, 1)}</div><h3>{member.name}</h3><p>{member.role}{member.pathway ? ` · 序列${member.sequence} ${member.pathway}` : " · 普通人"}</p><dl><div><dt>专长</dt><dd>{member.specialty}</dd></div><div><dt>忠诚</dt><dd>{member.loyalty}</dd></div><div><dt>疲劳</dt><dd>{member.fatigue}</dd></div></dl><div className="member-context-actions"><button onClick={() => openMemberChat(member.id)}>档案与对话 <ChevronRight size={13} /></button><button onClick={() => openAbility({ kind: "organization", targetId: member.id, label: member.name }, "", `我在组织日常环境中使用能力观察${member.name}最近的精神状态、异常影响与未说出口的压力；不进行强制干涉。`)}><WandSparkles size={13} />即时感知</button></div></article>)}</div></section>
         <section className="recruit-pool complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>固定人物池与关系阶梯</strong></span><small>接触 → 临时合作 → 长期盟友或线人 → 正式成员</small></header><div>{game.recruitPool.map((member) => <article key={member.id}><header><div className="member-monogram">{member.name.slice(0, 1)}</div><span><strong>{member.name}</strong><small>{member.role}</small></span><b>{member.relationshipStage}</b></header><p>{member.background}</p><footer><span>{member.specialty}</span><button onClick={() => applySuggestion(`与${member.name}推进关系。先回应其当前关切并提供可验证的合作条件，不强迫其加入组织。`, member.id === "sylvie" ? "empress" : member.id === "ollie" ? "dock" : member.id === "elsa" ? "north" : member.id === "nora" ? "south" : "bridge")}>安排接触 <ArrowRight size={13} /></button></footer></article>)}</div></section>
       </div>}
 
       {view === "progression" && <div className="progression-page page-enter">
         <header className="page-title row"><div><p>{game.playerName} · 自身与非凡能力</p><h1>{pathway.name}途径</h1><span>这里处理你本人要做的事：自由使用能力、管理灵性与污染，并筹备晋升。组织总体方向请回到集会决定。</span></div><div className="current-rank-seal"><small>当前</small><strong>{game.currentSequence}</strong><span>{currentSequence.name}</span></div></header>
-        <section className="self-action-console complete-card">
-          <header><div><p>亲自使用能力</p><h2>{game.playerAddress}准备做什么？</h2><span>选择你明确要调用的能力，再自由描述对象、做法、预期结果与停止条件。AI不会替你擅自发动能力。</span></div><aside><small>姓名暴露</small><strong>{game.nameExposure}/100</strong><span>{game.nameExposure < 25 ? "身份仍很隐蔽" : game.nameExposure < 55 ? "部分势力开始记录你的姓名" : "真实身份正成为可追踪线索"}</span></aside></header>
-          <div className="self-ability-pills">{abilities.map((ability) => <button key={ability.id} className={selectedAbilityIds.includes(ability.id) ? "selected" : ""} disabled={ability.passive || ability.cost > game.spirituality} onClick={() => setSelectedAbilityIds((current) => current.includes(ability.id) ? current.filter((id) => id !== ability.id) : [...current, ability.id])}><span><strong>{ability.name}</strong><small>{ability.verb}</small></span><b>{ability.passive ? "被动" : `${ability.cost}灵性`}</b></button>)}</div>
-          <textarea value={abilityIntentText} onChange={(event) => setAbilityIntentText(event.target.value)} placeholder="例如：我在隔离仪式室中开启灵视，观察黑玻璃挂坠周围的灵性颜色与联系方向；只观察，不尝试建立沟通，一旦感到被注视立刻关闭灵视。" maxLength={900} />
-          <footer><label><MapPin size={13} /><span>发生地点</span><select value={selectedDistrictId} onChange={(event) => setSelectedDistrictId(event.target.value)}>{DISTRICTS.map((district) => <option key={district.id} value={district.id}>{district.name}</option>)}</select></label><span>当前灵性 {game.spirituality}/{game.spiritualityMax} · 污染 {game.playerCondition.pollution}</span><button className="complete-primary" onClick={() => void prepareContract("ability")} disabled={!abilityIntentText.trim() || contractLoading || !selectedAbilityIds.length}>{contractLoading ? "正在理解能力用途" : "形成个人行动"}</button></footer>
+        <section className="self-action-console complete-card immediate-ability-home">
+          <header><div><p>即时非凡交互</p><h2>能力不是周行动</h2><span>在任何界面发动能力都会立即返回观察、专业判断、未知项与察觉反馈。这里用于查看能力全貌与历史感知记录。</span></div><aside><small>当前状态</small><strong>{game.spirituality}/{game.spiritualityMax}</strong><span>精神负荷 {game.mentalLoad} · 污染 {game.playerCondition.pollution}</span></aside></header>
+          <div className="self-ability-pills">{abilities.map((ability) => <button key={ability.id} onClick={() => openAbility({ kind: "self", label: game.playerName || "组织负责人" }, ability.id, `我集中使用${ability.name}，观察自身、当前环境与近期异常留下的影响；只获取信息，不进行额外干涉。`)}><span><strong>{ability.name}</strong><small>{ability.verb}</small></span><b>{ability.passive ? "集中1灵性" : `${ability.cost}灵性`}</b></button>)}</div>
+          <footer><span>本周已经即时使用 {game.abilityJournal.filter((item) => item.week === game.week).length} 次；普通使用不推进日期。</span><div className="self-ability-actions"><button onClick={meditate} disabled={game.lastMeditationWeek === game.week || game.spirituality === game.spiritualityMax}>短暂冥想 · 恢复4</button><button className="complete-primary" onClick={() => openAbility({ kind: "self", label: game.playerName || "组织负责人" })}><WandSparkles size={15} />自由发动能力</button></div></footer>
+          {game.abilityJournal.length > 0 && <div className="ability-history"><header><strong>最近的感知记录</strong><small>结果会进入AI上下文与世界事实账本</small></header>{game.abilityJournal.slice(0, 5).map((record) => <article key={record.id}><span>{record.abilityName}</span><div><strong>{record.context.label}</strong><p>{record.interpretation}</p></div><b>{record.confidence}</b></article>)}</div>}
         </section>
         <div className="progression-grid">
           <aside className="sequence-ladder complete-card">{pathway.sequences.map((sequence) => <button key={sequence.rank} className={`${sequence.rank === game.currentSequence ? "current" : ""} ${sequence.rank === selectedRank ? "selected" : ""} ${sequence.rank < game.currentSequence ? "future" : ""}`} onClick={() => setSelectedRank(sequence.rank)}><span>{sequence.rank}</span><div><strong>{sequence.name}</strong><small>{sequence.rank === game.currentSequence ? "当前序列" : sequence.rank < game.currentSequence ? "尚未晋升" : "已经历"}</small></div><i /></button>)}</aside>
@@ -438,9 +518,9 @@ export default function CompleteGame() {
 
     {contract && <div className="complete-sheet-backdrop" onMouseDown={() => setContract(null)}><section className="complete-sheet contract-sheet" role="dialog" aria-modal="true" aria-labelledby="contract-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>议桌对发言的规则化理解</p><h2 id="contract-title">{contract.title}</h2></div><button onClick={() => setContract(null)} aria-label="关闭"><X size={17} /></button></header>{generationError && <div className="inline-warning"><ShieldAlert size={14} />{generationError}</div>}<div className="contract-summary"><span className={`risk-chip ${riskClass(contract.risk)}`}>{contract.risk}风险</span><span><Clock3 size={12} />{contract.days}天</span><span><CircleDollarSign size={12} />£{contract.budget}</span><span><MapPin size={12} />{DISTRICTS.find((district) => district.id === contract.districtId)?.name}</span></div><div className="contract-fields">{editableContractField(contract, setContract, "desiredOutcome", "核心目标", true)}{editableContractField(contract, setContract, "approach", "执行方法", true)}{editableContractField(contract, setContract, "knownFacts", "角色已知事实")}{editableContractField(contract, setContract, "hypothesis", "玩家提出的假设")}{editableContractField(contract, setContract, "unknowns", "仍未知")}{editableContractField(contract, setContract, "redLines", "禁止事项")}{editableContractField(contract, setContract, "retreat", "撤退条件", true)}</div><label className="focus-toggle"><button className={contract.focus ? "on" : ""} onClick={() => setContract({ ...contract, focus: !contract.focus })}><i /></button><span><strong>本回合重点叙事</strong><small>{contract.focus ? "本周小说章节将以此为重点场景" : "这项行动将在次要报告中呈现"}</small></span></label><footer><button className="complete-secondary" onClick={() => setContract(null)}><ArrowLeft size={14} />返回议桌修改</button><button className="complete-primary" onClick={confirmContract}><span>负责人拍板，写入本周决议</span><CalendarDays size={16} /></button></footer></section></div>}
 
-    {selectedDistrictDetail && (() => { const district = DISTRICTS.find((item) => item.id === selectedDistrictDetail)!; return <div className="complete-sheet-backdrop drawer-backdrop" onMouseDown={() => setSelectedDistrictDetail(null)}><aside className="complete-drawer" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close" onClick={() => setSelectedDistrictDetail(null)}><X size={17} /></button><header><p>区域档案</p><h2>{district.name}</h2><span>{district.subtitle}</span></header><div className="district-risk-row"><span>已知风险 <strong>{district.danger}</strong></span><span>情报基础 <strong>{district.intel}</strong></span></div><section><h3><Landmark size={14} />背景</h3><p>{district.background}</p></section><section><h3><MapPin size={14} />重要地点</h3><div className="landmark-chips">{district.landmarks.map((landmark) => <span key={landmark}>{landmark}</span>)}</div></section><section className="opportunity-block"><div><strong>可利用条件</strong><p>{district.opportunity}</p></div><div><strong>已知警告</strong><p>{district.warning}</p></div></section><section><h3><Lightbulb size={14} />只是提示，不是任务</h3><div className="district-actions"><button onClick={() => { setSelectedDistrictDetail(null); applySuggestion(`先熟悉${district.name}的关键人物、公开机构与安全撤离路线，建立基础情报地图。`, district.id); }}>建立区域情报</button><button onClick={() => { setSelectedDistrictDetail(null); setSelectedDistrictId(district.id); setIntentText(""); setView("intent"); }}>在这里自由行动</button></div></section></aside></div>; })()}
+    {selectedDistrictDetail && (() => { const district = DISTRICTS.find((item) => item.id === selectedDistrictDetail)!; return <div className="complete-sheet-backdrop drawer-backdrop" onMouseDown={() => setSelectedDistrictDetail(null)}><aside className="complete-drawer" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close" onClick={() => setSelectedDistrictDetail(null)}><X size={17} /></button><header><p>区域档案</p><h2>{district.name}</h2><span>{district.subtitle}</span></header><div className="district-risk-row"><span>已知风险 <strong>{district.danger}</strong></span><span>情报基础 <strong>{district.intel}</strong></span></div><section><h3><Landmark size={14} />背景</h3><p>{district.background}</p></section><section><h3><MapPin size={14} />重要地点</h3><div className="landmark-chips">{district.landmarks.map((landmark) => <span key={landmark}>{landmark}</span>)}</div></section><section className="opportunity-block"><div><strong>可利用条件</strong><p>{district.opportunity}</p></div><div><strong>已知警告</strong><p>{district.warning}</p></div></section><section><h3><WandSparkles size={14} />现场使用非凡能力</h3><button className="context-ability-button" onClick={() => openAbility({ kind: "district", targetId: district.id, label: district.name }, "", `我从${district.name}当前可见的环境开始使用能力，寻找与${district.opportunity}有关的异常；不把推断当作事实，并保持撤离方向。`)}><WandSparkles size={14} />立即感知，不加入周日程</button></section><section><h3><Lightbulb size={14} />只是提示，不是任务</h3><div className="district-actions"><button onClick={() => { setSelectedDistrictDetail(null); applySuggestion(`先熟悉${district.name}的关键人物、公开机构与安全撤离路线，建立基础情报地图。`, district.id); }}>建立区域情报</button><button onClick={() => { setSelectedDistrictDetail(null); setSelectedDistrictId(district.id); setIntentText(""); setView("intent"); }}>在这里形成总体决议</button></div></section></aside></div>; })()}
 
-    {selectedFacility && <div className="complete-sheet-backdrop drawer-backdrop" onMouseDown={() => setSelectedFacility(null)}><aside className="complete-drawer facility-drawer" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close" onClick={() => setSelectedFacility(null)}><X size={17} /></button><header><p>{selectedFacility.type}设施 · Lv.{selectedFacility.level}</p><h2>{selectedFacility.name}</h2><span>{selectedFacility.status}</span></header><section><p>{selectedFacility.description}</p></section><section><h3><TrendingUp size={14} />当前功能</h3>{selectedFacility.benefits.map((benefit) => <p className="facility-benefit" key={benefit}><CheckCircle2 size={13} />{benefit}</p>)}</section><section><h3><ShieldAlert size={14} />运行风险</h3><p>{selectedFacility.risk}</p></section><label className="facility-assignment"><span>负责成员</span><select value={selectedFacility.assignedMemberId ?? ""} onChange={(event) => updateFacilityAssignment(event.target.value)}><option value="">暂不指派</option>{game.members.map((member) => <option key={member.id} value={member.id}>{member.name} · 疲劳{member.fatigue}</option>)}</select></label><button className="complete-primary" onClick={() => { const target = selectedFacility.name; setSelectedFacility(null); applySuggestion(`升级${target}，优先提高隐蔽性与事故隔离能力，同时控制维护费用。`, "cherwood"); }}><Hammer size={15} />提出升级方案</button></aside></div>}
+    {selectedFacility && <div className="complete-sheet-backdrop drawer-backdrop" onMouseDown={() => setSelectedFacility(null)}><aside className="complete-drawer facility-drawer" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close" onClick={() => setSelectedFacility(null)}><X size={17} /></button><header><p>{selectedFacility.type}设施 · Lv.{selectedFacility.level}</p><h2>{selectedFacility.name}</h2><span>{selectedFacility.status}</span></header><section><p>{selectedFacility.description}</p></section><section><h3><TrendingUp size={14} />当前功能</h3>{selectedFacility.benefits.map((benefit) => <p className="facility-benefit" key={benefit}><CheckCircle2 size={13} />{benefit}</p>)}</section><section><h3><ShieldAlert size={14} />运行风险</h3><p>{selectedFacility.risk}</p></section><button className="context-ability-button" onClick={() => openAbility({ kind: "organization", targetId: selectedFacility.id, label: selectedFacility.name }, "", `我使用能力检查${selectedFacility.name}近期留下的异常、污染与人为隐瞒，只观察并记录，不触碰未知联系。`)}><WandSparkles size={14} />立即检查灵性与异常痕迹</button><label className="facility-assignment"><span>负责成员</span><select value={selectedFacility.assignedMemberId ?? ""} onChange={(event) => updateFacilityAssignment(event.target.value)}><option value="">暂不指派</option>{game.members.map((member) => <option key={member.id} value={member.id}>{member.name} · 疲劳{member.fatigue}</option>)}</select></label><button className="complete-primary" onClick={() => { const target = selectedFacility.name; setSelectedFacility(null); applySuggestion(`升级${target}，优先提高隐蔽性与事故隔离能力，同时控制维护费用。`, "cherwood"); }}><Hammer size={15} />提出升级方案</button></aside></div>}
 
     {(turnChapter || selectedChapter) && <div className="complete-reader-backdrop" onMouseDown={() => { if (!generationStage) { setTurnChapter(null); setSelectedChapter(null); } }}><section className="complete-reader" role="dialog" aria-modal="true" aria-labelledby="reader-title" onMouseDown={(event) => event.stopPropagation()}><header className="reader-commandbar"><div><small>第 {(turnChapter ?? selectedChapter)!.week} 周 · {(turnChapter ?? selectedChapter)!.date}</small><span>{(turnChapter ?? selectedChapter)!.source === "ai" ? "文学模式" : "本地事实版"}</span></div><div><button onClick={() => setReaderScale((value) => Math.max(.9, value - .1))}>A−</button><button onClick={() => setReaderScale(1)}>A</button><button onClick={() => setReaderScale((value) => Math.min(1.25, value + .1))}>A＋</button><button onClick={() => { if (!generationStage) { setTurnChapter(null); setSelectedChapter(null); } }}><X size={16} /></button></div></header>{generationStage && <div className="reader-generation"><Sparkles size={15} /><span><strong>规则事实已经锁定</strong><small>{generationStage}；完成后章节会自动更新。</small></span><i /><i /><i /></div>}{generationError && <div className="inline-warning reader-warning"><ShieldAlert size={14} />{generationError}</div>}<article className="reader-page" style={{ "--reader-scale": readerScale } as React.CSSProperties}><div className="folio"><span>灰雾纪事</span><i /><span>W{String((turnChapter ?? selectedChapter)!.week).padStart(2, "0")}</span></div><h1 id="reader-title">{(turnChapter ?? selectedChapter)!.title}</h1>{(turnChapter ?? selectedChapter)!.sections.map((section, index) => <section key={`${section.heading}-${index}`}><h2>{section.heading}</h2>{section.paragraphs.map((paragraph, paragraphIndex) => <p key={`${index}-${paragraphIndex}`}>{paragraph}</p>)}</section>)}<div className="reader-end"><CloudFog size={18} /><span>本章完</span></div></article>{(turnChapter ?? selectedChapter)!.results.length > 0 && <details className="reader-appendix"><summary><span><ListTodo size={15} />行动、证据与规则附录</span><small>{(turnChapter ?? selectedChapter)!.summary}</small></summary><div>{(turnChapter ?? selectedChapter)!.results.map((result) => <article key={result.id}><header><strong>{result.title}</strong><b className={result.outcome}>{result.outcome}</b></header><p>{result.contract.rawIntent}</p><ul>{result.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul><footer><span>消化 +{result.digestionGain}</span><span>任务推进 +{result.missionProgress}%</span><span>资金 {result.resourceChanges.money}</span></footer></article>)}</div></details>}<footer className="reader-actions"><button onClick={() => { setTurnChapter(null); setSelectedChapter(null); setView("archive"); }}><Archive size={14} />进入纪事档案</button><button className="complete-primary compact" onClick={() => { setTurnChapter(null); setSelectedChapter(null); }} disabled={Boolean(generationStage)}>{game.ending.phase === "finale" ? "返回终局作战桌" : game.ending.phase === "ended" ? "查看最终结局" : `继续第 ${game.week} 周`} <ArrowRight size={15} /></button></footer></section></div>}
 
@@ -456,12 +536,16 @@ export default function CompleteGame() {
           <header><div><p>{chatContext === "council" ? "议桌发言" : "私下谈话"} · {member.role}</p><h2 id="character-title">{member.name}</h2><span>当前态度：{thread?.lastMood ?? "审慎"} · 信任 {member.trust ?? member.loyalty} · 疲劳 {member.fatigue}</span></div><button onClick={() => setChatMemberId(null)} aria-label="结束点名"><X size={17} /></button></header>
           <details className="character-dossier"><summary>查看人物档案与长期关系记忆</summary><div className="character-core"><div><small>背景</small><p>{member.background}</p></div><div><small>性格核心</small><p>{member.core}</p></div><div><small>成长矛盾</small><p>{member.arc}</p></div></div>{thread?.memories.length ? <ul>{thread.memories.map((memory) => <li key={memory}>{memory}</li>)}</ul> : <p>还没有形成值得长期记住的关系事实。</p>}</details>
           <div className="dialogue-rule"><MessageSquareText size={14} /><span><strong>这是自由对话，不是关键词菜单</strong><small>成员会尊重你的领导身份，也会以正式方式陈述异议、隐瞒、误判或请求澄清；普通谈话不会自动消耗行动。</small></span></div>
-          <div className="character-dialogue" aria-live="polite">{thread?.messages.map((message) => <p key={message.id} className={message.role}><strong>{message.role === "player" ? game.playerAddress : member.name}</strong><span>{message.text}</span>{message.mood && <small>{message.mood}</small>}</p>)}{chatLoading && <p className="member pending"><strong>{member.name}</strong><span>油灯安静地烧着。他正在斟酌怎样准确而恭敬地回应……</span></p>}</div>
+          <p className="passive-insight"><strong>{PATHWAYS[game.pathwayId].startingAbilities.find((item) => item.passive)?.name ?? "非凡直觉"}</strong>：{passiveInsight(member.id)}</p>
+          <div className="character-dialogue" aria-live="polite">{thread?.messages.map((message) => <p key={message.id} className={message.role}><strong>{message.role === "player" ? game.playerAddress : message.role === "ability" ? "非凡感知" : member.name}</strong><span>{message.text}</span>{message.mood && <small>{message.mood}</small>}</p>)}{chatLoading && <p className="member pending"><strong>{member.name}</strong><span>油灯安静地烧着。他正在斟酌怎样准确而恭敬地回应……</span></p>}</div>
+          <div className="dialogue-ability-strip"><span><WandSparkles size={13} />即时使用，不打断谈话</span>{abilities.slice(0, 3).map((ability) => <button key={ability.id} onClick={() => openAbility({ kind: "dialogue", targetId: member.id, label: member.name }, ability.id, `我在不惊动${member.name}的前提下使用${ability.name}，重点观察刚才谈话中的矛盾、情绪变化或非自然影响；只记录可感知现象。`)}><Eye size={12} />{ability.name}</button>)}</div>
           <label className="chat-input"><span>直接说任何话。Enter发送，Shift+Enter换行；你也可以把输入框中的最终说法直接形成决议。</span><textarea value={chatInput} onChange={(event) => setChatInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendChat(); } }} placeholder={`向${member.name}询问、解释或写下你希望他复述的最终决议……`} maxLength={1200} /><button className="complete-secondary" onClick={() => void sendChat()} disabled={!chatInput.trim() || chatLoading}><Send size={15} />继续交谈</button></label>
           <footer className="dialogue-decision-bar"><span><Gavel size={14} /><b>领导决议</b><small>按你的原话写入本周计划，并由{member.name}尊敬地复述确认。</small></span><button className="complete-primary" onClick={() => void formDialogueDecision()} disabled={!hasDecisionText || dialogueDecisionLoading || chatLoading}>{dialogueDecisionLoading ? "正在整理并复述" : "按我的方式形成决议"}</button></footer>
         </section>
       </div>;
     })()}
+
+    <AbilityConsole game={game} abilities={abilities} open={abilityPanelOpen} context={abilityContext} selectedId={abilitySelectedId} assistId={abilityAssistId} intent={abilityIntent} loading={abilityLoading} result={abilityResult} onOpen={() => openAbility()} onClose={() => { setAbilityPanelOpen(false); setAbilityResult(null); }} onSelect={setAbilitySelectedId} onAssist={setAbilityAssistId} onIntent={setAbilityIntent} onUse={() => void castAbility()} onContinueScene={(intent) => void deepenAbilityScene(intent)} onExitScene={() => setGame((current) => ({ ...current, activeAbilityScene: null }))} />
 
     {hydrated && !game.prologueComplete && <OpeningPrologue game={game} onBegin={completePrologue} />}
 

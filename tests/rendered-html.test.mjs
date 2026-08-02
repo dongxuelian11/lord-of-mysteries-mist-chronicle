@@ -33,6 +33,7 @@ test("server-renders the AI-native weekly council game shell", async () => {
   assert.match(html, />集会</);
   assert.match(html, />组织</);
   assert.match(html, />自身</);
+  assert.match(html, /即时非凡能力/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
@@ -43,10 +44,12 @@ test("DeepSeek relay validates requests without exposing an open proxy", async (
 });
 
 test("implements the complete simulation systems and accessible Apple-style UI", async () => {
-  const [app, council, prologue, engine, aiClient, aiSettings, aiRoute, finale, finaleView, model, board, operations, css, councilCss, v10Css, finaleCss, apiCss, layout] = await Promise.all([
+  const [app, council, prologue, abilitySystem, abilityConsole, engine, aiClient, aiSettings, aiRoute, finale, finaleView, model, board, operations, css, councilCss, v10Css, v11Css, finaleCss, apiCss, layout] = await Promise.all([
     readFile(new URL("../app/complete-game.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/weekly-council.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/opening-prologue.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/ability-system.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/ability-console.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game-engine.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ai-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ai-settings.tsx", import.meta.url), "utf8"),
@@ -59,6 +62,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
     readFile(new URL("../app/complete-game.css", import.meta.url), "utf8"),
     readFile(new URL("../app/weekly-council.css", import.meta.url), "utf8"),
     readFile(new URL("../app/experience-v10.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/experience-v11.css", import.meta.url), "utf8"),
     readFile(new URL("../app/finale-campaign.css", import.meta.url), "utf8"),
     readFile(new URL("../app/api-settings.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -74,7 +78,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(app, /character-dialogue/);
   assert.match(council, /重读小说章节/);
   assert.match(app, /每周小说总结都会永久保存/);
-  assert.match(app, /mist-chronicle-complete-v10/);
+  assert.match(app, /mist-chronicle-complete-v11/);
   assert.match(app, /LEGACY_SAVE_KEYS/);
   assert.match(app, /旧历史分支/);
   assert.match(app, /InvestigationBoard/);
@@ -82,6 +86,8 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(app, /按我的方式形成决议/);
   assert.match(app, /self-action-console/);
   assert.match(app, /nameExposure/);
+  assert.match(app, /resolveImmediateAbility/);
+  assert.match(app, /passiveInsight/);
   assert.match(engine, /interpretIntentWithAi/);
   assert.match(engine, /scheduleContract/);
   assert.match(engine, /resolveWeek/);
@@ -154,6 +160,14 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(prologue, /雨夜之后，第一场密议/);
   assert.match(prologue, /姓名或长期化名/);
   assert.match(prologue, /推门入席/);
+  assert.match(abilitySystem, /generateAbilityDraft/);
+  assert.match(abilitySystem, /resolveImmediateAbility/);
+  assert.match(abilitySystem, /continueAbilityScene/);
+  assert.match(abilitySystem, /lockedHiddenFacts/);
+  assert.match(abilityConsole, /不进入周日程/);
+  assert.match(abilityConsole, /立即发动并获得反馈/);
+  assert.match(abilityConsole, /DREAM LAYER/);
+  assert.match(abilityConsole, /SPIRIT WORLD/);
   assert.match(board, /由证据开放的可能性/);
   assert.match(board, /世界没有等待你/);
   assert.match(board, /建立玩家假设连接/);
@@ -176,6 +190,9 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(v10Css, /prologue-modal/);
   assert.match(v10Css, /council-intelligence/);
   assert.match(v10Css, /font:16px\/1\.82/);
+  assert.match(v11Css, /global-ability-trigger/);
+  assert.match(v11Css, /ability-scene-backdrop/);
+  assert.match(v11Css, /prefers-reduced-motion:reduce/);
   assert.match(finaleCss, /smog-crises/);
   assert.match(finaleCss, /prefers-reduced-motion:reduce/);
   assert.match(apiCss, /provider-choice/);
@@ -185,4 +202,5 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(layout, /api-settings\.css/);
   assert.match(layout, /weekly-council\.css/);
   assert.match(layout, /experience-v10\.css/);
+  assert.match(layout, /experience-v11\.css/);
 });

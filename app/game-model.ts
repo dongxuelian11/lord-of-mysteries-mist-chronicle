@@ -14,6 +14,56 @@ export type Ability = {
   ruleTags?: string[];
 };
 
+export type AbilityContextKind = "council" | "dialogue" | "district" | "organization" | "self" | "dream" | "spirit";
+
+export type AbilityContext = {
+  kind: AbilityContextKind;
+  targetId?: string;
+  label: string;
+};
+
+export type AbilityUseRecord = {
+  id: string;
+  week: number;
+  abilityId: string;
+  abilityName: string;
+  context: AbilityContext;
+  intent: string;
+  observation: string;
+  interpretation: string;
+  confidence: "较低" | "中等" | "较高" | "确认";
+  unknown: string;
+  detection: string;
+  cost: number;
+  mentalLoad: number;
+  lastMeditationWeek: number;
+  deepLayer?: "dream" | "spirit";
+};
+
+export type HiddenWorldFact = {
+  id: string;
+  subjectKey: string;
+  statement: string;
+  origin: "fixed" | "ai-locked";
+  createdWeek: number;
+};
+
+export type AbilitySceneTurn = {
+  id: string;
+  playerIntent: string;
+  response: string;
+  stabilityChange: number;
+};
+
+export type AbilityScene = {
+  id: string;
+  layer: "dream" | "spirit";
+  title: string;
+  context: AbilityContext;
+  stability: number;
+  turns: AbilitySceneTurn[];
+};
+
 export type Sequence = {
   rank: number;
   name: string;
@@ -55,7 +105,7 @@ export type Member = {
 
 export type DialogueMessage = {
   id: string;
-  role: "player" | "member";
+  role: "player" | "member" | "ability";
   text: string;
   week: number;
   context: "council" | "private";
@@ -442,6 +492,10 @@ export type GameState = {
   digestion: number;
   spirituality: number;
   spiritualityMax: number;
+  mentalLoad: number;
+  abilityJournal: AbilityUseRecord[];
+  hiddenWorldFacts: HiddenWorldFact[];
+  activeAbilityScene: AbilityScene | null;
   formulaKnowledge: number;
   materials: Material[];
   organizationName: string;
@@ -784,7 +838,7 @@ export const INITIAL_TIMELINE: TimelineEvent[] = [
 
 export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
   return {
-    version: 10,
+    version: 11,
     prologueComplete: false,
     playerName: "",
     playerAddress: "会长阁下",
@@ -795,8 +849,16 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     pathwayId,
     currentSequence: 9,
     digestion: 34,
-    spirituality: 6,
-    spiritualityMax: 6,
+    spirituality: 18,
+    spiritualityMax: 18,
+    mentalLoad: 0,
+    lastMeditationWeek: 0,
+    abilityJournal: [],
+    hiddenWorldFacts: [
+      { id: "hidden-locket-link", subjectKey: "black-locket", statement: "挂坠中的联系会对持续灵性观察产生微弱回应，但其高层来源仍被遮蔽。", origin: "fixed", createdWeek: 1 },
+      { id: "hidden-worker-ink", subjectKey: "worker-list", statement: "名单末三行并非同一次补写，其中一笔墨迹比另外两笔晚至少一天。", origin: "fixed", createdWeek: 1 },
+    ],
+    activeAbilityScene: null,
     formulaKnowledge: 100,
     materials: materialsFor(pathwayId, 8),
     organizationName: "鸦羽侦探事务所",
