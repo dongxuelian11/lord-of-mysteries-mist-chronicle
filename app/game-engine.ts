@@ -83,7 +83,14 @@ export function localContract(args: {
 }): ActionContract {
   const kind = inferKind(args.intent);
   const district = DISTRICTS.find((item) => item.id === args.districtId) ?? DISTRICTS[0];
-  const leader = args.leaderId === "player" ? { name: "组织负责人", specialty: PATHWAYS[args.game.pathwayId].name } : args.game.members.find((item) => item.id === args.leaderId);
+  const automaticMember = args.leaderId === "organization"
+    ? /灵视|占卜|仪式|污染|封印|尸体|灵体/.test(args.intent) ? args.game.members.find((item) => item.id === "rowan")
+      : /账目|采购|建设|设施|证件|预算|合法/.test(args.intent) ? args.game.members.find((item) => item.id === "cedric")
+        : /报纸|贵族|消息|交涉|询问|线人/.test(args.intent) ? args.game.members.find((item) => item.id === "ines")
+          : args.game.members.find((item) => item.id === "mara")
+    : undefined;
+  const effectiveLeaderId = automaticMember?.id ?? args.leaderId;
+  const leader = effectiveLeaderId === "player" ? { name: args.game.playerName || "组织负责人", specialty: PATHWAYS[args.game.pathwayId].name } : automaticMember ?? args.game.members.find((item) => item.id === effectiveLeaderId);
   const explicitRetreat = args.intent.split(/[。；]/).find((part) => /撤退|撤离|中止|求援/.test(part));
   const explicitBan = args.intent.split(/[。；]/).find((part) => /不要|不得|禁止|避免/.test(part));
   const matchedOpportunity = args.game.opportunities.find((item) => item.state === "available" && (args.intent.includes(item.title.replace(/^(安全|追查|追踪|进入|向)/, "")) || item.suggestedIntent === args.intent));
@@ -96,9 +103,9 @@ export function localContract(args: {
     kind,
     target: targetFrom(args.intent),
     desiredOutcome: args.intent.trim(),
-    approach: `${leader?.name ?? "执行者"}利用${leader?.specialty ?? "现有关系"}，从当前可接触的证据层开始；路线与接触顺序允许现场调整。`,
-    leaderId: args.leaderId,
-    memberIds: [args.leaderId],
+    approach: `${args.leaderId === "organization" ? "组织按决议自行分工，由" : ""}${leader?.name ?? "执行者"}利用${leader?.specialty ?? "现有关系"}，从当前可接触的证据层开始；具体人员与路线由组织在不偏离目标、方法和底线的前提下调整。`,
+    leaderId: effectiveLeaderId,
+    memberIds: [effectiveLeaderId],
     districtId: district.id,
     abilityIds: args.abilityIds,
     facilityId: /封存|切断联系|危险物/.test(args.intent) ? "vault" : kind === "研究" ? "archive" : kind === "仪式" ? "ritual" : kind === "建设" ? "workshop" : kind === "休整" ? "quarters" : undefined,
@@ -441,6 +448,7 @@ export function resolveWeek(game: GameState) {
   let formulaKnowledge = game.formulaKnowledge;
   let ritualReadiness = game.ritualReadiness;
   let instability = game.instability;
+  let nameExposure = game.nameExposure;
   let materials = game.materials.map((item) => ({ ...item }));
   const facilities = game.facilities.map((item) => ({ ...item }));
   let members = game.members.map((item) => ({ ...item }));
@@ -483,6 +491,8 @@ export function resolveWeek(game: GameState) {
     secrecy += resourceChanges.secrecy;
     stability += resourceChanges.stability;
     influence += resourceChanges.influence;
+    if (/实名|真名|公开身份|签署|官方会面|出席|公开指控/.test(contract.rawIntent)) nameExposure = Math.min(100, nameExposure + (outcome === "受阻" ? 9 : 5));
+    if (/化名|匿名|代理人|不透露姓名|掩护身份/.test(contract.rawIntent)) nameExposure = Math.max(0, nameExposure - (outcome === "成功" ? 3 : 1));
     digestion = Math.min(100, digestion + digestionGain);
     if (outcome === "成功" && /委托|报酬|收款|商业调查|有偿/.test(contract.rawIntent)) contractIncome += Math.max(20, Math.round(contract.budget * 1.7));
     const violatesCharter = /伤害无辜|灭口|伪造证据|不计代价|禁止撤退|强迫成员/.test(contract.rawIntent);
@@ -670,6 +680,7 @@ export function resolveWeek(game: GameState) {
     formulaKnowledge,
     ritualReadiness,
     instability,
+    nameExposure,
     materials,
     facilities,
     members,
@@ -714,7 +725,7 @@ export async function generateLiteraryChapter(config: AiConfig, game: GameState,
     week: local.week,
     date: local.date,
     organization: { name: game.organizationName, charter: game.charter },
-    player: { pathway: PATHWAYS[game.pathwayId].name, sequence: game.currentSequence },
+    player: { name: game.playerName, address: game.playerAddress, nameExposure: game.nameExposure, pathway: PATHWAYS[game.pathwayId].name, sequence: game.currentSequence },
     results: local.results.map((result) => ({ title: result.title, outcome: result.outcome, findings: result.findings, consequence: result.consequence, abilityEffects: result.abilityEffects, reasons: result.reasons, futureChanges: result.futureChanges, contract: result.contract })),
     activePressure: game.missions.filter((mission) => mission.state === "active"),
     discoveredEvidence: game.evidenceNodes.filter((item) => item.discovered),
@@ -745,7 +756,7 @@ export type NpcDialogueResult = {
   mood: string;
   memory: string | null;
   trustDelta: number;
-  proposal: { title: string; intent: string; districtId: string; rationale: string } | null;
+  proposal: null;
 };
 
 export async function generateNpcDialogue(config: AiConfig, game: GameState, memberId: string, playerText: string, context: "council" | "private" = "council"): Promise<NpcDialogueResult> {
@@ -753,13 +764,13 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
   if (!member) throw new Error("没有找到这名成员");
   const thread = game.dialogueThreads.find((item) => item.memberId === memberId);
   const currentPressure = game.missions.find((item) => item.state === "active");
-  const system = `你正在扮演原创人物${member.name}，参加维多利亚神秘组织的${context === "council" ? "每周密议" : "私下谈话"}。你不是菜单、助手或任务发布器，而是一个有局限、有利益、有情绪的人。
+  const system = `你正在扮演原创人物${member.name}，参加维多利亚神秘组织的${context === "council" ? "每周密议" : "私下谈话"}。组织领导人是${game.playerName || "尚未登记姓名的负责人"}，你应称其为“${game.playerAddress || "会长阁下"}”。你不是菜单、助手或任务发布器，而是一个有局限、有利益、有情绪的人。
 固定背景：${member.background ?? "未登记"}
 性格核心：${member.core ?? "谨慎"}
 说话习惯：${member.voice ?? "自然交谈"}
 当前成长矛盾：${member.arc ?? "仍在观察组织"}
 隐藏事实（只用于潜台词，除非现有关系与游戏证据足以支持，绝对不得直接泄露）：${member.secret ?? "无"}
-忠诚${member.loyalty}，信任${member.trust ?? member.loyalty}，疲劳${member.fatigue}。你可以反对、追问、打断、沉默、误判、隐瞒、谈条件或主动提出方案；不要总是赞同负责人。只能使用人物可能知道的事实，不能读取原著幕后真相，不能替规则宣布行动成功、资源变化或人物死亡。只返回严格JSON。`;
+忠诚${member.loyalty}，信任${member.trust ?? member.loyalty}，疲劳${member.fatigue}。你尊重组织层级：可以保留意见、请求澄清、陈述风险、婉拒违背原则的命令，但必须使用克制而正式的措辞，不得无礼顶撞、讥讽、贬低或反过来命令负责人；只有进入明确背叛或敌对状态后才可破例。只能使用人物可能知道的事实，不能读取原著幕后真相，不能替规则宣布行动成功、资源变化或人物死亡。只返回严格JSON。`;
   const payload = {
     week: game.week,
     playerSaid: playerText,
@@ -770,23 +781,13 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
     knownFacts: game.facts.slice(-14),
     scheduledOrders: game.schedule.map((item) => ({ title: item.title, leaderId: item.leaderId, risk: item.risk })),
   };
-  const raw = extractJson(await callModel(config, system, `自然回应玩家。回复长度由内容决定，通常120至360字；允许一句话拒绝，也允许在复杂议题上说得更长。返回：{"reply":"带人物动作与自然口语的完整回应","mood":"不超过8字的当前状态","memory":"值得此人以后记住的关系事实或null","trustDelta":-2到2,"proposal":{"title":"此人主动提出的短标题","intent":"可交给组织执行的自然语言意图","districtId":"已有城区id","rationale":"为什么此人提出它"}|null}。提案不是必需，不要每次都给。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 1400, temperature: .88 }));
+  const raw = extractJson(await callModel(config, system, `自然回应玩家。回复长度由内容决定，通常120至360字；复杂议题可以更长。成员必须承认玩家的最终领导权：可以恭敬地进言、请求澄清、说明代价或因原则正式请辞，但不得顶撞、嘲讽、贬低或命令玩家。普通谈话不要生成任务或提案卡。返回：{"reply":"带人物动作与自然口语的完整回应","mood":"不超过8字的当前状态","memory":"值得此人以后记住的关系事实或null","trustDelta":-2到2}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 1400, temperature: .88 }));
   const reply = typeof raw.reply === "string" ? raw.reply.trim().slice(0, 1200) : "";
   if (!reply) throw new Error("人物没有形成可用回应");
   const mood = typeof raw.mood === "string" ? raw.mood.trim().slice(0, 16) : "克制";
   const memory = typeof raw.memory === "string" && raw.memory.trim() ? raw.memory.trim().slice(0, 180) : null;
   const trustDelta = Math.max(-2, Math.min(2, Number(raw.trustDelta) || 0));
-  let proposal: NpcDialogueResult["proposal"] = null;
-  if (raw.proposal && typeof raw.proposal === "object" && !Array.isArray(raw.proposal)) {
-    const value = raw.proposal as Record<string, unknown>;
-    if (typeof value.title === "string" && typeof value.intent === "string" && typeof value.rationale === "string") proposal = {
-      title: value.title.trim().slice(0, 48),
-      intent: value.intent.trim().slice(0, 520),
-      districtId: typeof value.districtId === "string" && DISTRICTS.some((district) => district.id === value.districtId) ? value.districtId : game.organizationProfile.headquartersDistrictId,
-      rationale: value.rationale.trim().slice(0, 240),
-    };
-  }
-  return { reply, mood, memory, trustDelta, proposal };
+  return { reply, mood, memory, trustDelta, proposal: null };
 }
 
 export async function generateAiWorldDelta(config: AiConfig, game: GameState, chapter: ChronicleChapter, onStage: (value: string) => void): Promise<GameState> {

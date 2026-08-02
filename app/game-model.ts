@@ -430,6 +430,11 @@ export type WorldFact = {
 
 export type GameState = {
   version: number;
+  prologueComplete: boolean;
+  playerName: string;
+  playerAddress: string;
+  nameExposure: number;
+  knownAliases: string[];
   week: number;
   date: string;
   pathwayId: PathwayId;
@@ -779,7 +784,12 @@ export const INITIAL_TIMELINE: TimelineEvent[] = [
 
 export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
   return {
-    version: 9,
+    version: 10,
+    prologueComplete: false,
+    playerName: "",
+    playerAddress: "会长阁下",
+    nameExposure: 4,
+    knownAliases: [],
     week: 1,
     date: "1349年6月30日",
     pathwayId,

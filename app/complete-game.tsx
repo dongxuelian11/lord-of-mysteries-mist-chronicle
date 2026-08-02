@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Archive, ArrowLeft, ArrowRight, BookOpen, Boxes, Building2, CalendarDays, Check, CheckCircle2,
   ChevronRight, CircleDollarSign, Clock3, CloudFog, Command, Eye, FileKey, FlaskConical,
-  GitBranch, Hammer, Landmark, Lightbulb, ListTodo, LockKeyhole, Map, MapPin, Menu, MessageSquareText, PackageSearch,
+  Gavel, GitBranch, Hammer, Landmark, Lightbulb, ListTodo, LockKeyhole, MapPin, Menu, MessageSquareText, PackageSearch,
   Search, Send, Settings, ShieldAlert, Sparkles, TrendingUp,
   UsersRound, WandSparkles, X, Zap,
 } from "lucide-react";
@@ -24,21 +24,18 @@ import GreatSmogFinale from "./great-smog-finale";
 import AiSettings from "./ai-settings";
 import { AiConfig, DEEPSEEK_FLASH_PRESET, testModelConnection } from "./ai-client";
 import WeeklyCouncil from "./weekly-council";
+import OpeningPrologue from "./opening-prologue";
 
-const SAVE_KEY = "mist-chronicle-complete-v9";
-const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
+const SAVE_KEY = "mist-chronicle-complete-v10";
+const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
 const AI_KEY = "mist-chronicle-save-v3-ai";
 const AI_SESSION_KEY = "mist-chronicle-session-ai-key";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Command }[] = [
   { id: "intent", label: "集会", icon: Command },
-  { id: "investigation", label: "调查", icon: GitBranch },
-  { id: "city", label: "城市", icon: Map },
   { id: "organization", label: "组织", icon: Building2 },
-  { id: "progression", label: "晋升", icon: WandSparkles },
-  { id: "archive", label: "纪事", icon: Archive },
-  { id: "ending", label: "结局", icon: CloudFog },
+  { id: "progression", label: "自身", icon: WandSparkles },
 ];
 
 function riskClass(risk: RiskLevel) { return risk === "致命" ? "fatal" : risk === "高" ? "high" : risk === "中" ? "medium" : "low"; }
@@ -53,10 +50,10 @@ export default function CompleteGame() {
   const [game, setGame] = useState<GameState>(() => createInitialGame());
   const [hydrated, setHydrated] = useState(false);
   const [view, setView] = useState<ViewId>("intent");
-  const [intentText, setIntentText] = useState("我想先用灵视检查黑玻璃挂坠，再查名单上最后三名工人的住址；如果发现未知注视，立即切断接触并求援。");
+  const [intentText, setIntentText] = useState("");
   const [selectedDistrictId, setSelectedDistrictId] = useState("cherwood");
-  const [selectedLeaderId, setSelectedLeaderId] = useState("player");
   const [selectedAbilityIds, setSelectedAbilityIds] = useState<string[]>([]);
+  const [abilityIntentText, setAbilityIntentText] = useState("");
   const [contract, setContract] = useState<ActionContract | null>(null);
   const [contractLoading, setContractLoading] = useState(false);
   const [selectedDistrictDetail, setSelectedDistrictDetail] = useState<string | null>(null);
@@ -78,6 +75,7 @@ export default function CompleteGame() {
   const [chatMemberId, setChatMemberId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [dialogueDecisionLoading, setDialogueDecisionLoading] = useState(false);
   const [chatContext, setChatContext] = useState<"council" | "private">("council");
 
   useEffect(() => {
@@ -86,12 +84,13 @@ export default function CompleteGame() {
       const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
-        try { const value = JSON.parse(saved) as GameState; if (value.version === 9) setGame(value); }
+        try { const value = JSON.parse(saved) as GameState; if (value.version === 10) setGame(value); }
         catch { window.localStorage.removeItem(SAVE_KEY); }
       } else if (legacySaved) {
         try {
           const legacy = JSON.parse(legacySaved) as Partial<GameState>;
-          if (legacy.version === 8) setGame({ ...(legacy as GameState), version: 9, dialogueThreads: [], councilRecords: [{ week: legacy.week ?? 1, status: "convened", decisions: [] }] });
+          if (legacy.version === 9) setGame({ ...(legacy as GameState), version: 10, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [] });
+          else if (legacy.version === 8) setGame({ ...(legacy as GameState), version: 10, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [], dialogueThreads: [], councilRecords: [{ week: legacy.week ?? 1, status: "convened", decisions: [] }] });
           else if ([5, 6, 7].includes(legacy.version ?? 0) && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));
         } catch { /* 旧存档只用于读取纪事，损坏时不影响新游戏。 */ }
       }
@@ -118,17 +117,18 @@ export default function CompleteGame() {
   const aiReady = Boolean(aiConfig.endpoint.trim() && aiConfig.apiKey.trim() && aiConfig.model.trim());
   const latestChapter = game.chronicle[0];
 
-  async function prepareContract() {
-    if (!intentText.trim() || contractLoading) return;
+  async function prepareContract(source: "council" | "ability" = "council") {
+    const freeIntent = source === "ability" ? abilityIntentText.trim() : intentText.trim();
+    if (!freeIntent || contractLoading) return;
     const selectedAbilityCost = abilities
       .filter((ability) => selectedAbilityIds.includes(ability.id) && !ability.passive)
       .reduce((sum, ability) => sum + ability.cost, 0);
-    if (selectedLeaderId === "player" && selectedAbilityCost > game.spirituality) {
+    if (source === "ability" && selectedAbilityCost > game.spirituality) {
       setToast(`所选能力需要 ${selectedAbilityCost} 点灵性，当前只有 ${game.spirituality} 点。请减少能力，或先恢复灵性。`);
       return;
     }
     setContractLoading(true); setGenerationError("");
-    const args = { intent: intentText.trim(), game, leaderId: selectedLeaderId, districtId: selectedDistrictId, abilityIds: selectedLeaderId === "player" ? selectedAbilityIds : [] };
+    const args = { intent: freeIntent, game, leaderId: source === "ability" ? "player" : "organization", districtId: selectedDistrictId, abilityIds: source === "ability" ? selectedAbilityIds : [] };
     try {
       const next = aiReady ? await interpretIntentWithAi(aiConfig, args) : localContract(args);
       setContract(next);
@@ -141,7 +141,7 @@ export default function CompleteGame() {
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") { setContract(null); setSelectedDistrictDetail(null); setSelectedFacility(null); setSelectedChapter(null); setShowSettings(false); setChatMemberId(null); }
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !event.shiftKey && !chatMemberId) { event.preventDefault(); void prepareContract(); }
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !event.shiftKey && !chatMemberId) { event.preventDefault(); void prepareContract(view === "progression" ? "ability" : "council"); }
     }
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   });
@@ -155,7 +155,7 @@ export default function CompleteGame() {
         schedule: [...current.schedule.map((item) => contract.focus ? { ...item, focus: false } : item), scheduled],
         councilRecords: current.councilRecords.map((record) => record.week === current.week ? { ...record, decisions: [...record.decisions, { id: `decision-${scheduled.id}`, title: scheduled.title, rawIntent: scheduled.rawIntent, proposerId: "player", status: "scheduled" }] } : record),
       }));
-      setContract(null); setIntentText(""); setSelectedAbilityIds([]);
+      setContract(null); setIntentText(""); setAbilityIntentText(""); setSelectedAbilityIds([]);
       setToast(`已排入${DAY_NAMES[scheduled.startDay - 1]}，持续${scheduled.days}天`);
     } catch (error) { setToast(error instanceof Error ? error.message : "无法加入日程"); }
   }
@@ -231,7 +231,23 @@ export default function CompleteGame() {
   }
 
   function startNewGame() {
-    setGame(createInitialGame(draftPathway)); setSelectedRank(9); setSelectedAbilityIds([]); setCouncilDecisionSignal(0); setShowSettings(false); setView("intent"); setToast("新的历史分支已经建立");
+    setGame(createInitialGame(draftPathway)); setSelectedRank(9); setSelectedAbilityIds([]); setAbilityIntentText(""); setCouncilDecisionSignal(0); setShowSettings(false); setView("intent"); setToast("新的历史分支已经建立");
+  }
+
+  function completePrologue(name: string, address: string, pathwayId: PathwayId) {
+    setGame((current) => {
+      const base = current.pathwayId === pathwayId ? current : createInitialGame(pathwayId);
+      return {
+      ...base,
+      prologueComplete: true,
+      playerName: name,
+      playerAddress: address,
+      knownAliases: [name],
+      facts: [...base.facts, { id: `fact-player-name-${Date.now()}`, subject: "组织负责人", statement: `${name}以“${address}”的称谓主持组织第一次正式密议。`, certainty: "确认", source: "密议室会议记录", week: base.week }],
+    };
+    });
+    setSelectedRank(9);
+    setToast(`成员已经落座，等待${address}主持会议`);
   }
 
   function saveSettings() {
@@ -257,8 +273,8 @@ export default function CompleteGame() {
       if (current.dialogueThreads.some((item) => item.memberId === memberId)) return current;
       const pressure = current.missions.find((item) => item.state === "active");
       const opener = context === "council"
-        ? `${member.name}抬起目光，没有立刻去碰桌上的文件。“我在听。你要问上周的结果，还是要我说这周不该做什么？”`
-        : `${member.name}关上门，在你对面的椅子坐下。“这里没有书记员。你可以直说。”`;
+        ? `${member.name}起身向你致意，随后才重新落座。“${current.playerAddress}，我已经准备好汇报。您可以问上周的结果，也可以让我陈述这周最值得警惕的事。”`
+        : `${member.name}关上门，在你对面的椅子坐下。“这里没有书记员，${current.playerAddress}。请您直说。”`;
       return { ...current, dialogueThreads: [...current.dialogueThreads, { memberId, messages: [{ id: `dialogue-${Date.now()}-open`, role: "member", text: pressure ? `${opener}他把写着“${pressure.title}”的纸页推开了半寸。` : opener, week: current.week, context, mood: "审慎" }], memories: [], lastMood: "审慎", lastUpdatedWeek: current.week }] };
     });
   }
@@ -272,12 +288,12 @@ export default function CompleteGame() {
     setChatInput(""); setChatLoading(true);
     try {
       const fallback = member.id === "mara"
-        ? { reply: `玛拉用指节轻敲了一下桌沿。“我不赞成只把目标写成‘查清楚’。你说的事可以做，但我要两条撤退路线，而且名单上的人不能被当作诱饵。要是你坚持亲自去，我会跟着——这不等于我同意。”`, mood: "明确反对", memory: "负责人愿意在会上听取撤退条件。", trustDelta: 0, proposal: { title: "先建立撤离线", intent: `围绕“${text.slice(0, 180)}”先建立两条互不重叠的撤离路线和一个安全联络点，不接触核心目标。`, districtId: selectedDistrictId, rationale: "玛拉拒绝在没有退路时让成员深入。" } }
+        ? { reply: `玛拉将手从地图上收回，微微欠身。“${game.playerAddress}，请允许我补充一项风险。若目标只写成‘查清楚’，外勤会无法判断何时撤离。我建议保留两条撤退路线，也不要把名单上的人当作诱饵。最后如何决定，由您拍板。”`, mood: "郑重进言", memory: `${game.playerAddress}愿意在会上听取撤退条件。`, trustDelta: 0, proposal: null }
         : member.id === "cedric"
-          ? { reply: `塞德里克把铅笔横在账本上。“这句话里至少有三笔没有写明由谁支付的成本。我的回答不是不做，而是先定上限：资金、身份文件，以及失败后谁去向雇主解释。若这些仍由一句‘到时候再看’代替，我会投反对票。”`, mood: "谨慎反对", memory: "负责人在会上提出过一项边界尚不清楚的命令。", trustDelta: 0, proposal: null }
+          ? { reply: `塞德里克合上账本，语气依旧恭谨。“${game.playerAddress}，这项方向可以执行。不过在写入记录前，我恳请您给出资金与身份文件的上限，也说明失败后是否允许我们中止。若您坚持维持原案，我会服从，只会把预计代价如实记在旁注里。”`, mood: "恭谨陈情", memory: `${game.playerAddress}要求成员如实陈述命令成本。`, trustDelta: 0, proposal: null }
           : member.id === "ines"
-            ? { reply: `伊妮丝没有正面回答，而是说起昨晚一封没有署名的读者来信。“那个人也以为自己在问一个自由的问题。可他写下的每个名词，都在告诉别人他知道多少。”她看向你，“我可以替你问，但我要先改一种问法。否则消息回来以前，我们已经先暴露了兴趣。”`, mood: "有所保留", memory: "负责人曾在会上直接询问敏感目标。", trustDelta: 0, proposal: null }
-            : { reply: `罗文沉默了几秒。“如果这是命令，我会服从其中不违背禁忌的部分。如果这是征询，我的意见是：先把你以为自己知道的，与真正看见的分开。”他压低声音，“异常不会因为我们开会时叫对了名字，就变得更容易处理。”`, mood: "低声警告", memory: "负责人愿意讨论非凡风险的边界。", trustDelta: 0, proposal: null };
+            ? { reply: `伊妮丝先向你点头，才提起昨晚那封匿名来信。“${game.playerAddress}，我愿意照您的方向追问。只是每一个被写下的名词，也会向对方暴露我们知道多少。若您准许，我会保留目标不变，只把问题换成更安全的说法。”`, mood: "谨慎请示", memory: `${game.playerAddress}曾在会上询问敏感目标。`, trustDelta: 0, proposal: null }
+            : { reply: `罗文低头致意。“${game.playerAddress}，如果这是命令，我会遵从其中不违背禁忌的部分。若您是在征询，我恳请先把推测与亲眼所见分开。异常不会因为我们叫对了名字就更容易处理，但您的最终判断，我会准确执行。”`, mood: "肃然提醒", memory: `${game.playerAddress}愿意讨论非凡风险的边界。`, trustDelta: 0, proposal: null };
       const result = aiReady ? await generateNpcDialogue(aiConfig, game, member.id, text, chatContext) : fallback;
       setGame((current) => ({
         ...current,
@@ -287,7 +303,6 @@ export default function CompleteGame() {
           messages: [...thread.messages, { id: `dialogue-${Date.now()}-member`, role: "member", text: result.reply, week: current.week, context: chatContext, mood: result.mood }],
           memories: result.memory && !thread.memories.includes(result.memory) ? [...thread.memories, result.memory].slice(-8) : thread.memories,
           lastMood: result.mood,
-          proposal: result.proposal ? { id: `proposal-${Date.now()}-${member.id}`, memberId: member.id, ...result.proposal, status: "open" } : thread.proposal,
           lastUpdatedWeek: current.week,
         } : thread),
       }));
@@ -297,13 +312,41 @@ export default function CompleteGame() {
     finally { setChatLoading(false); }
   }
 
+  async function formDialogueDecision() {
+    const member = game.members.find((item) => item.id === chatMemberId);
+    const thread = game.dialogueThreads.find((item) => item.memberId === chatMemberId);
+    const previous = thread?.messages.slice().reverse().find((message) => message.role === "player")?.text ?? "";
+    const decisionText = chatInput.trim() || previous;
+    if (!member || !decisionText || dialogueDecisionLoading) { setToast("请先说清希望形成决议的做法与目标"); return; }
+    setDialogueDecisionLoading(true);
+    try {
+      const args = { intent: decisionText, game, leaderId: "organization", districtId: selectedDistrictId, abilityIds: [] as string[] };
+      const interpreted = aiReady ? await interpretIntentWithAi(aiConfig, args) : localContract(args);
+      const scheduled = scheduleContract(game, interpreted);
+      const restatement = aiReady
+        ? await generateNpcDialogue(aiConfig, game, member.id, `【正式决议】${game.playerAddress}已经按以下原意拍板：“${decisionText}”。请先称呼${game.playerAddress}，再准确复述目标、方法、预期结果与底线；不得替负责人改变原意，也不要再提出新提案。`, "council")
+        : { reply: `${member.name}起身，向你郑重致意。“遵照您的决议，${game.playerAddress}：${decisionText}。组织会依照这段原意分工执行；我会把目标、方法和底线一并写入本周记录，不作擅自增删。”`, mood: "领命复述", memory: `${game.playerAddress}将“${decisionText.slice(0, 80)}”确认为正式决议。`, trustDelta: 1 };
+      const now = Date.now();
+      setGame((current) => ({
+        ...current,
+        schedule: [...current.schedule.map((item) => interpreted.focus ? { ...item, focus: false } : item), scheduled],
+        councilRecords: current.councilRecords.map((record) => record.week === current.week ? { ...record, decisions: [...record.decisions, { id: `decision-${scheduled.id}`, title: scheduled.title, rawIntent: scheduled.rawIntent, proposerId: "player", status: "scheduled" }] } : record),
+        members: current.members.map((item) => item.id === member.id ? { ...item, trust: Math.min(100, (item.trust ?? item.loyalty) + restatement.trustDelta) } : item),
+        dialogueThreads: current.dialogueThreads.map((item) => item.memberId === member.id ? { ...item, messages: [...item.messages, ...(chatInput.trim() ? [{ id: `dialogue-${now}-decision`, role: "player" as const, text: decisionText, week: current.week, context: "council" as const }] : []), { id: `dialogue-${now}-restate`, role: "member", text: restatement.reply, week: current.week, context: "council", mood: restatement.mood }], memories: restatement.memory && !item.memories.includes(restatement.memory) ? [...item.memories, restatement.memory].slice(-8) : item.memories, lastMood: restatement.mood, lastUpdatedWeek: current.week } : item),
+      }));
+      setChatInput("");
+      setToast(`${member.name}已复述并将决议写入本周记录`);
+    } catch (error) { setToast(error instanceof Error ? error.message : "这项决议暂时无法写入本周记录"); }
+    finally { setDialogueDecisionLoading(false); }
+  }
+
   return <main className="complete-game-shell">
     <a className="complete-skip-link" href="#complete-content">跳到主要内容</a>
     <div className="complete-ambient" aria-hidden="true" />
     <header className="complete-topbar">
       <button className="mobile-menu-button" onClick={() => setShowMobileNav((value) => !value)} aria-label="打开导航"><Menu size={19} /></button>
       <div className="complete-brand"><div><Eye size={19} /></div><span><small>BEYONDER ORGANIZATION SIMULATION</small><strong>灰雾纪事</strong></span></div>
-      <div className="complete-date"><small>第 {game.week} 周</small><strong>{game.date}</strong><span>历史偏转 {game.deviation.toFixed(1)}%</span></div>
+      <div className="complete-date"><small>第 {game.week} 周 · {game.playerAddress}</small><strong>{game.date}</strong><span>历史偏转 {game.deviation.toFixed(1)}%</span></div>
       <div className="top-resources">
         <span><CircleDollarSign size={14} /><small>资金</small><strong>£{game.money}</strong></span>
         <span><LockKeyhole size={14} /><small>隐秘</small><strong>{game.secrecy}</strong></span>
@@ -313,7 +356,7 @@ export default function CompleteGame() {
     </header>
 
     <nav className={`complete-sidebar ${showMobileNav ? "open" : ""}`} aria-label="游戏主导航">
-      {NAV_ITEMS.filter((item) => item.id !== "ending" || game.ending.phase !== "running").map((item) => { const Icon = item.icon; const badge = item.id === "progression" ? game.currentSequence : item.id === "investigation" ? game.opportunities.filter((opportunity) => opportunity.state === "available").length : null; return <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setShowMobileNav(false); }}><Icon size={18} /><span>{item.label}</span>{badge !== null && <i>{badge}</i>}</button>; })}
+      {NAV_ITEMS.map((item) => { const Icon = item.icon; const badge = item.id === "progression" ? game.currentSequence : null; return <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setShowMobileNav(false); }}><Icon size={18} /><span>{item.label}</span>{badge !== null && <i>{badge}</i>}</button>; })}
       <div className="sidebar-spacer" />
       <button onClick={() => setShowSettings(true)}><Settings size={18} /><span>设置</span></button>
     </nav>
@@ -321,7 +364,7 @@ export default function CompleteGame() {
     <section className="complete-content" id="complete-content">
       {!aiReady && <button className="offline-banner" onClick={() => setShowSettings(true)}><ShieldAlert size={15} /><span><strong>离线试玩模式</strong><small>规则、晋升和建设可用；配置模型后开放完整自由解析、动态世界与文学叙事。</small></span><ChevronRight size={15} /></button>}
 
-      {view === "intent" && <WeeklyCouncil key={councilDecisionSignal} game={game} abilities={abilities} intentText={intentText} selectedDistrictId={selectedDistrictId} selectedLeaderId={selectedLeaderId} selectedAbilityIds={selectedAbilityIds} contractLoading={contractLoading} generationStage={generationStage} decisionSignal={councilDecisionSignal} latestChapter={latestChapter} onIntentText={setIntentText} onDistrict={setSelectedDistrictId} onLeader={setSelectedLeaderId} onAbilityIds={setSelectedAbilityIds} onPrepare={() => void prepareContract()} onRemoveAction={removeAction} onEndWeek={() => void endWeek()} onQuestionMember={(memberId, seed) => openMemberChat(memberId, seed, "council")} onReadChapter={setSelectedChapter} onUseSuggestion={(text, districtId) => { applySuggestion(text, districtId); }} onView={setView} />}
+      {view === "intent" && <WeeklyCouncil key={councilDecisionSignal} game={game} intentText={intentText} selectedDistrictId={selectedDistrictId} contractLoading={contractLoading} generationStage={generationStage} decisionSignal={councilDecisionSignal} latestChapter={latestChapter} onIntentText={setIntentText} onDistrict={setSelectedDistrictId} onInspectDistrict={setSelectedDistrictDetail} onPrepare={() => void prepareContract("council")} onRemoveAction={removeAction} onEndWeek={() => void endWeek()} onQuestionMember={(memberId, seed) => openMemberChat(memberId, seed, "council")} onReadChapter={setSelectedChapter} onUseSuggestion={(text, districtId) => { applySuggestion(text, districtId); }} onView={setView} />}
 
       {view === "investigation" && <InvestigationBoard game={game} onConnectEvidence={(from, to, label) => setGame((current) => connectEvidence(current, from, to, label))} onUseOpportunity={(opportunity) => { setIntentText(opportunity.suggestedIntent); setSelectedDistrictId(opportunity.districtId); setView("intent"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
 
@@ -347,7 +390,13 @@ export default function CompleteGame() {
       </div>}
 
       {view === "progression" && <div className="progression-page page-enter">
-        <header className="page-title row"><div><p>非凡途径 · 完整序列阶梯</p><h1>{pathway.name}途径</h1><span>序列提升会扩大你能够干预的世界尺度，而不是只增加成功率。</span></div><div className="current-rank-seal"><small>当前</small><strong>{game.currentSequence}</strong><span>{currentSequence.name}</span></div></header>
+        <header className="page-title row"><div><p>{game.playerName} · 自身与非凡能力</p><h1>{pathway.name}途径</h1><span>这里处理你本人要做的事：自由使用能力、管理灵性与污染，并筹备晋升。组织总体方向请回到集会决定。</span></div><div className="current-rank-seal"><small>当前</small><strong>{game.currentSequence}</strong><span>{currentSequence.name}</span></div></header>
+        <section className="self-action-console complete-card">
+          <header><div><p>亲自使用能力</p><h2>{game.playerAddress}准备做什么？</h2><span>选择你明确要调用的能力，再自由描述对象、做法、预期结果与停止条件。AI不会替你擅自发动能力。</span></div><aside><small>姓名暴露</small><strong>{game.nameExposure}/100</strong><span>{game.nameExposure < 25 ? "身份仍很隐蔽" : game.nameExposure < 55 ? "部分势力开始记录你的姓名" : "真实身份正成为可追踪线索"}</span></aside></header>
+          <div className="self-ability-pills">{abilities.map((ability) => <button key={ability.id} className={selectedAbilityIds.includes(ability.id) ? "selected" : ""} disabled={ability.passive || ability.cost > game.spirituality} onClick={() => setSelectedAbilityIds((current) => current.includes(ability.id) ? current.filter((id) => id !== ability.id) : [...current, ability.id])}><span><strong>{ability.name}</strong><small>{ability.verb}</small></span><b>{ability.passive ? "被动" : `${ability.cost}灵性`}</b></button>)}</div>
+          <textarea value={abilityIntentText} onChange={(event) => setAbilityIntentText(event.target.value)} placeholder="例如：我在隔离仪式室中开启灵视，观察黑玻璃挂坠周围的灵性颜色与联系方向；只观察，不尝试建立沟通，一旦感到被注视立刻关闭灵视。" maxLength={900} />
+          <footer><label><MapPin size={13} /><span>发生地点</span><select value={selectedDistrictId} onChange={(event) => setSelectedDistrictId(event.target.value)}>{DISTRICTS.map((district) => <option key={district.id} value={district.id}>{district.name}</option>)}</select></label><span>当前灵性 {game.spirituality}/{game.spiritualityMax} · 污染 {game.playerCondition.pollution}</span><button className="complete-primary" onClick={() => void prepareContract("ability")} disabled={!abilityIntentText.trim() || contractLoading || !selectedAbilityIds.length}>{contractLoading ? "正在理解能力用途" : "形成个人行动"}</button></footer>
+        </section>
         <div className="progression-grid">
           <aside className="sequence-ladder complete-card">{pathway.sequences.map((sequence) => <button key={sequence.rank} className={`${sequence.rank === game.currentSequence ? "current" : ""} ${sequence.rank === selectedRank ? "selected" : ""} ${sequence.rank < game.currentSequence ? "future" : ""}`} onClick={() => setSelectedRank(sequence.rank)}><span>{sequence.rank}</span><div><strong>{sequence.name}</strong><small>{sequence.rank === game.currentSequence ? "当前序列" : sequence.rank < game.currentSequence ? "尚未晋升" : "已经历"}</small></div><i /></button>)}</aside>
           <section className="sequence-detail">
@@ -400,18 +449,21 @@ export default function CompleteGame() {
     {chatMemberId && (() => {
       const member = game.members.find((item) => item.id === chatMemberId)!;
       const thread = game.dialogueThreads.find((item) => item.memberId === chatMemberId);
+      const hasDecisionText = Boolean(chatInput.trim() || thread?.messages.some((message) => message.role === "player"));
       return <div className="complete-sheet-backdrop council-dialogue-backdrop" onMouseDown={() => setChatMemberId(null)}>
         <section className="complete-sheet character-sheet living-dialogue" role="dialog" aria-modal="true" aria-labelledby="character-title" onMouseDown={(event) => event.stopPropagation()}>
           <div className="sheet-grabber" />
           <header><div><p>{chatContext === "council" ? "议桌发言" : "私下谈话"} · {member.role}</p><h2 id="character-title">{member.name}</h2><span>当前态度：{thread?.lastMood ?? "审慎"} · 信任 {member.trust ?? member.loyalty} · 疲劳 {member.fatigue}</span></div><button onClick={() => setChatMemberId(null)} aria-label="结束点名"><X size={17} /></button></header>
           <details className="character-dossier"><summary>查看人物档案与长期关系记忆</summary><div className="character-core"><div><small>背景</small><p>{member.background}</p></div><div><small>性格核心</small><p>{member.core}</p></div><div><small>成长矛盾</small><p>{member.arc}</p></div></div>{thread?.memories.length ? <ul>{thread.memories.map((memory) => <li key={memory}>{memory}</li>)}</ul> : <p>还没有形成值得长期记住的关系事实。</p>}</details>
-          <div className="dialogue-rule"><MessageSquareText size={14} /><span><strong>这是自由对话，不是关键词菜单</strong><small>他可以拒绝、撒谎、追问或改变话题；对话不会自动变成命令。</small></span></div>
-          <div className="character-dialogue" aria-live="polite">{thread?.messages.map((message) => <p key={message.id} className={message.role}><strong>{message.role === "player" ? "你" : member.name}</strong><span>{message.text}</span>{message.mood && <small>{message.mood}</small>}</p>)}{chatLoading && <p className="member pending"><strong>{member.name}</strong><span>油灯安静地烧着。他正在决定说多少，以及是否反对你……</span></p>}</div>
-          {thread?.proposal?.status === "open" && <article className="dialogue-proposal"><header><Sparkles size={14} /><span><small>{member.name}主动提出</small><strong>{thread.proposal.title}</strong></span></header><p>{thread.proposal.rationale}</p><div><button onClick={() => setGame((current) => ({ ...current, dialogueThreads: current.dialogueThreads.map((item) => item.memberId === member.id && item.proposal ? { ...item, proposal: { ...item.proposal, status: "dismissed" } } : item) }))}>暂不采纳</button><button className="complete-primary compact" onClick={() => { const proposal = thread.proposal!; setGame((current) => ({ ...current, dialogueThreads: current.dialogueThreads.map((item) => item.memberId === member.id && item.proposal ? { ...item, proposal: { ...item.proposal, status: "accepted" } } : item) })); setChatMemberId(null); applySuggestion(proposal.intent, proposal.districtId); }}>带到决议席</button></div></article>}
-          <label className="chat-input"><span>直接说任何话。Enter发送，Shift+Enter换行；只有点击“带到决议席”才会形成行动。</span><textarea value={chatInput} onChange={(event) => setChatInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendChat(); } }} placeholder={`点名询问${member.name}，质疑他的判断，或回应他的顾虑……`} maxLength={900} /><button className="complete-primary" onClick={() => void sendChat()} disabled={!chatInput.trim() || chatLoading}><Send size={15} />让他回答</button></label>
+          <div className="dialogue-rule"><MessageSquareText size={14} /><span><strong>这是自由对话，不是关键词菜单</strong><small>成员会尊重你的领导身份，也会以正式方式陈述异议、隐瞒、误判或请求澄清；普通谈话不会自动消耗行动。</small></span></div>
+          <div className="character-dialogue" aria-live="polite">{thread?.messages.map((message) => <p key={message.id} className={message.role}><strong>{message.role === "player" ? game.playerAddress : member.name}</strong><span>{message.text}</span>{message.mood && <small>{message.mood}</small>}</p>)}{chatLoading && <p className="member pending"><strong>{member.name}</strong><span>油灯安静地烧着。他正在斟酌怎样准确而恭敬地回应……</span></p>}</div>
+          <label className="chat-input"><span>直接说任何话。Enter发送，Shift+Enter换行；你也可以把输入框中的最终说法直接形成决议。</span><textarea value={chatInput} onChange={(event) => setChatInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendChat(); } }} placeholder={`向${member.name}询问、解释或写下你希望他复述的最终决议……`} maxLength={1200} /><button className="complete-secondary" onClick={() => void sendChat()} disabled={!chatInput.trim() || chatLoading}><Send size={15} />继续交谈</button></label>
+          <footer className="dialogue-decision-bar"><span><Gavel size={14} /><b>领导决议</b><small>按你的原话写入本周计划，并由{member.name}尊敬地复述确认。</small></span><button className="complete-primary" onClick={() => void formDialogueDecision()} disabled={!hasDecisionText || dialogueDecisionLoading || chatLoading}>{dialogueDecisionLoading ? "正在整理并复述" : "按我的方式形成决议"}</button></footer>
         </section>
       </div>;
     })()}
+
+    {hydrated && !game.prologueComplete && <OpeningPrologue game={game} onBegin={completePrologue} />}
 
     {toast && <div className="complete-toast"><CheckCircle2 size={15} />{toast}</div>}
   </main>;
