@@ -36,6 +36,14 @@ const AI_KEY = "mist-chronicle-save-v3-ai";
 const AI_SESSION_KEY = "mist-chronicle-session-ai-key";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
+function displayNarrative(text: string) {
+  return text.replace(/若继续搁置[，,]\s*若继续(?:搁置|放任)[，,]\s*/g, "若继续搁置，").replace(/([。！？；])\1+/g, "$1");
+}
+
+function normalizeNarrativeGame(game: GameState): GameState {
+  return { ...game, chronicle: game.chronicle.map((chapter) => ({ ...chapter, sections: chapter.sections.map((section) => ({ ...section, paragraphs: section.paragraphs.map(displayNarrative) })) })) };
+}
+
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Command }[] = [
   { id: "intent", label: "集会", icon: Command },
   { id: "organization", label: "组织", icon: Building2 },
@@ -94,7 +102,7 @@ export default function CompleteGame() {
       const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
-        try { const value = JSON.parse(saved) as GameState; if (value.version === 12) setGame(value); }
+        try { const value = JSON.parse(saved) as GameState; if (value.version === 12) setGame(normalizeNarrativeGame(value)); }
         catch { window.localStorage.removeItem(SAVE_KEY); }
       } else if (legacySaved) {
         try {
