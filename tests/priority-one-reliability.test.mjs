@@ -32,6 +32,8 @@ test("malformed world envelopes receive one bounded structural retry", async () 
   assert.match(engine, /结构修复后仍未达到世界回合最低要求/);
   assert.match(engine, /requestWorldEnvelope\(worldConfig/);
   assert.match(engine, /无玩家命令的一周不应生成行动报告/);
+  assert.match(engine, /本次禁止复写的近期公开文本/);
+  assert.match(engine, /至少两条公开消息应来自近期消息未覆盖的事件结果或社会侧面/);
 });
 
 test("world envelopes reject mechanical weekly repetition and repair raw control characters", async () => {
@@ -67,4 +69,16 @@ test("negated artifact mentions do not silently replace the chosen pathway abili
   assert.match(ability, /artifactMentionNegated/);
   assert.match(ability, /explicitlyUsesArtifact/);
   assert.match(ability, /!artifactMentionNegated && explicitlyUsesArtifact/);
+});
+
+test("weekly prose distinguishes internal governance, issued orders, and uncommitted retries", async () => {
+  const engine = await read("app/game-engine.ts");
+  const app = await read("app/complete-game.tsx");
+  assert.match(engine, /handledInsideBase/);
+  assert.match(engine, /你在据点内亲自主持了这项工作/);
+  assert.match(engine, /组织执行了本周决议；它没有直接推进当前危机/);
+  assert.match(engine, /results\.length[\s\S]*组织本周没有发出正式行动命令/);
+  assert.match(app, /readerChapterCommitted/);
+  assert.match(app, /本周尚未结算 · 可原样重试/);
+  assert.match(app, /activeReaderChapter\.source !== "ai" && readerChapterCommitted && aiReady/);
 });

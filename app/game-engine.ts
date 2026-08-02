@@ -107,8 +107,13 @@ function worldEnvelopeIssue(value: Record<string, unknown>, game: GameState, pla
 
 async function requestWorldEnvelope(config: AiConfig, system: string, prompt: string, game: GameState, playerIssuedNoOrders: boolean, onStage: (value: string) => void) {
   let lastIssue = "世界模型没有返回可解析结构";
+  const recentSignalExcerpts = (game.worldSignals ?? [])
+    .filter((signal) => signal.week >= game.week - 4)
+    .slice(0, 12)
+    .map((signal) => `- ${signal.channel}｜${signal.headline}：${signal.body.slice(0, 180)}`)
+    .join("\n");
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const repair = attempt ? `\n\n上一次输出未通过结构校验：${lastIssue}。不要解释错误，不要沿用损坏JSON；请根据同一事实与持续状态重新推演一次，并返回完整、严格、可解析的JSON。` : "";
+    const repair = attempt ? `\n\n上一次输出未通过结构校验：${lastIssue}。不要解释错误，不要沿用损坏JSON；请根据同一事实与持续状态重新推演一次，并返回完整、严格、可解析的JSON。若错误涉及重复，以下是本次禁止复写的近期公开文本：\n${recentSignalExcerpts || "（没有近期公开文本）"}\n持续事件必须推进到新的参与者反应、地点变化、制度后果或可观察代价；仅改写措辞仍视为失败。至少两条公开消息应来自近期消息未覆盖的事件结果或社会侧面，但仍须由本周世界状态因果支持。` : "";
     try {
       const value = extractJson(await callModel(config, system, `${prompt}${repair}`, { json: true, maxTokens: 8200, temperature: attempt ? .58 : .72 }));
       const issue = worldEnvelopeIssue(value, game, playerIssuedNoOrders);
@@ -683,6 +688,8 @@ function endSentence(text: string) {
 
 function buildLocalChapter(game: GameState, results: ActionResult[], worldText: string): ChronicleChapter {
   const focus = results.find((result) => result.contract.focus) ?? results[0];
+  const focusDomain = focus ? actionDomain(focus.contract) : null;
+  const handledInsideBase = Boolean(focusDomain && ["finance", "training", "security", "cover", "rest"].includes(focusDomain));
   const sections: ChronicleChapter["sections"] = [];
   const weather = ["煤烟把晨光磨成了暗银色", "夜雨停在窗框上，雾却没有散", "街角的马车声比平日来得更早", "事务所的黄铜门牌蒙着一层潮气"][game.week % 4];
   sections.push({ heading: "密议之后", paragraphs: [
@@ -690,7 +697,9 @@ function buildLocalChapter(game: GameState, results: ActionResult[], worldText: 
     results.length ? `负责各席的人把命令复述给下属。红线、联络时限和撤离信号被分别封进信封；从这一刻起，组织会按你的方向行动，却仍要为城市的反应付出代价。` : "无人离开据点并不等于世界静止。成员修补掩护与封印，等着凌晨三点的声音再次越过门槛。",
   ] });
   if (focus) sections.push({ heading: focus.title, paragraphs: [
-    `${focus.contract.leaderId === "player" ? "你亲自离开了据点" : "负责行动的席位派出了下属"}，前往${DISTRICTS.find((district) => district.id === focus.contract.districtId)?.name}。档案封面保留着你的原话：“${focus.contract.rawIntent}”——没有人把它改写成另一件更方便执行的事。`,
+    `${handledInsideBase
+      ? focus.contract.leaderId === "player" ? "你在据点内亲自主持了这项工作" : "负责这项事务的席位留在据点内组织执行"
+      : `${focus.contract.leaderId === "player" ? "你亲自离开了据点" : "负责行动的席位派出了下属"}，前往${DISTRICTS.find((district) => district.id === focus.contract.districtId)?.name}`}。档案封面保留着你的原话：“${focus.contract.rawIntent}”——没有人把它改写成另一件更方便执行的事。`,
     ...focus.findings.slice(0, 4).map(endSentence),
     focus.abilityEffects.length ? endSentence(`非凡能力在现场留下了可核对的影响：${focus.abilityEffects.join("；")}；相应灵性、负荷与暴露已经结算`) : "这次行动没有擅自调用你的非凡能力；报告中的每一项发现都来自人员、时间与既有资源。",
     endSentence(`书记员最后写下“${focus.outcome}”：${focus.consequence}`),
@@ -913,8 +922,10 @@ export function resolveWeek(game: GameState) {
   if (game.week >= 21 && !missions.some((mission) => mission.id === "smog-endgame")) {
     missions = [...missions, { id: "smog-endgame", title: "雾正在等待命令", premise: "煤气、人口、仪式材料与行政封锁已经进入最后汇合阶段。组织必须决定阻止、利用、改变还是逃离。", deadline: 3, urgency: 96, progress: Math.min(85, evidenceNodes.filter((item) => item.discovered).length * 7 + factions.find((item) => item.id === "night-church")!.planProgress / 3), consequence: "大雾霾将按现有条件爆发，并永久改变贝克兰德与所有相关人物。", hints: ["向教会提交完整证据", "破坏仪式材料", "疏散不可见人口", "追查王室工程核心", "准备撤离贝克兰德"], state: "active" }];
   }
-  const worldText = `${totalMissionProgress
-    ? "挂坠相关的压力暂时受到干预，但城市其他区域没有停止。"
+  const worldText = `${results.length
+    ? totalMissionProgress
+      ? "本周决议干预了当前危机，但城市其他区域没有停止。"
+      : "组织执行了本周决议；它没有直接推进当前危机，城市其他区域仍在变化。"
     : "组织本周没有发出正式行动命令。"} 城市之外的变化将由独立世界模型推演，而不是由本地事件表代写。`;
   const chapter = buildLocalChapter(game, results, worldText);
   const nextWeek = game.week + 1;
