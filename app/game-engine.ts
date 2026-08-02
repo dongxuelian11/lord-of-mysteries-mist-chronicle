@@ -36,8 +36,13 @@ function extractJson(raw: string) {
   return JSON.parse(fenced.slice(start, end + 1)) as Record<string, unknown>;
 }
 
+function isExplicitConstruction(intent: string) {
+  const positive = /(?:^|[，。；、\s])(?:修建|建造|扩建|增设|改建|升级|布置|设立)(?:一座|一处|一间|新的|现有)?[^，。；]{0,24}(?:据点|房间|设施|实验室|仓库|安全屋|工坊|档案室|仪式室)|(?:改造|升级)(?:现有|组织的|我们的)?[^，。；]{0,18}(?:据点|房间|设施|工坊|档案室|仪式室)/;
+  return positive.test(intent) && !/(?:不要|不得|避免|无需|不打算)[^，。；]{0,8}(?:修建|建造|扩建|改造|升级|设立)/.test(intent);
+}
+
 function inferKind(intent: string): ActionContract["kind"] {
-  if (/建|修建|改造|据点|房间|设施|实验室|仓库|安全屋/.test(intent)) return "建设";
+  if (isExplicitConstruction(intent)) return "建设";
   if (/招募|邀请|吸收|加入组织|发展线人/.test(intent)) return "招募";
   if (/谈判|说服|交涉|拜访|联系|交易|举报/.test(intent)) return "交涉";
   if (/研究|配方|材料|样本|档案|分析|鉴定/.test(intent)) return "研究";
@@ -58,8 +63,11 @@ function inferRisk(intent: string, districtId: string, abilityCount: number): Ri
 function targetFrom(intent: string) {
   const quoted = intent.match(/[“"]([^”"]{2,32})[”"]/)?.[1];
   if (quoted) return quoted;
-  const match = intent.match(/(?:调查|寻找|追踪|接触|研究|鉴定|监视|修建|改造|招募|说服)([^，。；]{2,30})/);
-  return match?.[1]?.trim() || intent.slice(0, 28);
+  const normalized = intent.replace(/[、,]/g, "，").replace(/\s+/g, " ").trim();
+  const match = normalized.match(/(?:调查|查明|寻找|追踪|接触|研究|鉴定|监视|潜入|打听|修建|建造|扩建|增设|改造|升级|招募|邀请|说服)([^，。；]{1,40})/);
+  const candidate = (match?.[1] ?? normalized).split(/(?:以便|确保|同时|并且|并|但|不要|不得|避免|不惊动|不接触|不伤害|撤退|撤离|中止)/)[0]
+    .replace(/^(?:一下|有关|关于|针对|一个|一间|一处|新的)/, "").replace(/(?:的情况|的线索|的问题)$/, "").trim();
+  return candidate.slice(0, 28) || "未命名目标";
 }
 
 function inferMethodTags(intent: string) {
@@ -142,11 +150,15 @@ export async function interpretIntentWithAi(config: AiConfig, args: Parameters<t
   const value = extractJson(raw);
   const kindOptions = ["调查", "交涉", "研究", "建设", "招募", "仪式", "休整", "自由行动"];
   const riskOptions = ["低", "中", "高", "致命"];
+  const proposedKind = kindOptions.includes(String(value.kind)) ? value.kind as ActionContract["kind"] : fallback.kind;
+  const safeKind = proposedKind === "建设" && !isExplicitConstruction(args.intent) ? fallback.kind : proposedKind;
+  const safeTarget = typeof value.target === "string" ? targetFrom(`${fallback.kind === "调查" ? "调查" : "接触"}${value.target}`) : fallback.target;
   return {
     ...fallback,
-    title: typeof value.title === "string" ? value.title : fallback.title,
-    kind: kindOptions.includes(String(value.kind)) ? value.kind as ActionContract["kind"] : fallback.kind,
-    target: typeof value.target === "string" ? value.target : fallback.target,
+    title: `${safeKind} · ${safeTarget}`,
+    kind: safeKind,
+    target: safeTarget,
+    facilityId: safeKind === "建设" ? fallback.facilityId : safeKind === "研究" ? "archive" : safeKind === "仪式" ? "ritual" : safeKind === "休整" ? "quarters" : /封存|切断联系|危险物/.test(args.intent) ? "vault" : undefined,
     desiredOutcome: typeof value.desiredOutcome === "string" ? value.desiredOutcome : fallback.desiredOutcome,
     approach: typeof value.approach === "string" ? value.approach : fallback.approach,
     days: Math.min(6, Math.max(1, Number(value.days) || fallback.days)),
