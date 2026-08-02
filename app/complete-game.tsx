@@ -28,7 +28,7 @@ import OpeningPrologue from "./opening-prologue";
 import AbilityConsole from "./ability-console";
 import { abilityForFreeIntent, continueAbilityScene, generateAbilityDraft, generateSceneResponse, resolveImmediateAbility } from "./ability-system";
 import { generateCouncilReplies, generateCouncilSummary } from "./council-ai";
-import { localCouncilSummary, relevantCouncilMembers } from "./council-system";
+import { createLocalCouncilReplies, localCouncilSummary } from "./council-system";
 
 const SAVE_KEY = "mist-chronicle-complete-v12";
 const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v11", "mist-chronicle-complete-v10", "mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
@@ -229,14 +229,7 @@ export default function CompleteGame() {
     const raw = text.trim();
     if (!raw) return null;
     const topicId = `council-topic-${Date.now()}`;
-    const fallbackReplies = relevantCouncilMembers(game, raw, 3).map((member, index) => ({
-      id: `council-reply-${Date.now()}-${index}`,
-      speakerId: member.id,
-      stance: (index === 0 ? "保留" : "信息不足") as "保留" | "信息不足",
-      text: index === 0
-        ? `${member.name}先向你致意，才翻开职责内的记录。“${game.playerAddress}，就目前能够确认的部分，我只能把亲历与下属回报分开陈述。我们掌握的事实还不足以替您决定方向；若您允许，我会先指出最可能造成误判的缺口。”`
-        : `${member.name}没有抢先发言，只把一页记录推到桌面边缘。“我请求补充一项职责内的情况。它来自内部报告，尚未经过第二个来源核验，因此我建议暂时保留判断。”`,
-    }));
+    const fallbackReplies = createLocalCouncilReplies(game, raw);
     let replies = fallbackReplies;
     if (aiReady) {
       try { const generated = await generateCouncilReplies(aiConfig, game, raw); if (generated.length) replies = generated; }
@@ -259,7 +252,7 @@ export default function CompleteGame() {
   async function summarizeCouncilTopic(topicId: string) {
     const topic = game.councilTopics.find((item) => item.id === topicId);
     if (!topic) return;
-    let summary = localCouncilSummary(topic);
+    let summary = localCouncilSummary(topic, game);
     if (aiReady) {
       try { summary = await generateCouncilSummary(aiConfig, game, topic); }
       catch { /* 书记员保留本地中立整理。 */ }
