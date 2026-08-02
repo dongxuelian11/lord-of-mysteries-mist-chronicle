@@ -67,3 +67,33 @@
 .situation-opening>article{padding:26px clamp(26px,7vw,72px) 32px}.situation-opening>article>small{color:#9a8052;font-size:11px;letter-spacing:.08em}.situation-opening h1{margin:9px 0 25px;color:#27231e;font:550 clamp(32px,5vw,48px)/1.2 Georgia,"Noto Serif SC",serif}.situation-opening p{margin:0 0 16px;color:#474038;font:16px/2 Georgia,"Noto Serif SC",serif;text-indent:2em}
 .situation-opening>footer{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:17px 24px;border-top:1px solid rgba(106,80,40,.14);background:rgba(239,232,219,.94);backdrop-filter:blur(18px)}.situation-opening>footer span{color:#756d61;font-size:12px;line-height:1.6}.situation-opening>footer button{display:flex;align-items:center;gap:8px;flex:0 0 auto;padding:11px 15px;border:0;border-radius:11px;color:#f7eedf;background:#302b23;font-weight:700}
 @media(max-width:700px){.title-edition{padding:25px 20px 22px;border-radius:22px}.title-sigil{margin-top:28px}.situation-opening-backdrop{padding:0}.situation-opening{height:100dvh;max-height:none;border-radius:0}.situation-opening>footer{align-items:stretch;flex-direction:column}.situation-opening>footer button{justify-content:center}}
+
+/* Desktop readability contract: information density may never make the game illegible. */
+@media(min-width:761px){
+  .complete-game-shell{font-size:14px;line-height:1.55}
+  .complete-game-shell p,.complete-game-shell li,.complete-game-shell dd{font-size:14px;line-height:1.7}
+  .complete-game-shell small,.complete-game-shell dt,.complete-game-shell label>span{font-size:12px;line-height:1.5}
+  .complete-game-shell button,.complete-game-shell input,.complete-game-shell select,.complete-game-shell textarea{font-size:13px}
+  .complete-brand small,.complete-date small,.complete-date span,.top-resources small{font-size:11px}
+  .complete-sidebar{width:78px;padding-inline:8px}
+  .complete-sidebar button{min-height:58px}
+  .complete-sidebar button span,.complete-sidebar button i{font-size:12px}
+  .complete-content{padding-left:120px}
+  .page-title p{font-size:12px}
+  .page-title>span,.page-title>div>span{font-size:14px}
+  .section-heading strong{font-size:15px}.section-heading small{font-size:12px}
+  .complete-primary,.complete-secondary{font-size:13px}
+  .organization-grid{grid-template-columns:minmax(0,1fr) minmax(340px,390px)}
+  .room small,.charter-card>small,.asset-summary p small,.departments article header b,.departments article p,.departments article label span,.departments article footer,.roster article>p,.roster dt,.roster dd,.roster article>button{font-size:12px}
+  .roster h3,.departments article header span,.asset-summary p strong{font-size:14px}
+  .character-dialogue p strong,.character-dialogue p>small,.chat-input>span{font-size:12px}
+  .character-dialogue p span,.chat-input textarea{font-size:14px}
+  .settings-sheet>label span,.ai-mode-card small,.settings-note,.settings-divider,.pathway-choice button small{font-size:12px}
+  .settings-sheet>label input,.ai-mode-card strong,.pathway-choice button span,.danger-reset{font-size:13px}
+  .complete-toast{font-size:13px}
+}
+
+.reader-retry-literary{min-height:40px;padding:0 14px;border:1px solid rgba(208,173,110,.26);border-radius:12px;background:rgba(208,173,110,.07);color:var(--cg-gold);display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.reader-retry-literary:hover{border-color:rgba(208,173,110,.46);background:rgba(208,173,110,.12)}
+.reader-retry-literary:disabled{opacity:.4;cursor:not-allowed}
+@media(max-width:760px){.reader-actions{display:grid;grid-template-columns:1fr}.reader-actions>button{width:100%;justify-content:center}}
