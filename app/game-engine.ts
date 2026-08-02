@@ -14,6 +14,7 @@ import {
   WorldFact,
   WorldMove,
 } from "./game-model";
+import { createFinaleCampaign } from "./finale-system";
 
 export type AiConfig = { endpoint: string; apiKey: string; model: string };
 
@@ -667,7 +668,9 @@ export function resolveWeek(game: GameState) {
   members = members.map((member) => ({ ...member, personalEventState: member.personalEventState === "dormant" && (member.fatigue >= 45 || nextWeek >= 8 + hash(member.id) % 8) ? "active" as const : member.personalEventState }));
   const canonActors = canonTurn(game, nextWeek);
   const cases = updateCases(game, evidenceNodes, nextWeek);
-  const ending = game.ending.phase === "running" && nextWeek >= 24 ? { ...game.ending, phase: "finale" as const } : game.ending;
+  const ending = game.ending.phase === "running" && nextWeek >= 21
+    ? { ...game.ending, phase: "finale" as const, campaign: createFinaleCampaign() }
+    : game.ending;
   const nextState: GameState = {
     ...game,
     week: nextWeek,
@@ -826,7 +829,14 @@ export function resolveFatalSituation(game: GameState, choice: "retreat" | "help
   const healthLoss = died ? game.playerCondition.health : severe ? 34 : 12;
   const pollutionGain = choice === "continue" ? 15 : choice === "help" ? 6 : 3;
   const fact: WorldFact = { id: `crisis-${crisis.id}`, subject: crisis.title, statement: `${label}的最终检定为${survived ? "成功" : died ? "死亡" : "失败但幸存"}；规则掷值${roll}，安全阈值${odds}。`, certainty: "确认", source: "致命处境结算", week: game.week };
-  const ending = died ? { phase: "ended" as const, title: "雾中止步", epilogue: ["负责人的死亡让所有未完成的命令停在密议室桌面上。", "成员按照各自的忠诚、利益与理念带走能带走的东西，组织就此结束。"], grades: { organization: "覆灭", members: "失散", advancement: `序列${game.currentSequence}`, relations: "未竟", history: `${game.deviation.toFixed(1)}%偏转` }, sandboxUnlocked: false } : game.ending;
+  const finaleAdjustment = crisis.actionId.startsWith("finale-") && game.ending.campaign
+    ? {
+        ...game.ending.campaign,
+        momentum: game.ending.campaign.momentum + (choice === "continue" && survived ? 8 : choice === "retreat" ? -4 : 0),
+        enemyProgress: Math.min(100, game.ending.campaign.enemyProgress + (choice === "retreat" ? 4 : 0)),
+      }
+    : game.ending.campaign;
+  const ending = died ? { phase: "ended" as const, title: "雾中止步", campaign: finaleAdjustment, epilogue: ["负责人的死亡让所有未完成的命令停在密议室桌面上。", "成员按照各自的忠诚、利益与理念带走能带走的东西，组织就此结束。"], grades: { organization: "覆灭", members: "失散", advancement: `序列${game.currentSequence}`, relations: "未竟", history: `${game.deviation.toFixed(1)}%偏转` }, sandboxUnlocked: false } : { ...game.ending, campaign: finaleAdjustment };
   return {
     ...game,
     playerCondition: { health: Math.max(0, game.playerCondition.health - healthLoss), pollution: Math.min(100, game.playerCondition.pollution + pollutionGain), injuries: [...game.playerCondition.injuries, injury], alive: !died },

@@ -251,6 +251,48 @@ export type EndingState = {
   epilogue?: string[];
   grades?: { organization: string; members: string; advancement: string; relations: string; history: string };
   sandboxUnlocked: boolean;
+  campaign?: FinaleCampaign;
+};
+
+export type FinaleDoctrine = "阻止" | "利用" | "改变" | "逃离";
+
+export type FinaleCrisis = {
+  id: string;
+  stage: 1 | 2 | 3 | 4;
+  districtId: string;
+  title: string;
+  scene: string;
+  threat: string;
+  risk: "高" | "致命";
+  tags: string[];
+  evidenceIds: string[];
+  assignedMemberId?: string;
+  assignedFactionId?: string;
+  assignedFacilityId?: string;
+  outcome?: "成功" | "部分成功" | "失败";
+  consequence: string;
+};
+
+export type FinaleReport = {
+  stage: number;
+  title: string;
+  summary: string;
+  paragraphs: string[];
+  results: { crisisId: string; title: string; outcome: "成功" | "部分成功" | "失败"; detail: string }[];
+};
+
+export type FinaleCampaign = {
+  stage: 1 | 2 | 3 | 4;
+  doctrine?: FinaleDoctrine;
+  stageTitle: string;
+  stageBrief: string;
+  crises: FinaleCrisis[];
+  reports: FinaleReport[];
+  momentum: number;
+  enemyProgress: number;
+  rescued: number;
+  casualties: number;
+  exposedTruth: number;
 };
 
 export type OrganizationProfile = {
@@ -693,7 +735,7 @@ export const INITIAL_TIMELINE: TimelineEvent[] = [
 
 export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
   return {
-    version: 7,
+    version: 8,
     week: 1,
     date: "1349年6月30日",
     pathwayId,

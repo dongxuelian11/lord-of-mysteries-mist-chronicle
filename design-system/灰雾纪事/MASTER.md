@@ -7,8 +7,8 @@
 ---
 
 **Project:** 灰雾纪事
-**Generated:** 2026-08-02 04:20:24
-**Category:** Job Board/Recruitment
+**Generated:** 2026-08-02 11:38:56
+**Category:** Gaming
 
 ---
 
@@ -18,25 +18,19 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#0369A1` | `--color-primary` |
-| Secondary | `#0EA5E9` | `--color-secondary` |
-| CTA/Accent | `#22C55E` | `--color-cta` |
-| Background | `#F0F9FF` | `--color-background` |
-| Text | `#0C4A6E` | `--color-text` |
+| Primary | `#1C1917` | `--color-primary` |
+| Secondary | `#44403C` | `--color-secondary` |
+| CTA/Accent | `#CA8A04` | `--color-cta` |
+| Background | `#FAFAF9` | `--color-background` |
+| Text | `#0C0A09` | `--color-text` |
 
-**Color Notes:** Professional blue + success green
+**Color Notes:** Premium dark + gold accent
 
 ### Typography
 
-- **Heading Font:** Cormorant Garamond
-- **Body Font:** Libre Baskerville
-- **Mood:** editorial, classic, literary, traditional, refined, bookish
-- **Google Fonts:** [Cormorant Garamond + Libre Baskerville](https://fonts.google.com/share?selection.family=Cormorant+Garamond:wght@400;500;600;700|Libre+Baskerville:wght@400;700)
-
-**CSS Import:**
-```css
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Libre+Baskerville:wght@400;700&display=swap');
-```
+- **Heading Font:** Inter
+- **Body Font:** Inter
+- **Mood:** Bold + Impactful typography
 
 ### Spacing Variables
 
@@ -68,7 +62,7 @@
 ```css
 /* Primary Button */
 .btn-primary {
-  background: #22C55E;
+  background: #CA8A04;
   color: white;
   padding: 12px 24px;
   border-radius: 8px;
@@ -85,8 +79,8 @@
 /* Secondary Button */
 .btn-secondary {
   background: transparent;
-  color: #0369A1;
-  border: 2px solid #0369A1;
+  color: #1C1917;
+  border: 2px solid #1C1917;
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -99,7 +93,7 @@
 
 ```css
 .card {
-  background: #F0F9FF;
+  background: #FAFAF9;
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow-md);
@@ -125,9 +119,9 @@
 }
 
 .input:focus {
-  border-color: #0369A1;
+  border-color: #1C1917;
   outline: none;
-  box-shadow: 0 0 0 3px #0369A120;
+  box-shadow: 0 0 0 3px #1C191720;
 }
 ```
 
@@ -153,28 +147,28 @@
 
 ## Style Guidelines
 
-**Style:** Exaggerated Minimalism
+**Style:** Y2K Aesthetic
 
-**Keywords:** Bold minimalism, oversized typography, high contrast, negative space, loud minimal, statement design
+**Keywords:** Neon pink, chrome, metallic, bubblegum, iridescent, glossy, retro-futurism, 2000s, futuristic nostalgia
 
-**Best For:** Fashion, architecture, portfolios, agency landing pages, luxury brands, editorial
+**Best For:** Fashion brands, music platforms, Gen Z brands, nostalgia marketing, entertainment, youth-focused
 
-**Key Effects:** font-size: clamp(3rem 10vw 12rem), font-weight: 900, letter-spacing: -0.05em, massive whitespace
+**Key Effects:** linear-gradient metallic, glossy buttons, 3D chrome effects, glow animations, bubble shapes
 
 ### Page Pattern
 
-**Pattern Name:** Scroll-Triggered Storytelling
+**Pattern Name:** Funnel (3-Step Conversion)
 
-- **Conversion Strategy:** Narrative increases time-on-page 3x. Use progress indicator. Mobile: simplify animations.
-- **CTA Placement:** End of each chapter (mini) + Final climax CTA
-- **Section Order:** 1. Intro hook, 2. Chapter 1 (problem), 3. Chapter 2 (journey), 4. Chapter 3 (solution), 5. Climax CTA
+- **Conversion Strategy:** Progressive disclosure. Show only essential info per step. Use progress indicators. Multiple CTAs.
+- **CTA Placement:** Each step: mini-CTA. Final: main CTA
+- **Section Order:** 1. Hero, 2. Step 1 (problem), 3. Step 2 (solution), 4. Step 3 (action), 5. CTA progression
 
 ---
 
 ## Anti-Patterns (Do NOT Use)
 
-- ❌ Outdated forms
-- ❌ Hidden filters
+- ❌ Minimalist design
+- ❌ Static assets
 
 ### Additional Forbidden Patterns
 

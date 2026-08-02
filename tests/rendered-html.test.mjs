@@ -26,13 +26,16 @@ test("server-renders the complete free-intent game shell", async () => {
 });
 
 test("implements the complete simulation systems and accessible Apple-style UI", async () => {
-  const [app, engine, model, board, operations, css, layout] = await Promise.all([
+  const [app, engine, finale, finaleView, model, board, operations, css, finaleCss, layout] = await Promise.all([
     readFile(new URL("../app/complete-game.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game-engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/finale-system.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/great-smog-finale.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game-model.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/investigation-board.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/organization-operations.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/complete-game.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/finale-campaign.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(app, /localStorage/);
@@ -46,7 +49,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(app, /character-dialogue/);
   assert.match(app, /重新阅读完整章节/);
   assert.match(app, /每周小说总结都会永久保存/);
-  assert.match(app, /mist-chronicle-complete-v7/);
+  assert.match(app, /mist-chronicle-complete-v8/);
   assert.match(app, /LEGACY_SAVE_KEYS/);
   assert.match(app, /旧历史分支/);
   assert.match(app, /InvestigationBoard/);
@@ -69,6 +72,16 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /connectEvidence/);
   assert.match(engine, /transformOrganization/);
   assert.match(engine, /buildPivots/);
+  assert.match(engine, /createFinaleCampaign/);
+  assert.match(finale, /resolveFinalePhase/);
+  assert.match(finale, /名单与暗流/);
+  assert.match(finale, /核心仪式之夜/);
+  assert.match(finale, /player-link/);
+  assert.match(finale, /canonContributors/);
+  assert.match(finaleView, /本阶段并发危机/);
+  assert.match(finaleView, /城市中的其他行动者/);
+  assert.match(finaleView, /此前阶段战报/);
+  assert.match(finaleView, /不会被叙事直接判死/);
   assert.match(model, /sequence[s]?:/i);
   assert.match(model, /const RANK_EIGHT_RECIPES/);
   assert.match(model, /INITIAL_FACILITIES/);
@@ -100,5 +113,8 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(css, /investigation-grid/);
   assert.match(css, /organization-operations/);
   assert.match(css, /@media\(max-width:760px\)/);
+  assert.match(finaleCss, /smog-crises/);
+  assert.match(finaleCss, /prefers-reduced-motion:reduce/);
   assert.match(layout, /complete-game\.css/);
+  assert.match(layout, /finale-campaign\.css/);
 });

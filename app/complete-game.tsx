@@ -14,14 +14,16 @@ import {
 } from "./game-model";
 import {
   advanceSequence, AiConfig, availableAbilities, callModel, canAdvance, generateAiWorldDelta, generateLiteraryChapter,
-  connectEvidence, enterSandbox, interpretIntentWithAi, localContract, resolveFatalSituation, resolveFinale,
+  connectEvidence, enterSandbox, interpretIntentWithAi, localContract, resolveFatalSituation,
   resolveWeek, scheduleContract, transformOrganization,
 } from "./game-engine";
+import { assignFinaleResource, autoDeployFinale, chooseFinaleDoctrine, resolveFinalePhase } from "./finale-system";
 import InvestigationBoard from "./investigation-board";
 import OrganizationOperations from "./organization-operations";
+import GreatSmogFinale from "./great-smog-finale";
 
-const SAVE_KEY = "mist-chronicle-complete-v7";
-const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
+const SAVE_KEY = "mist-chronicle-complete-v8";
+const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
 const AI_KEY = "mist-chronicle-save-v3-ai";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
@@ -84,12 +86,12 @@ export default function CompleteGame() {
       const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
-        try { const value = JSON.parse(saved) as GameState; if (value.version === 7) setGame(value); }
+        try { const value = JSON.parse(saved) as GameState; if (value.version === 8) setGame(value); }
         catch { window.localStorage.removeItem(SAVE_KEY); }
       } else if (legacySaved) {
         try {
           const legacy = JSON.parse(legacySaved) as Partial<GameState>;
-          if ([5, 6].includes(legacy.version ?? 0) && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));
+          if ([5, 6, 7].includes(legacy.version ?? 0) && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));
         } catch { /* 旧存档只用于读取纪事，损坏时不影响新游戏。 */ }
       }
       if (savedAi) {
@@ -175,10 +177,21 @@ export default function CompleteGame() {
     setToast(next.playerCondition.alive ? "致命处境已由规则引擎完成最终检定" : "负责人死亡，本局结束");
   }
 
-  function chooseFinale(route: "阻止" | "利用" | "改变" | "逃离") {
-    setGame((current) => resolveFinale(current, route));
-    setTurnChapter(null);
-    setView("ending");
+  async function resolveFinaleStage() {
+    if (generationStage) return;
+    const next = resolveFinalePhase(game);
+    if (next === game) { setToast("三项并发危机都必须指派执行者"); return; }
+    const localChapter = next.chronicle[0];
+    setGame(next); setTurnChapter(localChapter); setGenerationError("");
+    if (next.ending.phase === "ended") setView("ending");
+    if (!aiReady || !localChapter || localChapter.id === game.chronicle[0]?.id) return;
+    try {
+      const literary = await generateLiteraryChapter({ endpoint, apiKey, model }, next, localChapter, setGenerationStage);
+      setTurnChapter(literary);
+      setGame((current) => ({ ...current, chronicle: current.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) }));
+    } catch (error) {
+      setGenerationError(`${error instanceof Error ? error.message : "终局文学模式失败"}；本地战报已经保留。`);
+    } finally { setGenerationStage(""); }
   }
 
   function applyOrganizationChange(action: "rename" | "move" | "legalize" | "satellite" | "split" | "merge" | "rebuild", value: string) {
@@ -361,8 +374,7 @@ export default function CompleteGame() {
       </div>}
     </section>
 
-    {game.ending.phase === "finale" && <div className="complete-sheet-backdrop finale-backdrop"><section className="finale-sheet" role="dialog" aria-modal="true" aria-labelledby="finale-title"><header><small>第24周 · 原著级终局</small><h2 id="finale-title">贝克兰德大雾霾</h2><p>规则已经根据证据、盟友、组织状态与历史偏转锁定当前世界。请选择组织在这场事件中的立场；AI不能替你决定。</p></header><div className="finale-intel"><span>有效证据 <strong>{game.evidenceNodes.filter((item) => item.discovered && !item.compromised).length}</strong></span><span>历史偏转 <strong>{game.deviation.toFixed(1)}%</strong></span><span>盟友 <strong>{game.factions.filter((item) => item.trust >= 35).length}</strong></span><span>生命/污染 <strong>{game.playerCondition.health}/{game.playerCondition.pollution}</strong></span></div><div className="finale-routes">{([[
-      "阻止", "把证据与盟友集中到核心仪式，正面打断灾难。"], ["改变", "改变人口、煤气或材料的汇合，让灾难偏离原定形态。"], ["利用", "从崩解仪式中夺取资源与晋升机会，承担最高污染。"], ["逃离", "保存组织、证据与尽可能多的受害者名单，离开首都。"]] as const).map(([route, description]) => <button key={route} onClick={() => chooseFinale(route)}><strong>{route}</strong><p>{description}</p><ArrowRight size={15} /></button>)}</div></section></div>}
+    {game.ending.phase === "finale" && <GreatSmogFinale game={game} busy={Boolean(generationStage)} onDoctrine={(doctrine) => setGame((current) => chooseFinaleDoctrine(current, doctrine))} onAssign={(crisisId, kind, id) => setGame((current) => assignFinaleResource(current, crisisId, kind, id))} onAutoDeploy={() => setGame((current) => autoDeployFinale(current))} onResolve={() => void resolveFinaleStage()} />}
 
     {game.fatalSituation && <div className="complete-sheet-backdrop fatal-backdrop"><section className="fatal-sheet" role="alertdialog" aria-modal="true" aria-labelledby="fatal-title"><header><ShieldAlert size={24} /><small>明确的高危局面</small><h2 id="fatal-title">{game.fatalSituation.title}</h2><p>{game.fatalSituation.threat}</p></header><div className="known-threats"><strong>目前已知</strong>{game.fatalSituation.knownThreats.map((threat) => <p key={threat}>{threat}</p>)}</div><div className="fatal-choices"><button onClick={() => chooseFatal("retreat")}><strong>立即撤退</strong><span>安全阈值 {game.fatalSituation.odds.retreat}%</span><small>放弃现场成果，优先保命。</small></button><button onClick={() => chooseFatal("help")}><strong>请求支援</strong><span>安全阈值 {game.fatalSituation.odds.help}%</span><small>消耗关系并暴露部分情报。</small></button><button className="continue" onClick={() => chooseFatal("continue")}><strong>继续深入</strong><span>安全阈值 {game.fatalSituation.odds.continue}%</span><small>可能获得更多成果；失败可导致死亡并结束本局。</small></button></div><footer>死亡只会在你选择后由最终检定产生；叙事模型无权越过这一步。</footer></section></div>}
 
@@ -372,7 +384,7 @@ export default function CompleteGame() {
 
     {selectedFacility && <div className="complete-sheet-backdrop drawer-backdrop" onMouseDown={() => setSelectedFacility(null)}><aside className="complete-drawer facility-drawer" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close" onClick={() => setSelectedFacility(null)}><X size={17} /></button><header><p>{selectedFacility.type}设施 · Lv.{selectedFacility.level}</p><h2>{selectedFacility.name}</h2><span>{selectedFacility.status}</span></header><section><p>{selectedFacility.description}</p></section><section><h3><TrendingUp size={14} />当前功能</h3>{selectedFacility.benefits.map((benefit) => <p className="facility-benefit" key={benefit}><CheckCircle2 size={13} />{benefit}</p>)}</section><section><h3><ShieldAlert size={14} />运行风险</h3><p>{selectedFacility.risk}</p></section><label className="facility-assignment"><span>负责成员</span><select value={selectedFacility.assignedMemberId ?? ""} onChange={(event) => updateFacilityAssignment(event.target.value)}><option value="">暂不指派</option>{game.members.map((member) => <option key={member.id} value={member.id}>{member.name} · 疲劳{member.fatigue}</option>)}</select></label><button className="complete-primary" onClick={() => { const target = selectedFacility.name; setSelectedFacility(null); applySuggestion(`升级${target}，优先提高隐蔽性与事故隔离能力，同时控制维护费用。`, "cherwood"); }}><Hammer size={15} />提出升级方案</button></aside></div>}
 
-    {(turnChapter || selectedChapter) && <div className="complete-reader-backdrop" onMouseDown={() => { if (!generationStage) { setTurnChapter(null); setSelectedChapter(null); } }}><section className="complete-reader" role="dialog" aria-modal="true" aria-labelledby="reader-title" onMouseDown={(event) => event.stopPropagation()}><header className="reader-commandbar"><div><small>第 {(turnChapter ?? selectedChapter)!.week} 周 · {(turnChapter ?? selectedChapter)!.date}</small><span>{(turnChapter ?? selectedChapter)!.source === "ai" ? "文学模式" : "本地事实版"}</span></div><div><button onClick={() => setReaderScale((value) => Math.max(.9, value - .1))}>A−</button><button onClick={() => setReaderScale(1)}>A</button><button onClick={() => setReaderScale((value) => Math.min(1.25, value + .1))}>A＋</button><button onClick={() => { if (!generationStage) { setTurnChapter(null); setSelectedChapter(null); } }}><X size={16} /></button></div></header>{generationStage && <div className="reader-generation"><Sparkles size={15} /><span><strong>规则事实已经锁定</strong><small>{generationStage}；完成后章节会自动更新。</small></span><i /><i /><i /></div>}{generationError && <div className="inline-warning reader-warning"><ShieldAlert size={14} />{generationError}</div>}<article className="reader-page" style={{ "--reader-scale": readerScale } as React.CSSProperties}><div className="folio"><span>灰雾纪事</span><i /><span>W{String((turnChapter ?? selectedChapter)!.week).padStart(2, "0")}</span></div><h1 id="reader-title">{(turnChapter ?? selectedChapter)!.title}</h1>{(turnChapter ?? selectedChapter)!.sections.map((section, index) => <section key={`${section.heading}-${index}`}><h2>{section.heading}</h2>{section.paragraphs.map((paragraph, paragraphIndex) => <p key={`${index}-${paragraphIndex}`}>{paragraph}</p>)}</section>)}<div className="reader-end"><CloudFog size={18} /><span>本章完</span></div></article>{(turnChapter ?? selectedChapter)!.results.length > 0 && <details className="reader-appendix"><summary><span><ListTodo size={15} />行动、证据与规则附录</span><small>{(turnChapter ?? selectedChapter)!.summary}</small></summary><div>{(turnChapter ?? selectedChapter)!.results.map((result) => <article key={result.id}><header><strong>{result.title}</strong><b className={result.outcome}>{result.outcome}</b></header><p>{result.contract.rawIntent}</p><ul>{result.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul><footer><span>消化 +{result.digestionGain}</span><span>任务推进 +{result.missionProgress}%</span><span>资金 {result.resourceChanges.money}</span></footer></article>)}</div></details>}<footer className="reader-actions"><button onClick={() => { setTurnChapter(null); setSelectedChapter(null); setView("archive"); }}><Archive size={14} />进入纪事档案</button><button className="complete-primary compact" onClick={() => { setTurnChapter(null); setSelectedChapter(null); }} disabled={Boolean(generationStage)}>继续第 {game.week} 周 <ArrowRight size={15} /></button></footer></section></div>}
+    {(turnChapter || selectedChapter) && <div className="complete-reader-backdrop" onMouseDown={() => { if (!generationStage) { setTurnChapter(null); setSelectedChapter(null); } }}><section className="complete-reader" role="dialog" aria-modal="true" aria-labelledby="reader-title" onMouseDown={(event) => event.stopPropagation()}><header className="reader-commandbar"><div><small>第 {(turnChapter ?? selectedChapter)!.week} 周 · {(turnChapter ?? selectedChapter)!.date}</small><span>{(turnChapter ?? selectedChapter)!.source === "ai" ? "文学模式" : "本地事实版"}</span></div><div><button onClick={() => setReaderScale((value) => Math.max(.9, value - .1))}>A−</button><button onClick={() => setReaderScale(1)}>A</button><button onClick={() => setReaderScale((value) => Math.min(1.25, value + .1))}>A＋</button><button onClick={() => { if (!generationStage) { setTurnChapter(null); setSelectedChapter(null); } }}><X size={16} /></button></div></header>{generationStage && <div className="reader-generation"><Sparkles size={15} /><span><strong>规则事实已经锁定</strong><small>{generationStage}；完成后章节会自动更新。</small></span><i /><i /><i /></div>}{generationError && <div className="inline-warning reader-warning"><ShieldAlert size={14} />{generationError}</div>}<article className="reader-page" style={{ "--reader-scale": readerScale } as React.CSSProperties}><div className="folio"><span>灰雾纪事</span><i /><span>W{String((turnChapter ?? selectedChapter)!.week).padStart(2, "0")}</span></div><h1 id="reader-title">{(turnChapter ?? selectedChapter)!.title}</h1>{(turnChapter ?? selectedChapter)!.sections.map((section, index) => <section key={`${section.heading}-${index}`}><h2>{section.heading}</h2>{section.paragraphs.map((paragraph, paragraphIndex) => <p key={`${index}-${paragraphIndex}`}>{paragraph}</p>)}</section>)}<div className="reader-end"><CloudFog size={18} /><span>本章完</span></div></article>{(turnChapter ?? selectedChapter)!.results.length > 0 && <details className="reader-appendix"><summary><span><ListTodo size={15} />行动、证据与规则附录</span><small>{(turnChapter ?? selectedChapter)!.summary}</small></summary><div>{(turnChapter ?? selectedChapter)!.results.map((result) => <article key={result.id}><header><strong>{result.title}</strong><b className={result.outcome}>{result.outcome}</b></header><p>{result.contract.rawIntent}</p><ul>{result.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul><footer><span>消化 +{result.digestionGain}</span><span>任务推进 +{result.missionProgress}%</span><span>资金 {result.resourceChanges.money}</span></footer></article>)}</div></details>}<footer className="reader-actions"><button onClick={() => { setTurnChapter(null); setSelectedChapter(null); setView("archive"); }}><Archive size={14} />进入纪事档案</button><button className="complete-primary compact" onClick={() => { setTurnChapter(null); setSelectedChapter(null); }} disabled={Boolean(generationStage)}>{game.ending.phase === "finale" ? "返回终局作战桌" : game.ending.phase === "ended" ? "查看最终结局" : `继续第 ${game.week} 周`} <ArrowRight size={15} /></button></footer></section></div>}
 
     {showSettings && <div className="complete-sheet-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本机配置</p><h2>AI推演与新游戏</h2></div><button onClick={() => setShowSettings(false)}><X size={17} /></button></header><div className={`ai-mode-card ${aiReady ? "ready" : "offline"}`}><Sparkles size={18} /><span><strong>{aiReady ? "完整AI推演已配置" : "当前为离线试玩"}</strong><small>{aiReady ? `${model} · 自由契约与三阶段文学模式` : "配置后开放动态世界、自由对话与小说生成"}</small></span></div><label><span>OpenAI兼容端点</span><input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://api.example.com/v1" /></label><label><span>模型名称</span><input value={model} onChange={(event) => setModel(event.target.value)} placeholder="model-name" /></label><label><span>API Key</span><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="仅保存在本浏览器" /></label><small className="settings-note">规则、世界事实和存档留在本地；密钥由浏览器直接发送到你的模型端点。接口需允许浏览器跨域请求。</small><button className="complete-primary" onClick={saveSettings}><Check size={15} />保存接口设置</button><div className="settings-divider"><span>建立新历史分支</span></div><div className="pathway-choice">{Object.values(PATHWAYS).map((item) => <button key={item.id} className={draftPathway === item.id ? "selected" : ""} onClick={() => setDraftPathway(item.id)}><span>{item.name}</span><small>序列9 · {item.sequences[0].name}</small></button>)}</div><button className="danger-reset" onClick={startNewGame}><RotateCcw size={14} />以所选途径开始新游戏</button></section></div>}
 

@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import "./globals.css";
 import "./complete-game.css";
 import "./complete-v7.css";
+import "./finale-campaign.css";
 
 export async function generateMetadata(): Promise<Metadata> {
   const incomingHeaders = await headers();
