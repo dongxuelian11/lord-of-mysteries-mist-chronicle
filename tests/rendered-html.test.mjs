@@ -181,7 +181,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(cityMap, /最近一周的已知动静/);
   assert.match(cityMap, /只显示组织已经看到、听到或亲自安排的内容/);
   assert.match(app, /key={`\$\{game\.week\}:\$\{councilDecisionSignal\}`}/);
-  assert.match(engine, /move\.visibility !== "迹象"/);
+  assert.doesNotMatch(engine, /visibleFactionMoves:/);
   assert.match(engine, /事实包故意排除了全知世界层/);
   assert.match(engine, /changes: publicSignals/);
   assert.match(council, /自由讨论/);
