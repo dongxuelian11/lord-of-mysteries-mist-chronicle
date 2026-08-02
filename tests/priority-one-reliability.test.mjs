@@ -57,6 +57,15 @@ test("non-investigation orders keep their own semantics instead of becoming clue
   assert.match(engine, /非调查行动不得凭空发现档案补录、马车路线、晚宴名单/);
 });
 
+test("recruitment governance is not mistaken for recruiting a workflow as a person", async () => {
+  const engine = await read("app/game-engine.ts");
+  assert.match(engine, /function isInternalGovernanceIntent/);
+  assert.match(engine, /const affirmativeIntent = intent\.replace/);
+  assert.match(engine, /governanceIntent \? "自由行动"/);
+  assert.match(engine, /if \(contract\.kind === "招募" \|\| isRecruitmentIntent\(text\)\) return "recruitment"/);
+  assert.match(engine, /档案保密\|名单泄露\|保密流程/);
+});
+
 test("no-order literary chapters cannot make the player investigate off-screen", async () => {
   const engine = await read("app/game-engine.ts");
   assert.match(engine, /function literaryAgencyIssue/);

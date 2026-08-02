@@ -245,15 +245,28 @@ function isExplicitConstruction(intent: string) {
   return positive.test(intent) && !/(?:不要|不得|避免|无需|不打算)[^，。；]{0,8}(?:修建|建造|扩建|改造|升级|设立)/.test(intent);
 }
 
+function isInternalGovernanceIntent(intent: string) {
+  const governanceObject = /(?:招募|人事|成员|组织|内部|外围联络点)[^，。；]{0,18}(?:档案|名单|流程|制度|权限|保密|分级|核验|审阅|出入记录|内部整顿)|(?:档案|名单)[^，。；]{0,14}(?:保密|分级|核验|权限|泄露)|内部整顿/;
+  const explicitExternalRecruit = /(?:招募|邀请|吸收|说服|发展)[^，。；]{0,18}(?:加入|入会|成为成员|成为线人|候选人|求职者|申请人)|(?:接触|面谈|约谈)[^，。；]{0,16}(?:候选人|求职者|申请人)/;
+  const affirmativeIntent = intent.replace(/(?:不主动|不私自|不要|不得|禁止|避免|不)[^。；]{0,40}(?:候选人|求职者|申请人|加入组织|成为成员|成为线人)/g, "");
+  return governanceObject.test(intent) && !explicitExternalRecruit.test(affirmativeIntent);
+}
+
+function isRecruitmentIntent(intent: string) {
+  if (isInternalGovernanceIntent(intent)) return false;
+  return /求职申请|候选人|面谈|临时合作|试用|发展线人|(?:招募|邀请|吸收|说服)[^，。；]{0,18}(?:加入|入会|成员|线人|候选人|人选)/.test(intent);
+}
+
 function inferKind(intent: string): ActionContract["kind"] {
   if (isExplicitConstruction(intent)) return "建设";
+  if (isInternalGovernanceIntent(intent)) return "自由行动";
   const primaryClause = intent.split(/[，。；]/).map((part) => part.trim()).find((part) => part && !/^(?:不要|不得|避免|不惊动|不接触|不伤害|禁止)/.test(part)) ?? intent;
   const candidates: Array<[ActionContract["kind"], RegExp]> = [
     ["调查", /调查|追踪|查明|寻找|监视|潜入|打听/],
     ["交涉", /谈判|说服|交涉|拜访|联系|交易|举报/],
     ["研究", /研究|配方|材料|样本|档案|分析|鉴定/],
     ["仪式", /仪式|占卜|通灵|祈祷|召唤/],
-    ["招募", /招募|邀请|吸收|加入组织|发展线人|求职申请|候选人|面谈|临时合作|试用/],
+    ["招募", /邀请|吸收|加入组织|发展线人|求职申请|候选人|面谈|临时合作|试用|招募.{0,12}(?:成员|人选|候选人|加入)/],
     ["休整", /休息|休整|恢复|处理冲突|开会|训练|演练|复盘|培训|练习/],
   ];
   const firstAction = candidates.map(([kind, pattern]) => ({ kind, index: primaryClause.search(pattern) })).filter((item) => item.index >= 0).sort((a, b) => a.index - b.index)[0];
@@ -273,6 +286,10 @@ function targetFrom(intent: string) {
   const quoted = intent.match(/[“"]([^”"]{2,32})[”"]/)?.[1];
   if (quoted) return quoted;
   const normalized = intent.replace(/[、,]/g, "，").replace(/\s+/g, " ").trim();
+  if (isInternalGovernanceIntent(normalized)) {
+    const governanceTarget = normalized.match(/(?:统筹|整理|整顿|核验|复核)([^，。；]{2,32})/)?.[1];
+    if (governanceTarget) return governanceTarget.replace(/^(?:一下|有关|关于|针对)/, "").slice(0, 28);
+  }
   const match = normalized.match(/(?:调查|查明|寻找|追踪|接触|约谈|研究|鉴定|审计|整理|筛选|训练|演练|检查|监视|潜入|打听|修建|建造|扩建|增设|改造|升级|招募|邀请|说服|联系|提醒)([^，。；]{1,40})/);
   const candidate = (match?.[1] ?? normalized).split(/(?:以便|确保|同时|并且|并|但|不要|不得|避免|不惊动|不接触|不伤害|撤退|撤离|中止)/)[0]
     .replace(/^(?:一下|有关|关于|针对|一个|一间|一处|新的)/, "").replace(/(?:的情况|的线索|的问题)$/, "").trim();
@@ -309,7 +326,7 @@ export function localContract(args: {
   const effectiveLeaderId = automaticMember?.id ?? args.leaderId;
   const leader = effectiveLeaderId === "player" ? { name: args.game.playerName || "组织负责人", specialty: PATHWAYS[args.game.pathwayId].name } : automaticMember ?? args.game.members.find((item) => item.id === effectiveLeaderId);
   const explicitRetreat = args.intent.split(/[。；]/).find((part) => /撤退|撤离|中止|求援/.test(part));
-  const explicitBan = args.intent.split(/[。；]/).find((part) => /不要|不得|禁止|避免/.test(part));
+  const explicitBans = args.intent.split(/[。；]/).map((part) => part.trim()).filter((part) => /不要|不得|禁止|避免|不主动|不私自|只做内部/.test(part));
   const matchedOpportunity = args.game.opportunities.find((item) => item.state === "available" && (args.intent.includes(item.title.replace(/^(安全|追查|追踪|进入|向)/, "")) || item.suggestedIntent === args.intent));
   const days = kind === "建设" ? 5 : kind === "研究" ? 3 : kind === "休整" ? 2 : /长期|全面|深入/.test(args.intent) ? 4 : 2;
   const budget = kind === "建设" ? 90 : kind === "交涉" ? 35 : kind === "研究" || kind === "仪式" ? 28 : 18;
@@ -332,7 +349,7 @@ export function localContract(args: {
     knownFacts: `组织只确认目前账本中与“${targetFrom(args.intent)}”直接相关的记录；${district.name}的公开背景可以作为起点。`,
     hypothesis: `玩家怀疑“${targetFrom(args.intent)}”值得投入资源，但假设本身不视为事实。`,
     unknowns: "目标真实身份、幕后关系、非凡层次与是否存在反调查手段仍未知。",
-    redLines: explicitBan?.trim() || "不伤害无关者；不把未经验证的假设当作公开指控。",
+    redLines: explicitBans.length ? explicitBans.join("；") : "不伤害无关者；不把未经验证的假设当作公开指控。",
     retreat: explicitRetreat?.trim() || "身份暴露、撤离路线中断或出现超出队伍层次的威胁时立即中止并求援。",
     focus: true,
     opportunityId: matchedOpportunity?.id,
@@ -361,10 +378,13 @@ export async function interpretIntentWithAi(config: AiConfig, args: Parameters<t
   const riskOptions = ["低", "中", "高", "致命"];
   const proposedKind = kindOptions.includes(String(value.kind)) ? value.kind as ActionContract["kind"] : fallback.kind;
   const explicitKind = inferKind(args.intent);
-  const safeKind = proposedKind === "建设" && !isExplicitConstruction(args.intent)
+  const governanceIntent = isInternalGovernanceIntent(args.intent);
+  const safeKind = governanceIntent ? "自由行动" : proposedKind === "建设" && !isExplicitConstruction(args.intent)
     ? fallback.kind
     : explicitKind !== "自由行动" && proposedKind !== explicitKind ? explicitKind : proposedKind;
-  const safeTarget = typeof value.target === "string" ? targetFrom(`${fallback.kind === "调查" ? "调查" : "接触"}${value.target}`) : fallback.target;
+  const safeTarget = governanceIntent ? fallback.target : typeof value.target === "string" ? targetFrom(`${fallback.kind === "调查" ? "调查" : "接触"}${value.target}`) : fallback.target;
+  const proposedRedLines = typeof value.redLines === "string" ? value.redLines.trim() : "";
+  const redLines = fallback.redLines && !proposedRedLines.includes(fallback.redLines) ? [fallback.redLines, proposedRedLines].filter(Boolean).join("；") : proposedRedLines || fallback.redLines;
   return {
     ...fallback,
     title: `${safeKind} · ${safeTarget}`,
@@ -379,7 +399,7 @@ export async function interpretIntentWithAi(config: AiConfig, args: Parameters<t
     knownFacts: typeof value.knownFacts === "string" ? value.knownFacts : fallback.knownFacts,
     hypothesis: typeof value.hypothesis === "string" ? value.hypothesis : fallback.hypothesis,
     unknowns: typeof value.unknowns === "string" ? value.unknowns : fallback.unknowns,
-    redLines: typeof value.redLines === "string" ? value.redLines : fallback.redLines,
+    redLines,
     retreat: typeof value.retreat === "string" ? value.retreat : fallback.retreat,
   };
 }
@@ -495,13 +515,13 @@ function discoverEvidence(game: GameState, contract: ActionContract, outcome: Ac
 
 type ActionDomain = "investigation" | "finance" | "training" | "security" | "recruitment" | "cover" | "construction" | "advancement" | "rest" | "diplomacy" | "general";
 
-function actionDomain(contract: ActionContract): ActionDomain {
+export function actionDomain(contract: ActionContract): ActionDomain {
   const text = `${contract.rawIntent} ${contract.target}`;
   if (contract.kind === "建设" && /修建|建造|扩建|增设|改建|升级|设施|房间|工坊|仓库|安全屋/.test(text)) return "construction";
-  if (contract.kind === "招募" || /求职申请|候选人|面谈|临时合作|试用|招募|发展线人/.test(text)) return "recruitment";
+  if (contract.kind === "招募" || isRecruitmentIntent(text)) return "recruitment";
   if (/审计|预算|收支|成本|账目核验|现金流|可疑支出|冻结.*账/.test(text)) return "finance";
   if (/训练|演练|培训|练习|复盘|模拟口令|假文件/.test(text)) return "training";
-  if (/出入口|文件销毁|紧急撤离|安保|暗号|内部安全|暴露组织/.test(text)) return "security";
+  if (/出入口|出入记录|文件销毁|紧急撤离|安保|暗号|内部安全|内部整顿|档案保密|名单泄露|保密流程|访问权限|暴露组织/.test(text)) return "security";
   if (/公开业务|掩护身份|门牌|价目表|接待话术|组织文件.*转移|迁址|改名/.test(text)) return "cover";
   if (contract.kind === "研究" && /配方|材料|晋升|魔药|扮演/.test(text)) return "advancement";
   if (contract.kind === "休整" && !/训练|演练/.test(text)) return "rest";
