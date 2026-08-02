@@ -12,10 +12,10 @@ export type CouncilPortfolio = {
 export const COUNCIL_PORTFOLIOS: CouncilPortfolio[] = [
   { id: "recruitment", name: "内部人事与招募", shortName: "人事", mandate: "成员状态、候选人、忠诚、内部冲突与任用", keywords: /招募|新人|成员|忠诚|冲突|任命|席位|下属|失踪人员/, preferredMembers: ["ines", "sylvie", "gareth", "nora"] },
   { id: "operations", name: "行动与调查", shortName: "行动", mandate: "外勤、调查、撤离、现场安全与任务进度", keywords: /调查|外勤|追踪|撤离|潜入|现场|任务|路线/, preferredMembers: ["mara", "gareth", "ollie", "rowan"] },
-  { id: "intelligence", name: "情报与档案", shortName: "情报", mandate: "线索归档、证据链、消息来源与可信度", keywords: /情报|线索|证据|档案|报告|消息|名单|记录/, preferredMembers: ["ines", "elsa", "gareth", "asher"] },
+  { id: "intelligence", name: "情报与档案", shortName: "情报", mandate: "线索归档、证据链、消息来源与可信度", keywords: /情报|线索|证据|档案|报告|消息|名单|记录|已确认|联系|来源/, preferredMembers: ["ines", "elsa", "gareth", "asher"] },
   { id: "finance", name: "财务与后勤", shortName: "财务", mandate: "资金、采购、运输、身份文件与设施维护", keywords: /资金|预算|采购|账|物资|后勤|设施|建设|据点/, preferredMembers: ["cedric", "victor", "edith", "ollie"] },
   { id: "security", name: "安保与反侦察", shortName: "安保", mandate: "暴露、监视、内鬼、保密等级与据点防御", keywords: /监视|暴露|内鬼|保密|安全|防御|警察|教会/, preferredMembers: ["mara", "gareth", "rowan", "cedric"] },
-  { id: "mysticism", name: "神秘事务", shortName: "神秘", mandate: "仪式、材料、封印物、污染、灵界与梦境", keywords: /仪式|材料|封印物|污染|灵界|梦境|非凡|序列|晋升/, preferredMembers: ["rowan", "edith", "asher", "elsa"] },
+  { id: "mysticism", name: "神秘事务", shortName: "神秘", mandate: "仪式、材料、封印物、污染、灵界与梦境", keywords: /仪式|材料|封印物|挂坠|异常|污染|灵界|梦境|非凡|序列|晋升/, preferredMembers: ["rowan", "edith", "asher", "elsa"] },
   { id: "diplomacy", name: "外交与关系", shortName: "外交", mandate: "教会、官方、贵族、密教、盟友与公开信誉", keywords: /外交|教会|官方|贵族|密教|盟友|谈判|举报|信誉/, preferredMembers: ["ines", "sylvie", "victor", "cedric"] },
   { id: "network", name: "城市网络", shortName: "网络", mandate: "街区关系、外围团体、交通、救助与社会影响", keywords: /街区|地图|东区|西区|北区|南区|码头|桥区|人口|救助|交通/, preferredMembers: ["mara", "nora", "ollie", "sylvie"] },
 ];
@@ -59,7 +59,19 @@ function topicTerms(text: string) {
 function topicEvidence(game: GameState, topic: string) {
   const terms = topicTerms(topic);
   const district = DISTRICTS.find((item) => topic.includes(item.name) || item.landmarks.some((landmark) => topic.includes(landmark)));
-  const facts = [...game.facts].reverse().filter((fact) => terms.some((term) => `${fact.subject}${fact.statement}${fact.source}`.includes(term))).slice(0, 3);
+  const facts = game.facts
+    .map((fact, index) => {
+      const searchable = `${fact.subject}${fact.statement}${fact.source}`;
+      const matchedTerms = terms.filter((term) => searchable.includes(term));
+      const score = matchedTerms.reduce((total, term) => total + term.length * term.length, 0)
+        + (topic.includes(fact.subject) ? 120 : 0)
+        + (fact.certainty === "确认" ? 8 : 0);
+      return { fact, score, index };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || b.fact.week - a.fact.week || b.index - a.index)
+    .slice(0, 3)
+    .map((item) => item.fact);
   const results = game.chronicle.flatMap((chapter) => chapter.results.map((result) => ({ ...result, week: chapter.week }))).filter((result) => terms.some((term) => `${result.title}${result.outcome}${result.findings.join("")}`.includes(term))).slice(0, 2);
   const scheduled = game.schedule.filter((action) => terms.some((term) => `${action.title}${action.rawIntent}${action.desiredOutcome}`.includes(term))).slice(0, 2);
   const lines = [
