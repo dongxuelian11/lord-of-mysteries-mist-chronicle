@@ -60,6 +60,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
     readFile(new URL("../app/api-settings.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
   ]);
+  const cityMap = await readFile(new URL("../app/city-map-workspace.tsx", import.meta.url), "utf8");
   assert.match(app, /localStorage/);
   assert.match(app, /议桌对发言的规则化理解/);
   assert.match(app, /行动、证据与规则附录/);
@@ -166,6 +167,16 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(council, /外部人士不得进入会议/);
   assert.match(council, /闭会并进入推演/);
   assert.match(council, /CityMapWorkspace/);
+  assert.match(council, /governance-owners/);
+  assert.match(council, /八项职责索引/);
+  assert.match(council, /同一负责人只出现一次/);
+  assert.doesNotMatch(council, /member-agendas/);
+  assert.match(cityMap, /动态世界投射/);
+  assert.match(cityMap, /map-projection-marker/);
+  assert.match(cityMap, /worldKernel/);
+  assert.match(cityMap, /worldSignals/);
+  assert.match(cityMap, /visibility !== "public"/);
+  assert.match(cityMap, /只显示组织已经看到、听到或亲自安排的内容/);
   assert.match(council, /自由讨论/);
   assert.match(council, /一键整理意见/);
   assert.match(council, /独立世界推演/);

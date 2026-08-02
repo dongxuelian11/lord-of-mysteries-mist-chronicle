@@ -174,8 +174,11 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
   });
   const locations = kernel.locations.map((location) => {
     const update = delta.locationUpdates.find((item) => item.locationId === location.id);
-    if (!update) return { ...location, actorIds: actors.filter((actor) => actor.locationId === location.id).map((actor) => actor.id) };
-    return { ...location, risk: clamp(location.risk + (update.riskDelta ?? 0)), stability: clamp(location.stability + (update.stabilityDelta ?? 0)), publicMood: update.publicMood ?? location.publicMood, conditions: update.condition && !location.conditions.includes(update.condition) ? [...location.conditions, update.condition].slice(-8) : location.conditions, actorIds: actors.filter((actor) => actor.locationId === location.id).map((actor) => actor.id), updatedWeek: delta.week };
+    const locationEvents = delta.events.filter((event) => event.locationId === location.id);
+    const factionIds = [...new Set([...location.factionIds, ...locationEvents.flatMap((event) => event.factionIds)])];
+    const actorIds = actors.filter((actor) => actor.locationId === location.id).map((actor) => actor.id);
+    if (!update) return { ...location, actorIds, factionIds, updatedWeek: locationEvents.length ? delta.week : location.updatedWeek };
+    return { ...location, risk: clamp(location.risk + (update.riskDelta ?? 0)), stability: clamp(location.stability + (update.stabilityDelta ?? 0)), publicMood: update.publicMood ?? location.publicMood, conditions: update.condition && !location.conditions.includes(update.condition) ? [...location.conditions, update.condition].slice(-8) : location.conditions, actorIds, factionIds, updatedWeek: delta.week };
   });
   const events = [...kernel.events, ...delta.events.map((event) => ({ ...event, week: delta.week }))].slice(-240);
   const eventIds = new Set(events.map((event) => event.id));

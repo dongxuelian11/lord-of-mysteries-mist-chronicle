@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   ArrowRight, BookOpen, CalendarDays, CheckCircle2, ChevronRight, CircleDollarSign, Command,
-  FileText, Gavel, Map, MessageSquareText, Newspaper, Pin, Plus, RadioTower, ShieldAlert, Sparkles, Target,
+  FileText, Gavel, Map as MapIcon, MessageSquareText, Newspaper, Pin, Plus, RadioTower, ShieldAlert, Sparkles, Target,
   UsersRound, WandSparkles, X,
 } from "lucide-react";
 import CityMapWorkspace from "./city-map-workspace";
@@ -68,16 +68,21 @@ export default function WeeklyCouncil(props: Props) {
   const worldSignals = (game.worldSignals ?? []).filter((signal) => signal.week === reportWeek).slice(0, 6);
   const bringToDecision = (text: string, districtId?: string) => { props.onUseSuggestion(text, districtId); setStage("orders"); };
 
-  const memberAgendas = useMemo(() => game.members.slice(0, 4).map((member) => {
-    const owned = portfoliosForMember(game, member.id);
-    const role = owned[0];
-    return {
-      member,
-      title: member.personalEventState === "active" && member.personalEvent ? member.personalEvent : `${role?.name ?? member.role}本周汇报`,
-      detail: role ? `${member.name}对${role.mandate}负有汇总责任；他的回答会随本周世界变化、下属回报和过往谈话而改变。` : `${member.name}负责整理与其专长有关的内部事务。`,
-      prompt: `从你作为${role?.name ?? member.role}负责人此刻真正掌握的情况说起。不要套汇报格式；告诉我这周发生了什么、你在意什么，以及有什么话需要当面说。`,
-    };
-  }), [game]);
+  const governanceOwners = useMemo(() => {
+    const grouped = new Map<string, { member: GameState["members"][number]; portfolios: typeof COUNCIL_PORTFOLIOS }>();
+    for (const portfolio of COUNCIL_PORTFOLIOS) {
+      const member = portfolioOwner(game, portfolio);
+      if (!member) continue;
+      const entry = grouped.get(member.id) ?? { member, portfolios: [] };
+      entry.portfolios.push(portfolio);
+      grouped.set(member.id, entry);
+    }
+    return [...grouped.values()]
+      .sort((a, b) => Number(b.member.personalEventState === "active") - Number(a.member.personalEventState === "active") || b.portfolios.length - a.portfolios.length)
+      .slice(0, 4);
+  }, [game]);
+  const freshMapSignals = (game.worldSignals ?? []).filter((signal) => signal.week >= Math.max(1, game.week - 1) && signal.districtId).length
+    + (game.worldKernel?.observations ?? []).filter((observation) => observation.week >= Math.max(1, game.week - 1) && (observation.visibility === "public" || observation.holderIds.includes("player"))).length;
 
   async function startDiscussion(seed?: string) {
     const text = (seed ?? discussionText).trim();
@@ -107,7 +112,7 @@ export default function WeeklyCouncil(props: Props) {
           : <div key={`empty-${index}`} className={`council-seat inner-seat empty seat-${index + 1}`}><i>{index + 1}</i><span><strong>空席</strong><small>等待非凡者任命</small></span></div>;
       })}
       <div className="outer-supervisors"><span className="supervisor-rail-label">内部主管列席 · 受议长问询</span>{supervisors.slice(0, 4).map((member) => <button key={member.id} onClick={() => props.onQuestionMember(member.id)}><i>{member.name.slice(0, 1)}</i><span><strong>{member.name}</strong><small>{sourceLabel(game, member.id)}主管</small></span></button>)}</div>
-      <div className="table-docket"><Map size={14} /><span>{activeStageCopy.title}</span><b>{stage === "orders" ? `${game.schedule.length}项待确认` : activeStageCopy.detail}</b></div>
+      <div className="table-docket"><MapIcon size={14} /><span>{activeStageCopy.title}</span><b>{stage === "orders" ? `${game.schedule.length}项待确认` : activeStageCopy.detail}</b></div>
       <div className="room-caption"><span>密议室 · 门已反锁</span><i /><span>外部人士不得入内</span></div>
     </section>
 
@@ -126,8 +131,15 @@ export default function WeeklyCouncil(props: Props) {
 
     {stage === "agenda" && <section className={`council-panel agenda-panel governance-panel ${activeMission ? "has-pressure" : "no-pressure"}`}>
       {activeMission && <article className="council-pressure"><header><span><ShieldAlert size={15} />必须知情的压力</span><b>{activeMission.deadline}周后越过临界点</b></header><h2>{activeMission.title}</h2><p>{activeMission.premise}</p><div><span><i style={{ width: `${activeMission.progress}%` }} /></span><strong>{activeMission.progress}%</strong></div><footer><small>若不处理</small><p>{activeMission.consequence}</p></footer></article>}
-      <section className="portfolio-board"><header><div><p>职责不是菜单，而是组织的问责路径</p><h2>八项治理领域</h2></div><small>点击负责人进入其持续部门对话</small></header><div>{COUNCIL_PORTFOLIOS.map((portfolio) => { const owner = portfolioOwner(game, portfolio); return <button key={portfolio.id} onClick={() => owner && props.onQuestionMember(owner.id, `请汇报${portfolio.name}。即使具体事务由下属执行，也请说明最后一次回报、信息来源和您尚不确定的部分。`)}><span><strong>{portfolio.name}</strong><small>{portfolio.mandate}</small></span><b>{owner?.name ?? "待任命"}<em>{owner?.pathway ? "参席" : "主管"}</em></b></button>; })}</div></section>
-      <div className="member-agendas">{memberAgendas.map(({ member, title, detail, prompt }) => <article key={member.id}><header><i>{member.name.slice(0, 1)}</i><span><small>{sourceLabel(game, member.id)}负责人</small><strong>{title}</strong></span></header><p>{detail}</p><button onClick={() => props.onQuestionMember(member.id, prompt)}><MessageSquareText size={14} />进入负责人的治理对话</button></article>)}</div>
+      <section className="governance-briefing">
+        <header><div><p>本周议桌</p><h2>先听主责席，再从地图决定方向</h2></div><span>{activeMission ? "1项临界压力" : "无临界压力"} · {governanceOwners.length}名主责席 · {freshMapSignals}项地图新动静</span></header>
+        <div className="governance-owners">{governanceOwners.map(({ member, portfolios }) => {
+          const personal = member.personalEventState === "active" && member.personalEvent;
+          const prompt = `从你负责的${portfolios.map((item) => item.name).join("、")}中，只挑本周最需要我知情的一件事说起。不要使用固定汇报格式；说明消息从哪里来、哪里仍不确定，以及是否需要我拍板。`;
+          return <button key={member.id} title="进入负责人的治理对话" aria-label={`进入${member.name}负责人的治理对话`} onClick={() => props.onQuestionMember(member.id, prompt)}><i>{member.name.slice(0, 1)}</i><span><strong>{member.name}</strong><small>{personal || `${portfolios.length}项职责由此席汇总`}</small><em>{portfolios.map((item) => item.shortName).join(" · ")}</em></span><MessageSquareText size={15} /></button>;
+        })}</div>
+        <details className="portfolio-index"><summary><span>八项职责索引</span><small>需要时展开；同一负责人只出现一次</small></summary><div>{COUNCIL_PORTFOLIOS.map((portfolio) => { const owner = portfolioOwner(game, portfolio); return <button key={portfolio.id} onClick={() => owner && props.onQuestionMember(owner.id, `请只围绕${portfolio.name}回答：先说本周新增事实与来源，再说未知，最后说明是否需要我拍板。`)}><span><strong>{portfolio.name}</strong><small>{portfolio.mandate}</small></span><b>{owner?.name ?? "待任命"}</b></button>; })}</div></details>
+      </section>
       <CityMapWorkspace game={game} selectedDistrictId={props.selectedDistrictId} onDistrict={props.onDistrict} onOpenDiscussion={(seed) => { setDiscussionText(seed); void startDiscussion(seed); }} onFormDirection={(seed, districtId) => bringToDecision(seed, districtId)} onUseAbility={props.onUseAbility} />
       <footer className="panel-advance"><span>议题只负责暴露问题；你可以全部搁置并提出自己的方向。</span><button onClick={() => setStage("discussion")}>进入自由讨论 <ArrowRight size={15} /></button></footer>
     </section>}
