@@ -38,7 +38,7 @@ export function portfoliosForMember(game: GameState, memberId: string) {
 }
 
 export function relevantCouncilMembers(game: GameState, topic: string, limit = 3) {
-  const portfolios = COUNCIL_PORTFOLIOS.filter((item) => item.keywords.test(topic));
+  const portfolios = COUNCIL_PORTFOLIOS.filter((item) => topic.includes(item.name) || topic.includes(item.shortName) || item.keywords.test(topic));
   const selected = (portfolios.length ? portfolios : COUNCIL_PORTFOLIOS.slice(0, 3))
     .map((item) => portfolioOwner(game, item))
     .filter((member): member is Member => Boolean(member));
@@ -99,7 +99,7 @@ function portfolioAdvice(portfolioId: string, game: GameState, topic: string) {
 export function createLocalCouncilReplies(game: GameState, topic: string): CouncilTopicMessage[] {
   const evidence = topicEvidence(game, topic);
   return relevantCouncilMembers(game, topic, 3).map((member, index) => {
-    const portfolio = portfoliosForMember(game, member.id).find((item) => item.keywords.test(topic)) ?? portfoliosForMember(game, member.id)[0] ?? COUNCIL_PORTFOLIOS[index];
+    const portfolio = portfoliosForMember(game, member.id).find((item) => topic.includes(item.name) || topic.includes(item.shortName) || item.keywords.test(topic)) ?? portfoliosForMember(game, member.id)[0] ?? COUNCIL_PORTFOLIOS[index];
     const evidenceText = evidence[index];
     const prefix = index === 0 ? `${game.playerAddress}，我直接回答这项议题。` : `${member.name}等主责席说完，才向你欠身补充。`;
     const known = evidenceText ? `现有记录能落到纸面的一项是：${evidenceText}` : "档案中还没有与这项说法直接对应的已证实记录；现在只能提出核验方法，不能替您宣布结论。";
