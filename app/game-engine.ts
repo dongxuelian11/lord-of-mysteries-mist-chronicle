@@ -420,24 +420,38 @@ function isMissionRelevant(contract: ActionContract) {
   return /挂坠|敲门|名单|信使|工人|失踪|黑玻璃|门缝|污染/.test(contract.rawIntent + contract.target);
 }
 
+function cleanNarrative(text: string) {
+  return text.trim().replace(/([。！？；])\1+/g, "$1").replace(/([。！？])；/g, "$1").replace(/\s+([，。；！？])/g, "$1");
+}
+
+function endSentence(text: string) {
+  const clean = cleanNarrative(text);
+  return /[。！？]$/.test(clean) ? clean : `${clean}。`;
+}
+
 function buildLocalChapter(game: GameState, results: ActionResult[], worldText: string): ChronicleChapter {
   const focus = results.find((result) => result.contract.focus) ?? results[0];
   const sections: ChronicleChapter["sections"] = [];
-  sections.push({ heading: "据点的清晨", paragraphs: [
-    `第${game.week}周开始时，乔伍德区的雾贴着事务所窗沿缓慢移动。密议室的长桌上放着本周日程、材料清单和仍在倒数的压力任务。组织没有替负责人决定什么，只把每项自由意图整理成可以付诸行动的契约。`,
-    results.length ? `七天里共有${results.length}项行动进入日程。有人离开据点，有人守着仪式室或档案室；每个人都知道自己的目标、红线和最晚撤退时间。` : "负责人没有安排正式行动。成员修补掩护与封印，而城市依旧沿自己的方向发展。",
+  const weather = ["煤烟把晨光磨成了暗银色", "夜雨停在窗框上，雾却没有散", "街角的马车声比平日来得更早", "事务所的黄铜门牌蒙着一层潮气"][game.week % 4];
+  sections.push({ heading: "密议之后", paragraphs: [
+    `第${game.week}周，${weather}。散会时留在长桌上的不是任务清单，而是${results.length ? `${results.length}份由你亲自定下目标、边界与退路的行动契约` : "一页没有落款的空白日程"}。`,
+    results.length ? `负责各席的人把命令复述给下属。红线、联络时限和撤离信号被分别封进信封；从这一刻起，组织会按你的方向行动，却仍要为城市的反应付出代价。` : "无人离开据点并不等于世界静止。成员修补掩护与封印，等着凌晨三点的声音再次越过门槛。",
   ] });
   if (focus) sections.push({ heading: focus.title, paragraphs: [
-    `${focus.contract.leaderId === "player" ? "负责人亲自" : "被派出的成员"}前往${DISTRICTS.find((district) => district.id === focus.contract.districtId)?.name}。这不是预设案件要求的路线，而是对“${focus.contract.rawIntent}”的直接执行。`,
-    ...focus.findings.map((finding) => finding.endsWith("。") ? finding : `${finding}。`),
-    focus.abilityEffects.length ? `非凡能力在现场留下了具体影响：${focus.abilityEffects.join("；")}。代价已经从灵性与暴露中扣除，没有被一句气氛描写掩盖。` : "这次行动没有擅自调用负责人的非凡能力，所有发现都来自人员、时间与已有资源。",
-    `行动最终被记录为“${focus.outcome}”。${focus.consequence}`,
+    `${focus.contract.leaderId === "player" ? "你亲自离开了据点" : "负责行动的席位派出了下属"}，前往${DISTRICTS.find((district) => district.id === focus.contract.districtId)?.name}。档案封面保留着你的原话：“${focus.contract.rawIntent}”——没有人把它改写成另一件更方便执行的事。`,
+    ...focus.findings.slice(0, 4).map(endSentence),
+    focus.abilityEffects.length ? endSentence(`非凡能力在现场留下了可核对的影响：${focus.abilityEffects.join("；")}；相应灵性、负荷与暴露已经结算`) : "这次行动没有擅自调用你的非凡能力；报告中的每一项发现都来自人员、时间与既有资源。",
+    endSentence(`书记员最后写下“${focus.outcome}”：${focus.consequence}`),
   ] });
-  const secondary = results.filter((result) => result.id !== focus?.id);
-  if (secondary.length) sections.push({ heading: "送回密议室的报告", paragraphs: secondary.map((result) => `${result.title}：${result.findings[0]} ${result.consequence}`) });
+  const secondary = results.filter((result) => result.id !== focus?.id).slice(0, 3);
+  if (secondary.length) sections.push({ heading: "其余回报", paragraphs: secondary.map((result) => endSentence(`${result.title}被记为“${result.outcome}”。${result.findings[0]} ${result.consequence}`)) });
   const futureChanges = results.flatMap((result) => result.futureChanges ?? []).slice(0, 4);
-  if (futureChanges.length) sections.push({ heading: "本周改变了什么", paragraphs: futureChanges.map((change) => `${change}。这会直接改变下一周可选择的行动，而不只是增加一个数字。`) });
-  sections.push({ heading: "没有等待组织的世界", paragraphs: [worldText] });
+  const pressure = game.missions.find((mission) => mission.state === "active");
+  sections.push({ heading: "下一次集会之前", paragraphs: [
+    ...futureChanges.map((change) => endSentence(`${cleanNarrative(change)}；它已经成为下周可以继续追问或利用的条件`)),
+    endSentence(cleanNarrative(worldText)),
+    pressure ? `留在桌面中央的压力仍是“${pressure.title}”。还剩${pressure.deadline}周，当前推进${pressure.progress}%；若继续搁置，${endSentence(pressure.consequence)}` : "本周没有尚未处理的强制压力，但各方势力仍会依照自己的目标行动。",
+  ] });
   return {
     id: `chapter-${game.week}-${Date.now()}`,
     week: game.week,
@@ -446,7 +460,7 @@ function buildLocalChapter(game: GameState, results: ActionResult[], worldText: 
     source: "local",
     sections,
     results,
-    summary: `${results.filter((result) => result.outcome === "成功").length}项成功，${results.filter((result) => result.outcome === "部分成功").length}项部分成功，${results.filter((result) => result.outcome === "受阻").length}项受阻。`,
+    summary: focus ? endSentence(`${focus.title}得到“${focus.outcome}”结算；${cleanNarrative(focus.findings[0] ?? focus.consequence).slice(0, 92)}`) : endSentence(`本周没有正式行动；${cleanNarrative(worldText).slice(0, 92)}`),
   };
 }
 
