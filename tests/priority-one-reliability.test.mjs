@@ -63,6 +63,9 @@ test("no-order literary chapters cannot make the player investigate off-screen",
   assert.match(engine, /本周没有任何玩家决议/);
   assert.match(engine, /连续性编辑正在纠正玩家行动越权/);
   assert.match(engine, /一次连续性修复后仍未通过/);
+  assert.match(engine, /const externalPlace =/);
+  assert.match(engine, /const sceneAction =/);
+  assert.match(engine, /放进了外部地点的亲历场景/);
 });
 
 test("negated artifact mentions do not silently replace the chosen pathway ability", async () => {
@@ -82,5 +85,6 @@ test("weekly prose distinguishes internal governance, issued orders, and uncommi
   assert.match(engine, /results\.length[\s\S]*组织本周没有发出正式行动命令/);
   assert.match(app, /readerChapterCommitted/);
   assert.match(app, /本周尚未结算 · 可原样重试/);
-  assert.match(app, /activeReaderChapter\.source !== "ai" && readerChapterCommitted && aiReady/);
+  assert.match(app, /readerChapterCommitted && aiReady/);
+  assert.match(app, /安全重写文学章节/);
 });

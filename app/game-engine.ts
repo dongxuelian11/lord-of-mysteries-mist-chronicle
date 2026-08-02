@@ -1030,6 +1030,13 @@ function literaryAgencyIssue(chapter: ReturnType<typeof validateChapter>, game: 
   if (new RegExp(`${actor}[\\s\\S]{0,180}${unauthorized}`).test(prose) || new RegExp(`${unauthorized}[\\s\\S]{0,80}${actor}`).test(prose)) {
     return "本周没有玩家决议，正文却让玩家或组织成员执行了外出、调查、接触或取证行动";
   }
+  const externalPlace = /码头区|桥区|皇后区|东区|黑市|酒馆|老宅|面粉厂|厂区|河堤|市场|巷口|栅栏|仓库|警察厅/;
+  const sceneAction = /坐在|站在|走到|沿着|离开|返回|回到|钻进|靠近|认出|记住|跟上|拿出|等候|尾随|守在|绕到/;
+  const actorExpression = new RegExp(actor);
+  const paragraphs = chapter.sections.flatMap((section) => section.paragraphs);
+  if (paragraphs.some((paragraph) => actorExpression.test(paragraph) && externalPlace.test(paragraph) && sceneAction.test(paragraph))) {
+    return "本周没有玩家决议，正文却把玩家或组织成员放进了外部地点的亲历场景";
+  }
   return null;
 }
 
