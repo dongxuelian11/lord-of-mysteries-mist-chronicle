@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Eye, FileSearch, Layers3, MapPin, MessageSquareText, Newspaper, Route, Search, ShieldAlert, Sparkles, UsersRound } from "lucide-react";
+import { Archive, Eye, FileSearch, Layers3, MapPin, MessageSquareText, Newspaper, Route, Search, ShieldAlert, Sparkles, UsersRound } from "lucide-react";
 import { AbilityContext, DISTRICTS, GameState } from "./game-model";
 
 type MapLayer = "network" | "factions" | "anomalies" | "city" | "risk" | "occult";
@@ -67,6 +67,10 @@ function inferDistrictId(text: string) {
   return DISTRICTS.find((district) => text.includes(district.id) || text.includes(district.name) || district.landmarks.some((landmark) => text.includes(landmark)))?.id;
 }
 
+function mentionedDistrictIds(text: string) {
+  return DISTRICTS.filter((district) => text.includes(district.name) || district.landmarks.some((landmark) => text.includes(landmark))).map((district) => district.id);
+}
+
 function knownMarker(game: GameState, districtId: string, label: string) {
   const evidence = game.evidenceNodes.find((item) => item.discovered && (item.summary.includes(label) || item.label.includes(label)));
   if (evidence) return evidence.certainty;
@@ -97,6 +101,7 @@ type Props = {
 
 export default function CityMapWorkspace(props: Props) {
   const [layer, setLayer] = useState<MapLayer>("city");
+  const [showHistory, setShowHistory] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedProjectionId, setSelectedProjectionId] = useState("");
   const district = DISTRICTS.find((item) => item.id === props.selectedDistrictId) ?? DISTRICTS[0];
@@ -112,15 +117,17 @@ export default function CityMapWorkspace(props: Props) {
     const kernel = props.game.worldKernel;
     const result: MapProjection[] = [];
     for (const observation of kernel?.observations ?? []) {
-      if (observation.visibility !== "public" && !observation.holderIds.includes("player")) continue;
+      if (observation.visibility !== "player" && !observation.holderIds.includes("player")) continue;
       const event = kernel.events.find((item) => item.id === observation.eventId);
       if (!event?.locationId || !DISTRICTS.some((item) => item.id === event.locationId)) continue;
-      result.push({ id: `observation:${observation.id}`, districtId: event.locationId, kind: "observation", title: observation.channel, detail: observation.text, source: observation.channel, week: observation.week, occult: observation.channel === "神秘征兆" });
+      const districtIds = mentionedDistrictIds(observation.text);
+      for (const districtId of districtIds.length ? districtIds : [event.locationId]) result.push({ id: `observation:${observation.id}:${districtId}`, districtId, kind: "observation", title: observation.channel, detail: observation.text, source: observation.channel, week: observation.week, occult: observation.channel === "神秘征兆" });
     }
     for (const signal of props.game.worldSignals ?? []) {
       if (!signal.districtId || !DISTRICTS.some((item) => item.id === signal.districtId)) continue;
       const faction = signal.relatedFactionId ? props.game.factions.find((item) => item.id === signal.relatedFactionId && item.visibility !== "未知") : undefined;
-      result.push({ id: `signal:${signal.id}`, districtId: signal.districtId, kind: "signal", title: signal.headline, detail: signal.body, source: `${signal.channel} · ${signal.reliability}`, week: signal.week, factionName: faction?.name, occult: signal.channel === "神秘征兆" });
+      const districtIds = mentionedDistrictIds(`${signal.headline}${signal.body}`);
+      for (const districtId of districtIds.length ? districtIds : [signal.districtId]) result.push({ id: `signal:${signal.id}:${districtId}`, districtId, kind: "signal", title: signal.headline, detail: signal.body, source: `${signal.channel} · ${signal.reliability}`, week: signal.week, factionName: faction?.name, occult: signal.channel === "神秘征兆" });
     }
     for (const evidence of props.game.evidenceNodes.filter((item) => item.discovered)) {
       const districtId = inferDistrictId(`${evidence.label}${evidence.summary}${evidence.source}${evidence.tags.join(" ")}`);
@@ -134,7 +141,9 @@ export default function CityMapWorkspace(props: Props) {
     return [...new Map(result.map((item) => [item.id, item])).values()].sort((a, b) => b.week - a.week).slice(0, 80);
   }, [props.game]);
 
-  const layerProjections = useMemo(() => projections.filter((item) => projectionMatchesLayer(item, layer)), [layer, projections]);
+  const latestWorldWeek = Math.max(1, props.game.worldSnapshots?.[0]?.week ?? props.game.week - 1);
+  const visibleProjections = useMemo(() => projections.filter((item) => showHistory || item.kind === "evidence" || item.kind === "order" || item.week >= latestWorldWeek), [latestWorldWeek, projections, showHistory]);
+  const layerProjections = useMemo(() => visibleProjections.filter((item) => projectionMatchesLayer(item, layer)), [layer, visibleProjections]);
   const districtProjections = layerProjections.filter((item) => item.districtId === district.id);
   const selectedProjection = districtProjections.find((item) => item.id === selectedProjectionId) ?? districtProjections[0];
   const knownEvidence = props.game.evidenceNodes.filter((item) => item.discovered && (item.summary.includes(activeLocation) || item.label.includes(activeLocation) || item.tags.some((tag) => activeLocation.includes(tag)))).slice(0, 3);
@@ -159,7 +168,7 @@ export default function CityMapWorkspace(props: Props) {
       <label className="map-query"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="让情报负责人整理一个空间问题……" /><button disabled={!query.trim()} onClick={() => props.onOpenDiscussion(`请情报负责人依据现有地图、消息和档案整理：${query.trim()}。必须区分确认、推断与未知。`)}>带入讨论</button></label>
     </header>
     <nav className="map-layers" aria-label="地图图层">{LAYERS.map((item) => <button key={item.id} className={layer === item.id ? "active" : ""} onClick={() => setLayer(item.id)}><Layers3 size={13} />{item.label}</button>)}</nav>
-    <div className="map-legend" aria-label="地图投射图例"><span><Newspaper size={12} />城市消息</span><span><Eye size={12} />观察回声</span><span><FileSearch size={12} />证据</span><span><UsersRound size={12} />本周决议</span><b>{layerProjections.length}项投射</b></div>
+    <div className="map-legend" aria-label="地图投射图例"><span><Newspaper size={12} />城市消息</span><span><Eye size={12} />观察回声</span><span><FileSearch size={12} />证据</span><span><UsersRound size={12} />本周决议</span><button className={showHistory ? "active" : ""} aria-pressed={showHistory} onClick={() => setShowHistory((value) => !value)}><Archive size={12} />{showHistory ? "收起历史" : "查看历史"}</button><b>{layerProjections.length}项{showHistory ? "历史投射" : "近期投射"}</b></div>
     <div className={`map-workbench layer-${layer}`}>
       <div className="engraved-map" aria-label="贝克兰德行政区与动态世界投射">
         <div className="map-paper-grain" /><div className="map-thames" />
@@ -170,7 +179,7 @@ export default function CityMapWorkspace(props: Props) {
       <aside className="district-workspace">
         <header><span><MapPin size={15} /></span><div><small>{district.subtitle}</small><h3>{district.name}</h3></div><b className={(liveLocation?.risk ?? district.danger) >= 65 ? "danger" : ""}>{liveLocation?.risk ?? district.danger} 风险</b></header>
         <p>{district.background}</p>
-        <section className="map-projection-feed"><header><strong>本图层的已知动静</strong><small>{districtProjections.length ? `${districtProjections.length}项 · 最近第${districtProjections[0].week}周` : "没有可显示记录"}</small></header>{districtProjections.length ? <div>{districtProjections.slice(0, 6).map((projection) => <button key={projection.id} className={selectedProjection?.id === projection.id ? "active" : ""} onClick={() => setSelectedProjectionId(projection.id)}><span><b>{projectionLabel(projection.kind)}</b><small>第{projection.week}周 · {projection.source}</small></span><strong>{projection.title}</strong><p>{projection.detail}</p>{projection.factionName && <em>已知关联：{projection.factionName}</em>}</button>)}</div> : <p className="empty-projections">这一图层暂时没有组织可知的变化。世界仍在运行，只是尚未留下能送上议桌的来源。</p>}</section>
+        <section className="map-projection-feed"><header><strong>{showHistory ? "本图层的历史档案" : "最近一周的已知动静"}</strong><small>{districtProjections.length ? `${districtProjections.length}项 · 最近第${districtProjections[0].week}周` : "没有可显示记录"}</small></header>{districtProjections.length ? <div>{districtProjections.slice(0, 6).map((projection) => <button key={projection.id} className={selectedProjection?.id === projection.id ? "active" : ""} onClick={() => setSelectedProjectionId(projection.id)}><span><b>{projectionLabel(projection.kind)}</b><small>第{projection.week}周 · {projection.source}</small></span><strong>{projection.title}</strong><p>{projection.detail}</p>{projection.factionName && <em>已知关联：{projection.factionName}</em>}</button>)}</div> : <p className="empty-projections">这一图层暂时没有组织可知的变化。世界仍在运行，只是尚未留下能送上议桌的来源。</p>}</section>
         <details className="location-dossier"><summary><span>地点档案与往返路线</span><small>地点情报与区域推断已分开记录 · {locations.length}个固定地点</small></summary><div className="location-grid">{locations.map(([name, type]) => <button key={name} className={activeLocation === name ? "active" : ""} onClick={() => setSelectedLocation(name)}><span>{name}</span><small>{type} · {knownMarker(props.game, district.id, name)}</small></button>)}</div><article className="location-brief"><header><strong>{activeLocation}</strong><span>{activeType} · 地点档案</span></header><p><b>已确认：</b>{knownEvidence.length ? knownEvidence.map((item) => `${item.label}——${item.summary}`).join("；") : `${activeLocation}的公开用途属于“${activeType}”；可观察入口包括${publicIntel.entrances}。`}</p><p><b>可核验：</b>无需预设阴谋即可检查{publicIntel.observable}。这些结果只能形成地点证据，不能直接证明幕后主体。</p><div className="route-brief"><span><Route size={13} /><strong>去程</strong>{route.outward}</span><span><Route size={13} /><strong>撤离</strong>{route.returnPath}</span><span><ShieldAlert size={13} /><strong>暴露</strong>{route.exposure}</span></div></article></details>
         <div className="map-actions">
           <button onClick={() => props.onUseAbility({ kind: "district", targetId: `${district.id}:${activeLocation}`, label: `${district.name}·${activeLocation}` }, `我以${activeLocation}为明确空间目标，自由使用选定能力；只采用我随后指定的手段，不得擅自改用仪式、吊坠或其他封印物。`)}><Sparkles size={14} />立即使用能力</button>

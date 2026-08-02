@@ -81,8 +81,8 @@ export default function WeeklyCouncil(props: Props) {
       .sort((a, b) => Number(b.member.personalEventState === "active") - Number(a.member.personalEventState === "active") || b.portfolios.length - a.portfolios.length)
       .slice(0, 4);
   }, [game]);
-  const freshMapSignals = (game.worldSignals ?? []).filter((signal) => signal.week >= Math.max(1, game.week - 1) && signal.districtId).length
-    + (game.worldKernel?.observations ?? []).filter((observation) => observation.week >= Math.max(1, game.week - 1) && (observation.visibility === "public" || observation.holderIds.includes("player"))).length;
+  const freshMapSignals = (game.worldSignals ?? []).filter((signal) => signal.week === reportWeek && signal.districtId).length
+    + (game.worldKernel?.observations ?? []).filter((observation) => observation.week === reportWeek && (observation.visibility === "player" || observation.holderIds.includes("player"))).length;
 
   async function startDiscussion(seed?: string) {
     const text = (seed ?? discussionText).trim();

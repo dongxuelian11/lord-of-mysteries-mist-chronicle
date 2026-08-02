@@ -175,8 +175,15 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(cityMap, /map-projection-marker/);
   assert.match(cityMap, /worldKernel/);
   assert.match(cityMap, /worldSignals/);
-  assert.match(cityMap, /visibility !== "public"/);
+  assert.match(cityMap, /visibility !== "player"/);
+  assert.match(cityMap, /mentionedDistrictIds/);
+  assert.match(cityMap, /查看历史/);
+  assert.match(cityMap, /最近一周的已知动静/);
   assert.match(cityMap, /只显示组织已经看到、听到或亲自安排的内容/);
+  assert.match(app, /key={`\$\{game\.week\}:\$\{councilDecisionSignal\}`}/);
+  assert.match(engine, /move\.visibility !== "迹象"/);
+  assert.match(engine, /事实包故意排除了全知世界层/);
+  assert.match(engine, /changes: publicSignals/);
   assert.match(council, /自由讨论/);
   assert.match(council, /一键整理意见/);
   assert.match(council, /独立世界推演/);
