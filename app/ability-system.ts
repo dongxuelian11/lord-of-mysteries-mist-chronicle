@@ -13,6 +13,27 @@ function hash(value: string) {
   return Math.abs(result);
 }
 
+export function abilityForFreeIntent(game: GameState, intent: string): Ability {
+  const normalized = intent.trim();
+  const wantsSpirit = /(?:进入|踏入|前往|穿行|穿梭|漫游).{0,8}灵界|灵界.{0,8}(?:进入|穿行|穿梭|漫游)/.test(normalized);
+  const wantsDream = /(?:进入|潜入|行走|穿行).{0,8}(?:梦境|梦中)|(?:梦境|梦中).{0,8}(?:进入|潜入|行走|穿行)/.test(normalized);
+  if (wantsSpirit) {
+    if (game.pathwayId !== "apprentice" || game.currentSequence > 5) throw new Error("你的当前途径与序列不具备直接进入灵界的能力。可以另行寻找仪式、入口、封印物或具备灵界穿梭能力的协助者，但系统不会擅自替你选择。 ");
+    return { id: "direct-spirit-entry", name: "灵界穿梭", verb: "主动进入灵界", description: "以自身旅行家能力直接进入灵界，并以玩家指定的现实锚点、目标与退出条件行动。", cost: 4, risk: "持续停留会消耗灵性；错误锚点、危险存在与方向失真可能切断归途。", ruleTags: ["spirit", "direct-entry"] };
+  }
+  if (wantsDream) {
+    if (game.pathwayId !== "spectator" || game.currentSequence > 5) throw new Error("你的当前途径与序列不具备直接进入梦境的能力。可以寻找梦境媒介、仪式、封印物或梦境行者协助，但系统不会擅自替你选择。 ");
+    return { id: "direct-dream-entry", name: "梦境行走", verb: "主动进入梦境", description: "以自身梦境行者能力进入指定梦境；梦主、锚点、目的和退出条件完全由玩家意图约束。", cost: 3, risk: "梦主防御、共享潜意识与错误记忆会持续侵蚀场景稳定。", ruleTags: ["dream", "direct-entry"] };
+  }
+  const artifact = game.inventory.find((item) => item.category === "封印物" && (normalized.includes(item.name) || normalized.includes(item.id) || (/封印物|挂坠/.test(normalized) && game.inventory.filter((entry) => entry.category === "封印物").length === 1)));
+  if (artifact) return { id: `artifact-${artifact.id}`, name: artifact.name, verb: "按玩家描述使用封印物", description: `封印物位于${artifact.location}，由${artifact.keeper}保管。真实能力、激活条件与负面效果由规则固定；玩家可以自由指定使用方式。`, cost: 1, risk: artifact.risk, ruleTags: ["artifact", artifact.id] };
+  const abilities = PATHWAYS[game.pathwayId].startingAbilities;
+  if (/观察|感知|看|辨认|灵视/.test(normalized)) return abilities.find((item) => /观察|感知|灵视/.test(`${item.name}${item.verb}`)) ?? abilities[0];
+  if (/占卜|启示|预兆/.test(normalized)) return abilities.find((item) => /占卜/.test(`${item.name}${item.verb}`)) ?? abilities[0];
+  if (/交谈|引导|询问|情绪/.test(normalized)) return abilities.find((item) => /交谈|情绪|心理/.test(`${item.name}${item.verb}`)) ?? abilities[0];
+  return abilities.find((item) => !item.passive) ?? abilities[0];
+}
+
 function targetDetail(game: GameState, context: AbilityContext) {
   const member = game.members.find((item) => item.id === context.targetId);
   if (member?.id === "mara") return "她汇报撤离路线时没有迟疑；提及失踪工人家属后，右手拇指反复摩擦杯沿。";
@@ -28,10 +49,15 @@ function localDraft(game: GameState, ability: Ability, intent: string, context: 
   const detail = targetDetail(game, context);
   const seed = hash(`${game.week}:${ability.id}:${context.targetId ?? context.label}:${intent}:${game.abilityJournal.length}`);
   const abilityText = `${ability.name}${ability.description}`;
-  const deepLayer = /梦境|梦境行者|织梦|催眠/.test(abilityText) || game.pathwayId === "seer" && ability.id === "divination" && /梦境占卜|梦占/.test(intent) ? "dream" as const
-    : /灵界|旅行家|漫游|星界/.test(abilityText) ? "spirit" as const : undefined;
+  const deepLayer = ability.id === "direct-dream-entry" ? "dream" as const
+    : ability.id === "direct-spirit-entry" ? "spirit" as const
+      : /梦境|梦境行者|织梦/.test(abilityText) ? "dream" as const
+        : /灵界|旅行家|漫游|星界/.test(abilityText) ? "spirit" as const : undefined;
   const path = game.pathwayId;
-  const observation = path === "spectator" ? detail
+  const observation = ability.id === "direct-spirit-entry" ? `你没有借助吊坠、占卜或仪式。空间边界在自身能力下变薄，现实中的声音先被拉远，随后颜色与方向同时失去日常意义。你按照原意保留了返回锚点；灵界已经展开，下一步行动仍由你决定。`
+    : ability.id === "direct-dream-entry" ? `你没有替梦主补写任何记忆。意识越过清醒与睡眠的边界后，梦境以自身逻辑展开；远处的门、光线与反复出现的声音构成了第一层锚点。你已进入其中，尚未选择接触任何节点。`
+      : ability.id.startsWith("artifact-") ? `你严格按照自己描述的方式解除必要的一层封存，没有把封印物改作其他用途。${context.label}首先出现了一个可观察变化：${detail}`
+        : path === "spectator" ? detail
     : path === "seer" ? `你收束呼吸后开启感知。${context.label}的灵性轮廓并非静止：靠近目标的一侧呈现断续的深蓝色，另有一缕灰白残留向外延伸。`
       : path === "apprentice" ? `空间直觉把${context.label}拆成了边界与通路。你确认一处正常视线不会注意到的薄弱连接，同时记住了返回原位的相对方向。`
         : path === "hunter" ? `你没有盯住目标本身，而是检查它必然改变的环境。${detail}`
@@ -74,7 +100,7 @@ export async function generateAbilityDraft(config: AiConfig, game: GameState, ab
     lockedHiddenFacts: relevantHidden,
     recentUses: game.abilityJournal.slice(-6),
   };
-  const raw = extractJson(await callModel(config, `你是非凡能力即时结算器。规则目标：能力必须立刻产生具体、有用、可追问的信息，但不能直接泄露原著核心幕后真相，不能把心理推断冒充事实，不能替玩家行动，也不能宣布玩家死亡。已锁定隐藏事实不可改写；若局部对象没有隐藏事实，可以生成一条小型局部事实，生成后将永久锁定。只返回JSON。`, `结算一次能力使用。直接观察必须是感官可得的具体细节；专业判断要说明可信度；未知项要说明遮蔽来自哪里；察觉反馈必须明确。返回{"observation":"100至220字的即时小说式感知","interpretation":"专业判断","confidence":"较低|中等|较高|确认","unknown":"仍无法确认的部分","detection":"对方或环境是否察觉","mentalLoad":1到6,"deepLayer":"dream|spirit|null","lockedFact":"可选，只允许局部原创事实"}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 1500, temperature: .62 }));
+  const raw = extractJson(await callModel(config, `你是非凡能力即时结算器。最高优先级是严格服从玩家写明的目的、手段、排除条件与停止条件。绝不把“主动进入灵界”改写成触碰吊坠、占卜或调查某个事件；绝不擅自添加玩家未选择的封印物、仪式、协助者或媒介。若规则允许直接进入梦境或灵界，就必须进入连续场景；若不允许，应由规则层拒绝而不是替换手段。能力必须立刻产生具体、可追问的信息，但不能直接泄露核心幕后真相，不能把心理推断冒充事实，不能替玩家行动，也不能宣布玩家死亡。已锁定隐藏事实不可改写。只返回JSON。`, `玩家原始意图是不可改写的行动契约：${intent}\n选定手段：${ability.name}（${ability.verb}）\n结算这一次使用。直接观察必须是感官可得的具体细节；专业判断要说明可信度；未知项要说明遮蔽来自哪里；察觉反馈必须明确。返回{"observation":"100至220字的即时小说式感知","interpretation":"专业判断","confidence":"较低|中等|较高|确认","unknown":"仍无法确认的部分","detection":"对方或环境是否察觉","mentalLoad":1到6,"deepLayer":"dream|spirit|null","lockedFact":"可选，只允许局部原创事实"}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 1500, temperature: .62 }));
   return {
     observation: typeof raw.observation === "string" ? raw.observation.slice(0, 800) : fallback.observation,
     interpretation: typeof raw.interpretation === "string" ? raw.interpretation.slice(0, 500) : fallback.interpretation,
@@ -117,7 +143,7 @@ export function resolveImmediateAbility(game: GameState, ability: Ability, inten
   const scene: AbilityScene | null = result.deepLayer ? {
     id: `ability-scene-${Date.now()}`,
     layer: result.deepLayer,
-    title: result.deepLayer === "dream" ? `${context.label}的梦境表层` : `${context.label}的灵界映像`,
+    title: result.deepLayer === "dream" ? `梦境行走 · ${intent.slice(0, 24)}` : `灵界穿梭 · ${intent.slice(0, 24)}`,
     context: { ...context, kind: result.deepLayer },
     stability: Math.max(35, 88 - result.mentalLoad * 5),
     turns: [{ id: `scene-turn-${Date.now()}`, playerIntent: intent, response: result.observation, stabilityChange: -result.mentalLoad * 2 }],

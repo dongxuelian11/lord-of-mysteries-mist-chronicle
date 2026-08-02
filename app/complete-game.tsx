@@ -9,8 +9,8 @@ import {
   UsersRound, WandSparkles, X, Zap,
 } from "lucide-react";
 import {
-  ActionContract, ADVANCEMENT_RITUALS, ChronicleChapter, createInitialGame, DISTRICTS, Facility, GameState, PATHWAYS,
-  AbilityContext, AbilityUseRecord, PathwayId, RiskLevel, ViewId,
+  ActionContract, ADVANCEMENT_RITUALS, ChronicleChapter, createInitialGame, DISTRICTS, Facility, FIXED_RECRUIT_POOL, GameState, INITIAL_MEMBERS, PATHWAYS,
+  AbilityContext, AbilityUseRecord, PathwayId, PlayerOrigin, RiskLevel, ViewId,
 } from "./game-model";
 import {
   advanceSequence, availableAbilities, canAdvance, generateAiWorldDelta, generateLiteraryChapter, generateNpcDialogue,
@@ -26,10 +26,12 @@ import { AiConfig, DEEPSEEK_FLASH_PRESET, testModelConnection } from "./ai-clien
 import WeeklyCouncil from "./weekly-council";
 import OpeningPrologue from "./opening-prologue";
 import AbilityConsole from "./ability-console";
-import { continueAbilityScene, generateAbilityDraft, generateSceneResponse, resolveImmediateAbility } from "./ability-system";
+import { abilityForFreeIntent, continueAbilityScene, generateAbilityDraft, generateSceneResponse, resolveImmediateAbility } from "./ability-system";
+import { generateCouncilReplies, generateCouncilSummary } from "./council-ai";
+import { localCouncilSummary, relevantCouncilMembers } from "./council-system";
 
-const SAVE_KEY = "mist-chronicle-complete-v11";
-const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v10", "mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
+const SAVE_KEY = "mist-chronicle-complete-v12";
+const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v11", "mist-chronicle-complete-v10", "mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
 const AI_KEY = "mist-chronicle-save-v3-ai";
 const AI_SESSION_KEY = "mist-chronicle-session-ai-key";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -91,13 +93,14 @@ export default function CompleteGame() {
       const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
-        try { const value = JSON.parse(saved) as GameState; if (value.version === 11) setGame(value); }
+        try { const value = JSON.parse(saved) as GameState; if (value.version === 12) setGame(value); }
         catch { window.localStorage.removeItem(SAVE_KEY); }
       } else if (legacySaved) {
         try {
           const legacy = JSON.parse(legacySaved) as Partial<GameState>;
-          const abilityFields = { version: 11, spirituality: Math.max(12, legacy.spirituality ?? 12), spiritualityMax: 18, mentalLoad: 0, lastMeditationWeek: 0, abilityJournal: [], hiddenWorldFacts: createInitialGame(legacy.pathwayId ?? "seer").hiddenWorldFacts, activeAbilityScene: null };
-          if (legacy.version === 10) setGame({ ...(legacy as GameState), ...abilityFields });
+          const fresh = createInitialGame(legacy.pathwayId ?? "seer");
+          const abilityFields = { version: 12, spirituality: Math.max(12, legacy.spirituality ?? 12), spiritualityMax: 18, mentalLoad: legacy.mentalLoad ?? 0, lastMeditationWeek: legacy.lastMeditationWeek ?? 0, abilityJournal: legacy.abilityJournal ?? [], hiddenWorldFacts: legacy.hiddenWorldFacts ?? fresh.hiddenWorldFacts, activeAbilityScene: legacy.activeAbilityScene ?? null, playerOrigin: legacy.playerOrigin ?? fresh.playerOrigin, councilTopics: legacy.councilTopics ?? [] };
+          if (legacy.version === 11 || legacy.version === 10) setGame({ ...(legacy as GameState), ...abilityFields });
           else if (legacy.version === 9) setGame({ ...(legacy as GameState), ...abilityFields, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [] });
           else if (legacy.version === 8) setGame({ ...(legacy as GameState), ...abilityFields, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [], dialogueThreads: [], councilRecords: [{ week: legacy.week ?? 1, status: "convened", decisions: [] }] });
           else if ([5, 6, 7].includes(legacy.version ?? 0) && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));
@@ -221,6 +224,59 @@ export default function CompleteGame() {
 
   function applySuggestion(text: string, districtId = selectedDistrictId) { setIntentText(text); setSelectedDistrictId(districtId); setCouncilDecisionSignal((value) => value + 1); setView("intent"); window.scrollTo({ top: 0, behavior: "smooth" }); }
 
+  async function startCouncilDiscussion(text: string) {
+    const raw = text.trim();
+    if (!raw) return null;
+    const topicId = `council-topic-${Date.now()}`;
+    const fallbackReplies = relevantCouncilMembers(game, raw, 3).map((member, index) => ({
+      id: `council-reply-${Date.now()}-${index}`,
+      speakerId: member.id,
+      stance: (index === 0 ? "保留" : "信息不足") as "保留" | "信息不足",
+      text: index === 0
+        ? `${member.name}先向你致意，才翻开职责内的记录。“${game.playerAddress}，就目前能够确认的部分，我只能把亲历与下属回报分开陈述。我们掌握的事实还不足以替您决定方向；若您允许，我会先指出最可能造成误判的缺口。”`
+        : `${member.name}没有抢先发言，只把一页记录推到桌面边缘。“我请求补充一项职责内的情况。它来自内部报告，尚未经过第二个来源核验，因此我建议暂时保留判断。”`,
+    }));
+    let replies = fallbackReplies;
+    if (aiReady) {
+      try { const generated = await generateCouncilReplies(aiConfig, game, raw); if (generated.length) replies = generated; }
+      catch { /* 自由讨论保持在世界内，不暴露模型错误。 */ }
+    }
+    setGame((current) => ({
+      ...current,
+      councilTopics: [{
+        id: topicId,
+        week: current.week,
+        title: raw.replace(/^请|围绕|关于/, "").slice(0, 42),
+        pinned: false,
+        status: "open",
+        messages: [{ id: `council-player-${Date.now()}`, speakerId: "player", text: raw }, ...replies],
+      }, ...current.councilTopics].slice(0, 30),
+    }));
+    return topicId;
+  }
+
+  async function summarizeCouncilTopic(topicId: string) {
+    const topic = game.councilTopics.find((item) => item.id === topicId);
+    if (!topic) return;
+    let summary = localCouncilSummary(topic);
+    if (aiReady) {
+      try { summary = await generateCouncilSummary(aiConfig, game, topic); }
+      catch { /* 书记员保留本地中立整理。 */ }
+    }
+    setGame((current) => ({ ...current, councilTopics: current.councilTopics.map((item) => item.id === topicId ? { ...item, summary } : item) }));
+    setToast("书记员已把事实、分歧、风险和未答问题整理在同一页");
+  }
+
+  function pinCouncilTopic(topicId: string) {
+    setGame((current) => {
+      const target = current.councilTopics.find((item) => item.id === topicId);
+      if (!target) return current;
+      const pinnedCount = current.councilTopics.filter((item) => item.pinned).length;
+      if (!target.pinned && pinnedCount >= 3) { setToast("桌面最多钉住3项持续议题"); return current; }
+      return { ...current, councilTopics: current.councilTopics.map((item) => item.id === topicId ? { ...item, pinned: !item.pinned } : item) };
+    });
+  }
+
   function updateFacilityAssignment(memberId: string) {
     if (!selectedFacility) return;
     setGame((current) => ({ ...current, facilities: current.facilities.map((facility) => facility.id === selectedFacility.id ? { ...facility, assignedMemberId: memberId || undefined } : facility) }));
@@ -236,16 +292,29 @@ export default function CompleteGame() {
     setGame(createInitialGame(draftPathway)); setSelectedRank(9); setAbilityPanelOpen(false); setAbilityResult(null); setCouncilDecisionSignal(0); setShowSettings(false); setView("intent"); setToast("新的历史分支已经建立");
   }
 
-  function completePrologue(name: string, address: string, pathwayId: PathwayId) {
+  function completePrologue(name: string, address: string, pathwayId: PathwayId, origin: PlayerOrigin) {
     setGame((current) => {
       const base = current.pathwayId === pathwayId ? current : createInitialGame(pathwayId);
+      const allCandidates = [...INITIAL_MEMBERS, ...FIXED_RECRUIT_POOL];
+      const chosen = allCandidates.filter((member) => origin.foundingMemberIds.includes(member.id)).map((member) => ({ ...member, status: "可安排", relationshipStage: "正式成员" as const }));
+      const reserve = allCandidates.filter((member) => !origin.foundingMemberIds.includes(member.id)).map((member) => ({ ...member, status: "尚未接触", relationshipStage: "接触" as const }));
+      const fieldLead = chosen.find((member) => /追踪|调查|警|码头|路线/.test(`${member.specialty}${member.role}`)) ?? chosen[0];
+      const supportLead = chosen.find((member) => member.id !== fieldLead?.id && /账|档案|机械|研究|身份/.test(`${member.specialty}${member.role}`)) ?? chosen.find((member) => member.id !== fieldLead?.id) ?? chosen[0];
       return {
       ...base,
       prologueComplete: true,
       playerName: name,
       playerAddress: address,
+      playerOrigin: origin,
       knownAliases: [name],
-      facts: [...base.facts, { id: `fact-player-name-${Date.now()}`, subject: "组织负责人", statement: `${name}以“${address}”的称谓主持组织第一次正式密议。`, certainty: "确认", source: "密议室会议记录", week: base.week }],
+      members: chosen,
+      recruitPool: reserve,
+      facilities: base.facilities.map((facility) => ({ ...facility, assignedMemberId: chosen.some((member) => member.id === facility.assignedMemberId) ? facility.assignedMemberId : undefined })),
+      departments: base.departments.map((department) => ({ ...department, leadMemberId: department.id === "field" ? fieldLead?.id ?? chosen[0].id : supportLead?.id ?? chosen[0].id })),
+      facts: [...base.facts,
+        { id: `fact-player-name-${Date.now()}`, subject: "组织负责人", statement: `${name}以“${address}”的称谓主持组织第一次正式密议。`, certainty: "确认" as const, source: "密议室会议记录", week: base.week },
+        { id: `fact-player-origin-${Date.now()}`, subject: "组织负责人", statement: `公开身份为${origin.identityLabel}；关键经历是${origin.experienceLabel}${origin.experienceDetail ? `：${origin.experienceDetail}` : ""}。`, certainty: "确认" as const, source: "创立档案", week: base.week },
+      ],
     };
     });
     setSelectedRank(9);
@@ -277,7 +346,7 @@ export default function CompleteGame() {
   function openAbility(context = defaultAbilityContext(), abilityId = "", prompt = "") {
     const preferred = abilities.find((item) => item.id === abilityId) ?? abilities.find((item) => !item.passive) ?? abilities[0];
     setAbilityContext(context);
-    setAbilitySelectedId(preferred?.id ?? "");
+    setAbilitySelectedId(!abilityId || abilityId === "free-intent" ? "free-intent" : preferred?.id ?? "free-intent");
     setAbilityAssistId("");
     setAbilityIntent(prompt);
     setAbilityResult(null);
@@ -285,11 +354,11 @@ export default function CompleteGame() {
   }
 
   async function castAbility() {
-    const ability = abilities.find((item) => item.id === abilitySelectedId) ?? abilities.find((item) => !item.passive) ?? abilities[0];
     const intent = abilityIntent.trim();
-    if (!ability || !intent || abilityLoading) return;
+    if (!intent || abilityLoading) return;
     setAbilityLoading(true);
     try {
+      const ability = abilitySelectedId === "free-intent" ? abilityForFreeIntent(game, intent) : abilities.find((item) => item.id === abilitySelectedId) ?? abilityForFreeIntent(game, intent);
       const assistant = game.members.find((item) => item.id === abilityAssistId && item.pathway);
       const effectiveIntent = assistant ? `${intent}\n在场协同：${assistant.name}以其${assistant.pathway}途径能力提供辅助观察，但不得替负责人越过能力边界。` : intent;
       const draft = aiReady ? await generateAbilityDraft(aiConfig, game, ability, effectiveIntent, abilityContext) : undefined;
@@ -444,7 +513,7 @@ export default function CompleteGame() {
     <section className="complete-content" id="complete-content">
       {!aiReady && <button className="offline-banner" onClick={() => setShowSettings(true)}><ShieldAlert size={15} /><span><strong>离线试玩模式</strong><small>规则、晋升和建设可用；配置模型后开放完整自由解析、动态世界与文学叙事。</small></span><ChevronRight size={15} /></button>}
 
-      {view === "intent" && <WeeklyCouncil key={councilDecisionSignal} game={game} intentText={intentText} selectedDistrictId={selectedDistrictId} contractLoading={contractLoading} generationStage={generationStage} decisionSignal={councilDecisionSignal} latestChapter={latestChapter} onIntentText={setIntentText} onDistrict={setSelectedDistrictId} onInspectDistrict={setSelectedDistrictDetail} onPrepare={() => void prepareContract()} onRemoveAction={removeAction} onEndWeek={() => void endWeek()} onQuestionMember={(memberId, seed) => openMemberChat(memberId, seed, "council")} onReadChapter={setSelectedChapter} onUseSuggestion={(text, districtId) => { applySuggestion(text, districtId); }} onView={setView} />}
+      {view === "intent" && <WeeklyCouncil key={councilDecisionSignal} game={game} intentText={intentText} selectedDistrictId={selectedDistrictId} contractLoading={contractLoading} generationStage={generationStage} decisionSignal={councilDecisionSignal} latestChapter={latestChapter} onIntentText={setIntentText} onDistrict={setSelectedDistrictId} onInspectDistrict={setSelectedDistrictDetail} onPrepare={() => void prepareContract()} onRemoveAction={removeAction} onEndWeek={() => void endWeek()} onQuestionMember={(memberId, seed) => openMemberChat(memberId, seed, "council")} onReadChapter={setSelectedChapter} onUseSuggestion={(text, districtId) => { applySuggestion(text, districtId); }} onView={setView} onUseAbility={(context, prompt) => openAbility(context, "free-intent", prompt)} onStartDiscussion={startCouncilDiscussion} onSummarizeTopic={summarizeCouncilTopic} onPinTopic={pinCouncilTopic} />}
 
       {view === "investigation" && <InvestigationBoard game={game} onConnectEvidence={(from, to, label) => setGame((current) => connectEvidence(current, from, to, label))} onUseOpportunity={(opportunity) => { setIntentText(opportunity.suggestedIntent); setSelectedDistrictId(opportunity.districtId); setView("intent"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
 

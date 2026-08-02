@@ -131,6 +131,40 @@ export type DialogueThread = {
   lastUpdatedWeek: number;
 };
 
+export type PlayerOrigin = {
+  identityId: string;
+  identityLabel: string;
+  experienceId: string;
+  experienceLabel: string;
+  experienceDetail: string;
+  symbol: string;
+  foundingMemberIds: string[];
+};
+
+export type CouncilTopicMessage = {
+  id: string;
+  speakerId: "player" | string;
+  text: string;
+  stance?: "赞成" | "保留" | "反对" | "信息不足" | "涉及私情";
+};
+
+export type CouncilTopic = {
+  id: string;
+  week: number;
+  title: string;
+  pinned: boolean;
+  status: "open" | "recorded" | "decided";
+  messages: CouncilTopicMessage[];
+  summary?: {
+    facts: string[];
+    consensus: string[];
+    disagreements: string[];
+    risks: string[];
+    directions: string[];
+    unanswered: string[];
+  };
+};
+
 export type CouncilDecision = {
   id: string;
   title: string;
@@ -483,6 +517,7 @@ export type GameState = {
   prologueComplete: boolean;
   playerName: string;
   playerAddress: string;
+  playerOrigin: PlayerOrigin;
   nameExposure: number;
   knownAliases: string[];
   week: number;
@@ -536,6 +571,7 @@ export type GameState = {
   instability: number;
   dialogueThreads: DialogueThread[];
   councilRecords: CouncilRecord[];
+  councilTopics: CouncilTopic[];
 };
 
 const seq = (rank: number, name: string, capabilities: string[], acting: string): Sequence => ({ rank, name, capabilities, acting });
@@ -838,10 +874,19 @@ export const INITIAL_TIMELINE: TimelineEvent[] = [
 
 export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
   return {
-    version: 11,
+    version: 12,
     prologueComplete: false,
     playerName: "",
     playerAddress: "会长阁下",
+    playerOrigin: {
+      identityId: "investigator",
+      identityLabel: "私人调查事务所经营者",
+      experienceId: "mutual-aid",
+      experienceLabel: "曾为东区互助会处理失踪案",
+      experienceDetail: "",
+      symbol: "钥匙与封蜡",
+      foundingMemberIds: INITIAL_MEMBERS.map((item) => item.id),
+    },
     nameExposure: 4,
     knownAliases: [],
     week: 1,
@@ -923,5 +968,6 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     instability: 4,
     dialogueThreads: [],
     councilRecords: [{ week: 1, status: "convened", decisions: [] }],
+    councilTopics: [],
   };
 }
