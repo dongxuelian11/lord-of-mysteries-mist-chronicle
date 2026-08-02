@@ -58,10 +58,10 @@ export default function AbilityConsole(props: Props) {
       </section>
     </div>}
 
-    {props.result && !props.open && <aside className="ability-result-card" aria-live="polite">
-      <header><span><CheckCircle2 size={16} /><b>{props.result.abilityName} · 即时反馈</b></span><button onClick={props.onClose}><X size={15} /></button></header>
+    {props.result && !props.open && <aside className="ability-result-card" role="status" aria-live="polite" aria-label={`${props.result.abilityName}即时能力反馈`}>
+      <header><span><CheckCircle2 size={16} /><b>{props.result.abilityName} · 即时反馈</b></span><button onClick={props.onClose} aria-label="关闭即时能力反馈"><X size={15} /></button></header>
       <p>{props.result.observation}</p>
-      <dl><div><dt>专业判断 · {props.result.confidence}</dt><dd>{props.result.interpretation}</dd></div><div><dt>仍无法确认</dt><dd>{props.result.unknown}</dd></div><div><dt>察觉反馈</dt><dd>{props.result.detection}</dd></div></dl>
+      <details><summary>展开专业判读、未知项与察觉反馈</summary><dl><div><dt>专业判断 · {props.result.confidence}</dt><dd>{props.result.interpretation}</dd></div><div><dt>仍无法确认</dt><dd>{props.result.unknown}</dd></div><div><dt>察觉反馈</dt><dd>{props.result.detection}</dd></div></dl></details>
       <footer><span>−{props.result.cost} 灵性 · +{props.result.mentalLoad} 负荷</span>{props.result.deepLayer && <b><Layers3 size={13} />已进入{props.result.deepLayer === "dream" ? "梦境" : "灵界"}表层</b>}</footer>
     </aside>}
 
