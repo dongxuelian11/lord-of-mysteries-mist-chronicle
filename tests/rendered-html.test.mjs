@@ -71,7 +71,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(app, /character-dialogue/);
   assert.match(council, /重读小说章节/);
   assert.match(app, /每周小说总结都会永久保存/);
-  assert.match(app, /mist-chronicle-complete-v12/);
+  assert.match(app, /mist-chronicle-complete-v13/);
   assert.match(app, /LEGACY_SAVE_KEYS/);
   assert.match(app, /旧历史分支/);
   assert.match(app, /InvestigationBoard/);
@@ -91,7 +91,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /advanceSequence/);
   assert.match(engine, /discoverEvidence/);
   assert.match(engine, /refreshOpportunities/);
-  assert.match(engine, /factionTurn/);
+  assert.match(engine, /applyWorldTurn/);
   assert.match(engine, /timelineAfterWeek/);
   assert.match(engine, /organizationConditions/);
   assert.match(engine, /abilityTagsFromText/);
@@ -103,6 +103,9 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /playerIssuedNoOrders/);
   assert.match(engine, /publicSignals/);
   assert.match(engine, /worldSnapshots/);
+  assert.match(engine, /persistentWorld/);
+  assert.match(engine, /kernelDelta/);
+  assert.match(engine, /authorizedLore/);
   assert.match(engine, /actionReports/);
   assert.match(engine, /现场述职/);
   assert.match(engine, /emergentLead/);
@@ -128,7 +131,8 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(aiSettings, /测试真实连接/);
   assert.match(aiSettings, /小说生成模式/);
   assert.match(aiSettings, /专用世界推演模型/);
-  assert.match(aiSettings, /世界设定资料/);
+  assert.match(aiSettings, /设定知识库已启用/);
+  assert.match(aiSettings, /世界推演补充资料/);
   assert.match(aiSettings, /AI 世界推演已暂停/);
   assert.match(aiSettings, /游戏不会用本地事件表冒充人物回应或世界变化/);
   assert.doesNotMatch(aiSettings, /当前使用离线规则/);
@@ -155,6 +159,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(model, /CouncilRecord/);
   assert.match(model, /WorldSignal/);
   assert.match(model, /WorldSnapshot/);
+  assert.match(model, /worldKernel/);
   assert.match(council, /最高议会/);
   assert.match(council, /正式参席/);
   assert.match(council, /进入负责人的治理对话/);

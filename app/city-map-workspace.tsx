@@ -77,6 +77,23 @@ export default function CityMapWorkspace(props: Props) {
   const knownEvidence = props.game.evidenceNodes.filter((item) => item.discovered && (item.summary.includes(activeLocation) || item.label.includes(activeLocation) || item.tags.some((tag) => activeLocation.includes(tag)))).slice(0, 3);
   const publicIntel = publicLocationIntel(activeLocation, activeType);
   const route = ROUTE_NOTES[district.id];
+  const liveLocation = props.game.worldKernel?.locations.find((item) => item.id === district.id);
+  const publicObservations = (props.game.worldKernel?.observations ?? []).filter((observation) => {
+    if (observation.visibility !== "public" && !observation.holderIds.includes("player")) return false;
+    const event = props.game.worldKernel.events.find((item) => item.id === observation.eventId);
+    return event?.locationId === district.id;
+  }).slice(-4).reverse();
+
+  function layerSummary(id: string) {
+    const location = props.game.worldKernel?.locations.find((item) => item.id === id);
+    const signals = props.game.worldSignals.filter((item) => item.districtId === id && item.week >= Math.max(1, props.game.week - 1));
+    if (layer === "risk") return `${location?.risk ?? DISTRICTS.find((item) => item.id === id)?.danger ?? 0} 风险`;
+    if (layer === "factions") return signals.some((item) => item.relatedFactionId) ? `${signals.filter((item) => item.relatedFactionId).length}项势力迹象` : "未获新迹象";
+    if (layer === "anomalies") return signals.some((item) => item.channel === "神秘征兆") ? `${signals.filter((item) => item.channel === "神秘征兆").length}项异常` : "没有公开异常";
+    if (layer === "city") return location?.conditions.at(-1) ?? "日常运转";
+    if (layer === "occult") return props.game.evidenceNodes.some((item) => item.discovered && item.tags.includes(id)) ? "已有神秘记录" : "未知";
+    return props.game.discoveredDistrictIds.includes(id) ? "已有记录" : "尚无网络";
+  }
 
   function chooseDistrict(id: string) {
     const next = DISTRICTS.find((item) => item.id === id) ?? DISTRICTS[0];
@@ -93,12 +110,13 @@ export default function CityMapWorkspace(props: Props) {
     <div className={`map-workbench layer-${layer}`}>
       <div className="engraved-map" aria-label="贝克兰德行政区地图">
         <div className="map-paper-grain" /><div className="map-thames" />
-        {DISTRICTS.map((item) => <button key={item.id} className={`engraved-district ${item.id === district.id ? "selected" : ""} ${item.danger >= 65 ? "danger" : ""}`} style={{ left: `${item.x}%`, top: `${item.y}%` }} onClick={() => chooseDistrict(item.id)}><span>{item.name}</span><small>{layer === "risk" ? `${item.danger} 风险` : layer === "network" ? `${props.game.discoveredDistrictIds.includes(item.id) ? "已有记录" : "尚无网络"}` : item.subtitle}</small></button>)}
+        {DISTRICTS.map((item) => { const liveRisk = props.game.worldKernel?.locations.find((entry) => entry.id === item.id)?.risk ?? item.danger; return <button key={item.id} className={`engraved-district ${item.id === district.id ? "selected" : ""} ${liveRisk >= 65 ? "danger" : ""}`} style={{ left: `${item.x}%`, top: `${item.y}%` }} onClick={() => chooseDistrict(item.id)}><span>{item.name}</span><small>{layerSummary(item.id)}</small></button>; })}
         <div className="map-scale"><Route size={13} />跨区行动会结算路线、时间与暴露</div>
       </div>
       <aside className="district-workspace">
-        <header><span><MapPin size={15} /></span><div><small>{district.subtitle}</small><h3>{district.name}</h3></div><b className={district.danger >= 65 ? "danger" : ""}>{district.danger} 风险</b></header>
+        <header><span><MapPin size={15} /></span><div><small>{district.subtitle}</small><h3>{district.name}</h3></div><b className={(liveLocation?.risk ?? district.danger) >= 65 ? "danger" : ""}>{liveLocation?.risk ?? district.danger} 风险</b></header>
         <p>{district.background}</p>
+        {(liveLocation?.conditions.length || publicObservations.length) ? <section className="district-live-dossier"><header><strong>持续世界状态</strong><small>第{liveLocation?.updatedWeek ?? props.game.week}周更新</small></header>{liveLocation?.conditions.slice(-3).reverse().map((condition) => <p key={condition}><ShieldAlert size={12} />{condition}</p>)}{publicObservations.map((observation) => <p key={observation.id}><Eye size={12} /><span><b>{observation.channel}</b>{observation.text}</span></p>)}</section> : null}
         <div className="location-grid">{locations.map(([name, type]) => <button key={name} className={activeLocation === name ? "active" : ""} onClick={() => setSelectedLocation(name)}><span>{name}</span><small>{type} · {knownMarker(props.game, district.id, name)}</small></button>)}</div>
         <article className="location-brief"><header><strong>{activeLocation}</strong><span>{layer === "occult" ? "神秘锚点尚待确认" : `${activeType} · 地点档案`}</span></header><p><b>已确认：</b>{knownEvidence.length ? knownEvidence.map((item) => `${item.label}——${item.summary}`).join("；") : `${activeLocation}的公开用途属于“${activeType}”；可观察入口包括${publicIntel.entrances}。`}</p><p><b>可核验：</b>无需预设阴谋即可检查{publicIntel.observable}。这些结果只能形成地点证据，不能直接证明幕后主体。</p><div className="route-brief"><span><Route size={13} /><strong>去程</strong>{route.outward}</span><span><Route size={13} /><strong>撤离</strong>{route.returnPath}</span><span><ShieldAlert size={13} /><strong>暴露</strong>{route.exposure}</span></div><footer><span><Eye size={12} />地点情报与区域推断已分开记录</span><span><ShieldAlert size={12} />{district.warning}</span></footer></article>
         <div className="map-actions">

@@ -1,3 +1,5 @@
+import { createWorldKernel, type WorldKernel } from "./world-kernel.ts";
+
 export type PathwayId = "seer" | "spectator" | "apprentice" | "hunter" | "mystery";
 export type ViewId = "intent" | "investigation" | "city" | "organization" | "progression" | "archive" | "ending";
 export type RiskLevel = "低" | "中" | "高" | "致命";
@@ -578,6 +580,7 @@ export type GameState = {
   worldMoves: WorldMove[];
   worldSignals: WorldSignal[];
   worldSnapshots: WorldSnapshot[];
+  worldKernel: WorldKernel;
   economyHistory: EconomyLedger[];
   organizationConditions: string[];
   cases: CaseFile[];
@@ -893,9 +896,29 @@ export const INITIAL_TIMELINE: TimelineEvent[] = [
   { id: "tl-great-smog", title: "贝克兰德大雾霾", scheduledWeek: 24, kind: "终局", status: "upcoming", summary: "终局事件可能被阻止、削弱、转移、利用或按原历史爆发。", revealed: true, pressure: 92 },
 ];
 
+export function initializeWorldKernel(input?: Partial<Pick<GameState, "week" | "date" | "factions" | "canonActors" | "timeline" | "deviation" | "pivots">>) {
+  const factions = input?.factions ?? INITIAL_FACTIONS;
+  const actors = input?.canonActors ?? [
+    { id: "klein", name: "克莱恩·莫雷蒂", publicIdentity: "廷根毕业生", location: "廷根", agenda: "活下去，并理解自己为何苏醒。", state: "刚从死亡中醒来", awareness: "未知" as const, recruitable: false as const, lastMove: "在远方整理原主留下的痕迹。" },
+    { id: "dunn", name: "邓恩·史密斯", publicIdentity: "廷根值夜者队长", location: "廷根", agenda: "保护队员与廷根的神秘秩序。", state: "正在处理一宗神秘案件", awareness: "未知" as const, recruitable: false as const, lastMove: "把一名新成员纳入观察。" },
+    { id: "audrey", name: "奥黛丽·霍尔", publicIdentity: "贵族小姐", location: "贝克兰德·皇后区", agenda: "接触神秘世界，同时维持家族与自身安全。", state: "尚未与玩家组织发生直接联系", awareness: "未知" as const, recruitable: false as const, lastMove: "寻找不惊动家人的神秘学渠道。" },
+    { id: "azik", name: "阿兹克·艾格斯", publicIdentity: "历史系教员", location: "廷根", agenda: "寻找失落的过去。", state: "记忆仍不完整", awareness: "未知" as const, recruitable: false as const, lastMove: "留意一名学生身上不协调的命运痕迹。" },
+  ];
+  const kernel = createWorldKernel({
+    week: input?.week ?? 1,
+    date: input?.date ?? "1349年6月30日",
+    factions: factions.map((item) => ({ id: item.id, name: item.name, plan: item.currentPlan, progress: item.planProgress, suspicion: item.suspicion })),
+    actors: actors.map((item) => ({ id: item.id, name: item.name, locationId: DISTRICTS.find((district) => item.location.includes(district.name))?.id ?? (item.location.includes("廷根") ? "tingen" : "unknown"), agenda: item.agenda, state: item.state, lastAction: item.lastMove })),
+    locations: DISTRICTS.map((item) => ({ id: item.id, name: item.name, risk: item.danger })),
+    timeline: (input?.timeline ?? INITIAL_TIMELINE).map((item) => ({ id: item.id, title: item.title, scheduledWeek: item.scheduledWeek, status: item.status })),
+  });
+  return { ...kernel, canon: { mode: (input?.deviation ?? 0) >= 15 || (input?.pivots ?? []).some((pivot) => pivot.magnitude >= 20) ? "diverging" as const : "anchored" as const, deviation: input?.deviation ?? 0, pivotEventIds: (input?.pivots ?? []).map((pivot) => pivot.id) } };
+}
+
 export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
+  const worldKernel = initializeWorldKernel();
   return {
-    version: 12,
+    version: 13,
     prologueComplete: false,
     playerName: "",
     playerAddress: "会长阁下",
@@ -966,6 +989,7 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     worldMoves: [],
     worldSignals: [],
     worldSnapshots: [],
+    worldKernel,
     economyHistory: [],
     organizationConditions: ["未获许可", "掩护业务稳定", "成员仍在观察负责人"],
     cases: [

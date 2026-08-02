@@ -3,6 +3,7 @@
 import { Check, ChevronDown, CircleAlert, Gauge, KeyRound, LoaderCircle, Network, RotateCcw, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import { AiConfig, AiProviderId, AiQuality, DEEPSEEK_FLASH_PRESET } from "./ai-client";
 import { PATHWAYS, PathwayId } from "./game-model";
+import { LORE_COMPENDIUM_META, LORE_RECORDS, LOTM_PATHWAYS, LOTM_SOURCES } from "./generated-lore-compendium";
 
 type ConnectionState = { status: "idle" | "testing" | "success" | "error"; message: string };
 
@@ -50,7 +51,8 @@ export default function AiSettings({ config, rememberKey, connection, draftPathw
         <label><span>接口基础地址</span><input value={config.endpoint} onChange={(event) => onChange({ endpoint: event.target.value })} placeholder="https://api.example.com/v1" readOnly={provider === "deepseek"} /></label>
         <label><span>模型名称</span><input value={config.model} onChange={(event) => onChange({ model: event.target.value })} placeholder="model-name" readOnly={provider === "deepseek"} /></label>
         <label><span>专用世界推演模型（可选）</span><input value={config.worldModel ?? ""} onChange={(event) => onChange({ worldModel: event.target.value })} placeholder="留空则与人物对话共用当前模型" /><small>每周会先运行世界，再处理人物对话与小说化叙事。</small></label>
-        <label className="world-bible-field"><span>世界设定资料（可选）</span><textarea value={config.worldBible ?? ""} onChange={(event) => onChange({ worldBible: event.target.value.slice(0, 24000) })} placeholder="建议粘贴你整理的时间线、地点、势力、人物公开经历与不可越过的设定边界；无需粘贴整部小说。" rows={8} /><small>{(config.worldBible ?? "").length}/24000 · 仅保存在本地并随模型请求发送</small></label>
+        <div className="lore-library-status"><ShieldCheck size={16} /><span><strong>设定知识库已启用 · {LORE_COMPENDIUM_META.version}</strong><small>{LORE_RECORDS.length}条权限化设定 · {LOTM_PATHWAYS.length}条途径 · {LOTM_SOURCES.length}个来源；世界真相、角色认知、玩家已知与公共消息分别检索。</small></span></div>
+        <label className="world-bible-field"><span>世界推演补充资料（可选）</span><textarea value={config.worldBible ?? ""} onChange={(event) => onChange({ worldBible: event.target.value.slice(0, 24000) })} placeholder="只补充本局原创组织、历史分支或你想覆盖的裁定。内建设定库无需重复粘贴。" rows={6} /><small>{(config.worldBible ?? "").length}/24000 · 只供全知世界推演器读取，不会发送给NPC对话或玩家现状</small></label>
         <div className="api-option-row"><span><strong>思考模式</strong><small>复杂推演更稳，但响应更慢、消耗更多</small></span><button className={config.thinking ? "option-toggle on" : "option-toggle"} onClick={() => onChange({ thinking: !config.thinking })} role="switch" aria-checked={Boolean(config.thinking)}><i /></button></div>
         {config.thinking && <label><span>推理强度</span><select value={config.reasoningEffort ?? "high"} onChange={(event) => onChange({ reasoningEffort: event.target.value as "high" | "max" })}><option value="high">High · 常规推演</option><option value="max">Max · 关键终局</option></select></label>}
         <div className="quality-choice"><span><strong>小说生成模式</strong><small>平衡模式每回合减少两次模型调用</small></span>{([[

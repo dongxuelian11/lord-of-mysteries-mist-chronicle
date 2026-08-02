@@ -9,7 +9,7 @@ import {
   UsersRound, WandSparkles, X, Zap,
 } from "lucide-react";
 import {
-  ActionContract, ADVANCEMENT_RITUALS, ChronicleChapter, createInitialGame, DISTRICTS, Facility, FIXED_RECRUIT_POOL, GameState, INITIAL_MEMBERS, PATHWAYS,
+  ActionContract, ADVANCEMENT_RITUALS, ChronicleChapter, createInitialGame, DISTRICTS, Facility, FIXED_RECRUIT_POOL, GameState, INITIAL_MEMBERS, initializeWorldKernel, PATHWAYS,
   AbilityContext, AbilityUseRecord, PathwayId, PlayerOrigin, RiskLevel, ViewId,
 } from "./game-model";
 import {
@@ -31,8 +31,8 @@ import { abilityForFreeIntent, continueAbilityScene, generateAbilityDraft, gener
 import { generateCouncilReplies, generateCouncilSummary } from "./council-ai";
 import { localCouncilSummary } from "./council-system";
 
-const SAVE_KEY = "mist-chronicle-complete-v12";
-const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v11", "mist-chronicle-complete-v10", "mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
+const SAVE_KEY = "mist-chronicle-complete-v13";
+const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v12", "mist-chronicle-complete-v11", "mist-chronicle-complete-v10", "mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
 const AI_KEY = "mist-chronicle-save-v3-ai";
 const AI_SESSION_KEY = "mist-chronicle-session-ai-key";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -42,7 +42,7 @@ function displayNarrative(text: string) {
 }
 
 function normalizeNarrativeGame(game: GameState): GameState {
-  return { ...game, worldSignals: game.worldSignals ?? [], worldSnapshots: game.worldSnapshots ?? [], chronicle: game.chronicle.map((chapter) => ({ ...chapter, sections: chapter.sections.map((section) => ({ ...section, paragraphs: section.paragraphs.map(displayNarrative) })) })) };
+  return { ...game, version: 13, worldSignals: game.worldSignals ?? [], worldSnapshots: game.worldSnapshots ?? [], worldKernel: game.worldKernel ?? initializeWorldKernel(game), chronicle: game.chronicle.map((chapter) => ({ ...chapter, sections: chapter.sections.map((section) => ({ ...section, paragraphs: section.paragraphs.map(displayNarrative) })) })) };
 }
 
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Command }[] = [
@@ -108,15 +108,15 @@ export default function CompleteGame() {
       const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
-        try { const value = JSON.parse(saved) as GameState; if (value.version === 12) { setGame(normalizeNarrativeGame(value)); setHasSave(Boolean(value.prologueComplete)); } }
+        try { const value = JSON.parse(saved) as GameState; if (value.version === 13) { setGame(normalizeNarrativeGame(value)); setHasSave(Boolean(value.prologueComplete)); } }
         catch { window.localStorage.removeItem(SAVE_KEY); }
       } else if (legacySaved) {
         try {
           const legacy = JSON.parse(legacySaved) as Partial<GameState>;
           setHasSave(Boolean(legacy.prologueComplete ?? true));
           const fresh = createInitialGame(legacy.pathwayId ?? "seer");
-          const abilityFields = { version: 12, spirituality: Math.max(12, legacy.spirituality ?? 12), spiritualityMax: 18, mentalLoad: legacy.mentalLoad ?? 0, lastMeditationWeek: legacy.lastMeditationWeek ?? 0, abilityJournal: legacy.abilityJournal ?? [], hiddenWorldFacts: legacy.hiddenWorldFacts ?? fresh.hiddenWorldFacts, activeAbilityScene: legacy.activeAbilityScene ?? null, playerOrigin: legacy.playerOrigin ?? fresh.playerOrigin, councilTopics: legacy.councilTopics ?? [] };
-          if (legacy.version === 11 || legacy.version === 10) setGame({ ...(legacy as GameState), ...abilityFields });
+          const abilityFields = { version: 13, spirituality: Math.max(12, legacy.spirituality ?? 12), spiritualityMax: 18, mentalLoad: legacy.mentalLoad ?? 0, lastMeditationWeek: legacy.lastMeditationWeek ?? 0, abilityJournal: legacy.abilityJournal ?? [], hiddenWorldFacts: legacy.hiddenWorldFacts ?? fresh.hiddenWorldFacts, activeAbilityScene: legacy.activeAbilityScene ?? null, playerOrigin: legacy.playerOrigin ?? fresh.playerOrigin, councilTopics: legacy.councilTopics ?? [], worldSignals: legacy.worldSignals ?? [], worldSnapshots: legacy.worldSnapshots ?? [], worldKernel: initializeWorldKernel(legacy) };
+          if (legacy.version === 12 || legacy.version === 11 || legacy.version === 10) setGame(normalizeNarrativeGame({ ...(legacy as GameState), ...abilityFields }));
           else if (legacy.version === 9) setGame({ ...(legacy as GameState), ...abilityFields, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [] });
           else if (legacy.version === 8) setGame({ ...(legacy as GameState), ...abilityFields, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [], dialogueThreads: [], councilRecords: [{ week: legacy.week ?? 1, status: "convened", decisions: [] }] });
           else if ([5, 6, 7].includes(legacy.version ?? 0) && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));

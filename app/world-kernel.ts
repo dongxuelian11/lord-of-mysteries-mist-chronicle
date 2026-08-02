@@ -1,0 +1,224 @@
+export type WorldVisibility = "world" | "public" | "player" | "actors";
+
+export type PersistentWorldActor = {
+  id: string;
+  name: string;
+  locationId: string;
+  agenda: string;
+  shortTermGoal: string;
+  lastAction: string;
+  condition: string;
+  knowledgeIds: string[];
+};
+
+export type PersistentWorldFaction = {
+  id: string;
+  name: string;
+  posture: string;
+  resources: number;
+  suspicion: number;
+  lastAction: string;
+};
+
+export type PersistentWorldProject = {
+  id: string;
+  ownerId: string;
+  title: string;
+  stage: string;
+  progress: number;
+  momentum: number;
+  secrecy: number;
+  nextMilestone: string;
+  blockers: string[];
+  status: "active" | "paused" | "completed" | "failed";
+  updatedWeek: number;
+};
+
+export type PersistentWorldLocation = {
+  id: string;
+  name: string;
+  risk: number;
+  stability: number;
+  publicMood: string;
+  conditions: string[];
+  actorIds: string[];
+  factionIds: string[];
+  updatedWeek: number;
+};
+
+export type PersistentWorldEvent = {
+  id: string;
+  week: number;
+  title: string;
+  detail: string;
+  locationId?: string;
+  actorIds: string[];
+  factionIds: string[];
+  causeIds: string[];
+  visibility: WorldVisibility;
+};
+
+export type WorldObservation = {
+  id: string;
+  week: number;
+  eventId: string;
+  channel: string;
+  text: string;
+  visibility: Exclude<WorldVisibility, "world">;
+  holderIds: string[];
+};
+
+export type WorldKnowledgeNode = {
+  id: string;
+  subject: string;
+  statement: string;
+  truth: "confirmed" | "likely" | "false" | "unknown";
+  visibility: WorldVisibility;
+  holderIds: string[];
+  loreRecordIds: string[];
+  sourceEventId?: string;
+  acquiredWeek: number;
+};
+
+export type WorldKernel = {
+  schemaVersion: 1;
+  currentWeek: number;
+  currentDate: string;
+  lastResolvedWeek: number;
+  actors: PersistentWorldActor[];
+  factions: PersistentWorldFaction[];
+  projects: PersistentWorldProject[];
+  locations: PersistentWorldLocation[];
+  events: PersistentWorldEvent[];
+  observations: WorldObservation[];
+  knowledge: WorldKnowledgeNode[];
+  canon: {
+    mode: "anchored" | "diverging";
+    deviation: number;
+    pivotEventIds: string[];
+  };
+};
+
+export type WorldKernelSeed = {
+  week: number;
+  date: string;
+  factions: { id: string; name: string; plan: string; progress: number; suspicion?: number }[];
+  actors: { id: string; name: string; locationId: string; agenda: string; state?: string; lastAction?: string }[];
+  locations: { id: string; name: string; risk: number }[];
+  timeline: { id: string; title: string; scheduledWeek: number; status: string }[];
+};
+
+export type WorldTurnDelta = {
+  week: number;
+  playerIssuedNoOrders: boolean;
+  newActors?: (Omit<PersistentWorldActor, "lastAction" | "knowledgeIds"> & { lastAction?: string; knowledgeIds?: string[] })[];
+  newFactions?: (Omit<PersistentWorldFaction, "lastAction"> & { lastAction?: string })[];
+  newProjects?: Omit<PersistentWorldProject, "updatedWeek">[];
+  actorUpdates: { actorId: string; locationId?: string; shortTermGoal?: string; lastAction?: string; condition?: string }[];
+  factionUpdates?: { factionId: string; posture?: string; resourcesDelta?: number; suspicionDelta?: number; lastAction?: string }[];
+  projectUpdates: { projectId: string; progressDelta: number; stage?: string; nextMilestone?: string; blockers?: string[]; status?: PersistentWorldProject["status"] }[];
+  locationUpdates: { locationId: string; riskDelta?: number; stabilityDelta?: number; publicMood?: string; condition?: string }[];
+  events: Omit<PersistentWorldEvent, "week">[];
+  observations: Omit<WorldObservation, "week">[];
+  knowledge?: (Omit<WorldKnowledgeNode, "acquiredWeek" | "loreRecordIds"> & { loreRecordIds?: string[] })[];
+  canon?: { mode?: "anchored" | "diverging"; deviationDelta?: number; pivotEventIds?: string[] };
+};
+
+const clamp = (value: number, minimum = 0, maximum = 100) => Math.max(minimum, Math.min(maximum, value));
+
+export function createWorldKernel(seed: WorldKernelSeed): WorldKernel {
+  return {
+    schemaVersion: 1,
+    currentWeek: seed.week,
+    currentDate: seed.date,
+    lastResolvedWeek: Math.max(0, seed.week - 1),
+    actors: seed.actors.map((actor) => ({ id: actor.id, name: actor.name, locationId: actor.locationId, agenda: actor.agenda, shortTermGoal: actor.agenda, lastAction: actor.lastAction ?? "尚未产生新的可记录行动", condition: actor.state ?? "正常活动", knowledgeIds: [] })),
+    factions: seed.factions.map((faction) => ({ id: faction.id, name: faction.name, posture: faction.plan, resources: 50, suspicion: faction.suspicion ?? 0, lastAction: "正在推进既定计划" })),
+    projects: [
+      ...seed.factions.map((faction) => ({ id: `faction:${faction.id}`, ownerId: faction.id, title: faction.plan, stage: "推进", progress: clamp(faction.progress), momentum: 1, secrecy: 50, nextMilestone: "等待世界推演器给出下一项具体里程碑", blockers: [], status: "active" as const, updatedWeek: seed.week })),
+      ...seed.timeline.map((event) => ({ id: `timeline:${event.id}`, ownerId: "canon", title: event.title, stage: event.status, progress: clamp(Math.round(seed.week / Math.max(1, event.scheduledWeek) * 100)), momentum: 1, secrecy: 75, nextMilestone: `预定窗口：第${event.scheduledWeek}周`, blockers: [], status: event.status === "resolved" ? "completed" as const : "active" as const, updatedWeek: seed.week })),
+    ],
+    locations: seed.locations.map((location) => ({ id: location.id, name: location.name, risk: clamp(location.risk), stability: clamp(100 - location.risk), publicMood: "日常秩序仍在维持", conditions: [], actorIds: seed.actors.filter((actor) => actor.locationId === location.id).map((actor) => actor.id), factionIds: [], updatedWeek: seed.week })),
+    events: [],
+    observations: [],
+    knowledge: [],
+    canon: { mode: "anchored", deviation: 0, pivotEventIds: [] },
+  };
+}
+
+export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): WorldKernel {
+  if (delta.week < kernel.lastResolvedWeek || delta.week > kernel.currentWeek) throw new Error("世界推演周次与持续状态不一致");
+  const existingEventIds = new Set(kernel.events.map((event) => event.id));
+  const incomingEventIds = new Set(delta.events.map((event) => event.id));
+  if (incomingEventIds.size !== delta.events.length || [...incomingEventIds].some((id) => existingEventIds.has(id))) throw new Error("世界事件标识重复");
+  for (const event of delta.events) {
+    if (event.causeIds.some((id) => !existingEventIds.has(id) && !incomingEventIds.has(id))) throw new Error(`世界事件引用了不存在的原因：${event.id}`);
+  }
+  const existingActorIds = new Set(kernel.actors.map((actor) => actor.id));
+  const existingFactionIds = new Set(kernel.factions.map((faction) => faction.id));
+  const existingProjectIds = new Set(kernel.projects.map((project) => project.id));
+  const seededActors = [...kernel.actors, ...(delta.newActors ?? []).filter((actor) => !existingActorIds.has(actor.id)).map((actor) => ({ ...actor, lastAction: actor.lastAction ?? "刚刚进入持续世界状态", knowledgeIds: actor.knowledgeIds ?? [] }))];
+  const seededFactions = [...kernel.factions, ...(delta.newFactions ?? []).filter((faction) => !existingFactionIds.has(faction.id)).map((faction) => ({ ...faction, lastAction: faction.lastAction ?? "刚刚进入持续世界状态" }))];
+  const seededProjects = [...kernel.projects, ...(delta.newProjects ?? []).filter((project) => !existingProjectIds.has(project.id)).map((project) => ({ ...project, updatedWeek: delta.week }))];
+  const actors = seededActors.map((actor) => {
+    const update = delta.actorUpdates.find((item) => item.actorId === actor.id);
+    return update ? { ...actor, locationId: update.locationId ?? actor.locationId, shortTermGoal: update.shortTermGoal ?? actor.shortTermGoal, lastAction: update.lastAction ?? actor.lastAction, condition: update.condition ?? actor.condition } : actor;
+  });
+  const factions = seededFactions.map((faction) => {
+    const update = delta.factionUpdates?.find((item) => item.factionId === faction.id);
+    return update ? { ...faction, posture: update.posture ?? faction.posture, resources: clamp(faction.resources + (update.resourcesDelta ?? 0)), suspicion: clamp(faction.suspicion + (update.suspicionDelta ?? 0)), lastAction: update.lastAction ?? faction.lastAction } : faction;
+  });
+  const projects = seededProjects.map((project) => {
+    const update = delta.projectUpdates.find((item) => item.projectId === project.id);
+    return update ? { ...project, progress: clamp(project.progress + update.progressDelta), momentum: clamp(update.progressDelta, -10, 10), stage: update.stage ?? project.stage, nextMilestone: update.nextMilestone ?? project.nextMilestone, blockers: update.blockers ?? project.blockers, status: update.status ?? project.status, updatedWeek: delta.week } : project;
+  });
+  const locations = kernel.locations.map((location) => {
+    const update = delta.locationUpdates.find((item) => item.locationId === location.id);
+    if (!update) return { ...location, actorIds: actors.filter((actor) => actor.locationId === location.id).map((actor) => actor.id) };
+    return { ...location, risk: clamp(location.risk + (update.riskDelta ?? 0)), stability: clamp(location.stability + (update.stabilityDelta ?? 0)), publicMood: update.publicMood ?? location.publicMood, conditions: update.condition && !location.conditions.includes(update.condition) ? [...location.conditions, update.condition].slice(-8) : location.conditions, actorIds: actors.filter((actor) => actor.locationId === location.id).map((actor) => actor.id), updatedWeek: delta.week };
+  });
+  const events = [...kernel.events, ...delta.events.map((event) => ({ ...event, week: delta.week }))].slice(-240);
+  const eventIds = new Set(events.map((event) => event.id));
+  const observations = [...kernel.observations, ...delta.observations.filter((observation) => eventIds.has(observation.eventId)).map((observation) => ({ ...observation, week: delta.week }))].slice(-320);
+  const knowledge = [...kernel.knowledge, ...(delta.knowledge ?? []).filter((node) => !node.sourceEventId || eventIds.has(node.sourceEventId)).map((node) => ({ ...node, loreRecordIds: node.loreRecordIds ?? [], acquiredWeek: delta.week }))].slice(-400);
+  return {
+    ...kernel,
+    currentWeek: Math.max(kernel.currentWeek, delta.week + 1),
+    lastResolvedWeek: Math.max(kernel.lastResolvedWeek, delta.week),
+    actors,
+    factions,
+    projects,
+    locations,
+    events,
+    observations,
+    knowledge,
+    canon: {
+      mode: delta.canon?.mode ?? kernel.canon.mode,
+      deviation: clamp(kernel.canon.deviation + (delta.canon?.deviationDelta ?? 0)),
+      pivotEventIds: [...new Set([...kernel.canon.pivotEventIds, ...(delta.canon?.pivotEventIds ?? [])])],
+    },
+  };
+}
+
+function canSee(visibility: WorldVisibility, holderIds: string[], audience: { kind: "world" | "player" | "actor"; holderId: string }) {
+  if (audience.kind === "world") return true;
+  if (visibility === "public") return true;
+  if (visibility === "player") return audience.kind === "player" || holderIds.includes(audience.holderId);
+  if (visibility === "actors") return holderIds.includes(audience.holderId);
+  return false;
+}
+
+export function projectWorldForAudience(kernel: WorldKernel, audience: { kind: "world" | "player" | "actor"; holderId: string }) {
+  if (audience.kind === "world") return kernel;
+  const visibleObservations = kernel.observations.filter((observation) => canSee(observation.visibility, observation.holderIds, audience));
+  const observableEventIds = new Set(visibleObservations.map((observation) => observation.eventId));
+  return {
+    ...kernel,
+    actors: [],
+    factions: [],
+    projects: [],
+    events: kernel.events.filter((event) => event.visibility !== "world" && (event.visibility === "public" || observableEventIds.has(event.id))),
+    observations: visibleObservations,
+    knowledge: kernel.knowledge.filter((node) => canSee(node.visibility, node.holderIds, audience)),
+  };
+}

@@ -18,6 +18,9 @@ import {
 } from "./game-model";
 import { createFinaleCampaign } from "./finale-system";
 import { callModel as invokeModel, type AiConfig } from "./ai-client";
+import { LORE_RECORDS } from "./generated-lore-compendium";
+import { retrieveLoreContext } from "./lore-knowledge";
+import { applyWorldTurn, type WorldTurnDelta } from "./world-kernel";
 export type { AiConfig } from "./ai-client";
 export const callModel = invokeModel;
 
@@ -36,6 +39,116 @@ function extractJson(raw: string) {
   const end = fenced.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("模型没有返回可解析的JSON");
   return JSON.parse(fenced.slice(start, end + 1)) as Record<string, unknown>;
+}
+
+function knownLoreIds(game: GameState, holderId: string) {
+  return [...new Set((game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes(holderId)).flatMap((node) => node.loreRecordIds ?? []))];
+}
+
+function loreForPlayer(game: GameState, query: string, maxChars = 5_000) {
+  return retrieveLoreContext(LORE_RECORDS, {
+    query,
+    audience: { kind: "player", knownLoreIds: knownLoreIds(game, "player"), topicGrants: [] },
+    limit: 12,
+    maxChars,
+  });
+}
+
+function loreForActor(game: GameState, member: GameState["members"][number], query: string, maxChars = 5_000) {
+  const specialty = `${member.role} ${member.specialty} ${member.background ?? ""}`;
+  const topicGrants = [
+    ...(member.pathway ? ["pathways", "beyonder-system"] : []),
+    ...(/神秘|仪式|封印|灵界|梦境|非凡/.test(specialty) ? ["rituals", "spirit-world", "sealed-artifacts"] : []),
+    ...(/情报|调查|警|外交|教会/.test(specialty) ? ["factions"] : []),
+  ];
+  return retrieveLoreContext(LORE_RECORDS, {
+    query,
+    audience: { kind: "actor", knownLoreIds: knownLoreIds(game, member.id), topicGrants },
+    limit: 12,
+    maxChars,
+  });
+}
+
+function loreForWorld(game: GameState, query: string, maxChars = 12_000) {
+  return retrieveLoreContext(LORE_RECORDS, {
+    query,
+    audience: { kind: "world", knownLoreIds: [], topicGrants: [] },
+    limit: 24,
+    maxChars,
+  });
+}
+
+function parseWorldKernelDelta(raw: Record<string, unknown>, game: GameState, chapter: ChronicleChapter, publicSignals: WorldSignal[], worldMoves: WorldMove[]): WorldTurnDelta {
+  const source = raw.kernelDelta && typeof raw.kernelDelta === "object" && !Array.isArray(raw.kernelDelta) ? raw.kernelDelta as Record<string, unknown> : {};
+  const list = (key: string) => Array.isArray(source[key]) ? source[key] as unknown[] : [];
+  const actorIds = new Set(game.worldKernel.actors.map((item) => item.id));
+  const factionIds = new Set(game.worldKernel.factions.map((item) => item.id));
+  const projectIds = new Set(game.worldKernel.projects.map((item) => item.id));
+  const locationIds = new Set(game.worldKernel.locations.map((item) => item.id));
+  const newActors = list("newActors").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 8).flatMap((value, index) => {
+    const name = typeof value.name === "string" ? value.name.trim().slice(0, 60) : "";
+    if (!name) return [];
+    const requested = typeof value.id === "string" ? value.id.trim().replace(/[^a-z0-9:_-]/gi, "-").slice(0, 64) : "";
+    const id = requested && !actorIds.has(requested) ? requested : `emergent-actor-${chapter.week}-${index}-${hash(name)}`;
+    actorIds.add(id);
+    return [{ id, name, locationId: typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : "unknown", agenda: typeof value.agenda === "string" ? value.agenda.slice(0, 220) : "在世界中维护自身处境", shortTermGoal: typeof value.shortTermGoal === "string" ? value.shortTermGoal.slice(0, 220) : "完成眼前事务", condition: typeof value.condition === "string" ? value.condition.slice(0, 140) : "正常活动", lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 280) : undefined, knowledgeIds: [] }];
+  });
+  const newFactions = list("newFactions").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 4).flatMap((value, index) => {
+    const name = typeof value.name === "string" ? value.name.trim().slice(0, 60) : "";
+    if (!name) return [];
+    const requested = typeof value.id === "string" ? value.id.trim().replace(/[^a-z0-9:_-]/gi, "-").slice(0, 64) : "";
+    const id = requested && !factionIds.has(requested) ? requested : `emergent-faction-${chapter.week}-${index}-${hash(name)}`;
+    factionIds.add(id);
+    return [{ id, name, posture: typeof value.posture === "string" ? value.posture.slice(0, 220) : "维持自身利益", resources: Math.max(0, Math.min(100, Number(value.resources) || 40)), suspicion: Math.max(0, Math.min(100, Number(value.suspicion) || 0)), lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 280) : undefined }];
+  });
+  const newProjects = list("newProjects").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 8).flatMap((value, index) => {
+    const title = typeof value.title === "string" ? value.title.trim().slice(0, 80) : "";
+    const ownerId = typeof value.ownerId === "string" ? value.ownerId : "world";
+    if (!title) return [];
+    const requested = typeof value.id === "string" ? value.id.trim().replace(/[^a-z0-9:_-]/gi, "-").slice(0, 72) : "";
+    const id = requested && !projectIds.has(requested) ? requested : `emergent-project-${chapter.week}-${index}-${hash(title)}`;
+    projectIds.add(id);
+    return [{ id, ownerId, title, stage: typeof value.stage === "string" ? value.stage.slice(0, 60) : "形成", progress: Math.max(0, Math.min(100, Number(value.progress) || 0)), momentum: Math.max(-10, Math.min(10, Number(value.momentum) || 1)), secrecy: Math.max(0, Math.min(100, Number(value.secrecy) || 50)), nextMilestone: typeof value.nextMilestone === "string" ? value.nextMilestone.slice(0, 220) : "等待下一步因果变化", blockers: Array.isArray(value.blockers) ? value.blockers.map(String).slice(0, 4) : [], status: ["active", "paused", "completed", "failed"].includes(String(value.status)) ? String(value.status) as "active" | "paused" | "completed" | "failed" : "active" as const }];
+  });
+  const rawEvents = list("events").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 12);
+  const eventIdMap = new Map<string, string>();
+  const events = rawEvents.flatMap((value, index) => {
+    const title = typeof value.title === "string" ? value.title.trim().slice(0, 80) : "";
+    const detail = typeof value.detail === "string" ? value.detail.trim().slice(0, 520) : "";
+    if (!title || !detail) return [];
+    const sourceId = typeof value.id === "string" && value.id.trim() ? value.id.trim() : `event-${index}`;
+    const id = `world-${chapter.week}-${hash(`${sourceId}:${title}`)}`;
+    eventIdMap.set(sourceId, id);
+    const visibility = ["world", "public", "player", "actors"].includes(String(value.visibility)) ? String(value.visibility) as "world" | "public" | "player" | "actors" : "world";
+    return [{ id, title, detail, locationId: typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : undefined, actorIds: Array.isArray(value.actorIds) ? value.actorIds.map(String).filter((id) => actorIds.has(id)).slice(0, 6) : [], factionIds: Array.isArray(value.factionIds) ? value.factionIds.map(String).filter((id) => factionIds.has(id)).slice(0, 6) : [], causeIds: Array.isArray(value.causeIds) ? value.causeIds.map(String).slice(0, 6) : [], visibility }];
+  });
+  for (const event of events) event.causeIds = event.causeIds.map((id) => eventIdMap.get(id) ?? id);
+  if (events.length < 3) throw new Error("世界模型没有形成足够的独立因果事件，本周拒绝结算");
+  const fallbackEventId = events.find((event) => event.visibility !== "world")?.id ?? events[0].id;
+  const observations = list("observations").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 12).flatMap((value, index) => {
+    const text = typeof value.text === "string" ? value.text.trim().slice(0, 420) : "";
+    if (!text) return [];
+    const visibility = ["public", "player", "actors"].includes(String(value.visibility)) ? String(value.visibility) as "public" | "player" | "actors" : "public";
+    return [{ id: `observation-${chapter.week}-${index}-${hash(text)}`, eventId: eventIdMap.get(String(value.eventId ?? "")) ?? fallbackEventId, channel: typeof value.channel === "string" ? value.channel.slice(0, 24) : "街谈", text, visibility, holderIds: Array.isArray(value.holderIds) ? value.holderIds.map(String).slice(0, 8) : [] }];
+  });
+  for (const [index, signal] of publicSignals.entries()) if (!observations.some((item) => item.text === signal.body)) observations.push({ id: `observation-signal-${chapter.week}-${index}`, eventId: fallbackEventId, channel: signal.channel, text: signal.body, visibility: "public", holderIds: [] });
+  const actorUpdates = list("actorUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && actorIds.has(String((item as Record<string, unknown>).actorId)))).slice(0, 12).map((value) => ({ actorId: String(value.actorId), locationId: typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : undefined, shortTermGoal: typeof value.shortTermGoal === "string" ? value.shortTermGoal.slice(0, 220) : undefined, lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 320) : undefined, condition: typeof value.condition === "string" ? value.condition.slice(0, 160) : undefined }));
+  const factionUpdates = list("factionUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && factionIds.has(String((item as Record<string, unknown>).factionId)))).slice(0, 10).map((value) => ({ factionId: String(value.factionId), posture: typeof value.posture === "string" ? value.posture.slice(0, 220) : undefined, resourcesDelta: Math.max(-8, Math.min(8, Number(value.resourcesDelta) || 0)), suspicionDelta: Math.max(-6, Math.min(6, Number(value.suspicionDelta) || 0)), lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 320) : undefined }));
+  const explicitProjects = list("projectUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && projectIds.has(String((item as Record<string, unknown>).projectId)))).slice(0, 12).map((value) => ({ projectId: String(value.projectId), progressDelta: Math.max(-8, Math.min(10, Number(value.progressDelta) || 0)), stage: typeof value.stage === "string" ? value.stage.slice(0, 60) : undefined, nextMilestone: typeof value.nextMilestone === "string" ? value.nextMilestone.slice(0, 220) : undefined, blockers: Array.isArray(value.blockers) ? value.blockers.map(String).slice(0, 4) : undefined, status: ["active", "paused", "completed", "failed"].includes(String(value.status)) ? String(value.status) as "active" | "paused" | "completed" | "failed" : undefined }));
+  const projectUpdates = explicitProjects.length >= 2 ? explicitProjects : worldMoves.slice(0, 5).map((move) => ({ projectId: `faction:${move.factionId}`, progressDelta: 2, stage: move.title, nextMilestone: move.detail, blockers: undefined, status: "active" as const })).filter((item) => projectIds.has(item.projectId));
+  if (projectUpdates.length < 2) throw new Error("世界模型没有推进足够的持续计划，本周拒绝结算");
+  const locationUpdates = list("locationUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && locationIds.has(String((item as Record<string, unknown>).locationId)))).slice(0, 10).map((value) => ({ locationId: String(value.locationId), riskDelta: Math.max(-8, Math.min(8, Number(value.riskDelta) || 0)), stabilityDelta: Math.max(-8, Math.min(8, Number(value.stabilityDelta) || 0)), publicMood: typeof value.publicMood === "string" ? value.publicMood.slice(0, 160) : undefined, condition: typeof value.condition === "string" ? value.condition.slice(0, 200) : undefined }));
+  const loreIds = new Set(LORE_RECORDS.map((record) => record.id));
+  const knowledge = list("knowledge").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 16).flatMap((value, index) => {
+    const statement = typeof value.statement === "string" ? value.statement.trim().slice(0, 360) : "";
+    if (!statement) return [];
+    const visibility = ["world", "public", "player", "actors"].includes(String(value.visibility)) ? String(value.visibility) as "world" | "public" | "player" | "actors" : "world";
+    const truth = ["confirmed", "likely", "false", "unknown"].includes(String(value.truth)) ? String(value.truth) as "confirmed" | "likely" | "false" | "unknown" : "unknown";
+    return [{ id: `knowledge-${chapter.week}-${index}-${hash(statement)}`, subject: typeof value.subject === "string" ? value.subject.slice(0, 80) : "世界变化", statement, truth, visibility, holderIds: Array.isArray(value.holderIds) ? value.holderIds.map(String).slice(0, 8) : [], loreRecordIds: Array.isArray(value.loreRecordIds) ? value.loreRecordIds.map(String).filter((id) => loreIds.has(id)).slice(0, 8) : [], sourceEventId: eventIdMap.get(String(value.sourceEventId ?? "")) }];
+  });
+  const canonValue = source.canon && typeof source.canon === "object" && !Array.isArray(source.canon) ? source.canon as Record<string, unknown> : {};
+  const mayDiverge = game.deviation >= 15 || game.pivots.some((pivot) => pivot.magnitude >= 20);
+  return { week: chapter.week, playerIssuedNoOrders: chapter.results.length === 0, newActors, newFactions, newProjects, actorUpdates, factionUpdates, projectUpdates, locationUpdates, events, observations, knowledge, canon: { mode: mayDiverge && canonValue.mode === "diverging" ? "diverging" : "anchored", deviationDelta: Math.max(0, Math.min(8, Number(canonValue.deviationDelta) || 0)), pivotEventIds: mayDiverge && Array.isArray(canonValue.pivotEventIds) ? canonValue.pivotEventIds.map(String).map((id) => eventIdMap.get(id) ?? id).slice(0, 4) : [] } };
 }
 
 function isExplicitConstruction(intent: string) {
@@ -336,63 +449,6 @@ function timelineAfterWeek(timeline: TimelineEvent[], nextWeek: number, evidence
     if (event.scheduledWeek === nextWeek) return { ...event, status: "active" as const, revealed: true };
     if (populationKnown && ["tl-population", "tl-procurement", "tl-smog-eve"].includes(event.id)) return { ...event, revealed: true };
     return event;
-  });
-}
-
-function factionTurn(factions: FactionState[], game: GameState, evidence: EvidenceNode[]) {
-  const knowsPopulation = evidence.find((item) => item.id === "ev-population")?.discovered;
-  const moves: WorldMove[] = [];
-  const observedActions = game.schedule.map((item) => item.rawIntent).join("；");
-  const behavior: Record<string, { delta: number; detail: string }> = {
-    "royal-project": { delta: knowsPopulation ? 7 : 4, detail: knowsPopulation ? "王室承包商连夜废弃一条运输线，并把临时工转移到新的封闭工棚。" : "新的采购批次绕过公开招标，转入一间封闭仓库。" },
-    "witch-sect": { delta: /魔女|香水|镜子|贵族/.test(observedActions) ? 6 : 3, detail: /魔女|香水|镜子|贵族/.test(observedActions) ? "一名假身份女性离开住所前焚毁了香水账单，并开始调查是谁询问过她。" : "一名使用假身份的中间人清理了临时住所。" },
-    "night-church": { delta: knowsPopulation ? 6 : 2, detail: knowsPopulation ? "值夜者把人口、煤气与仪式异常合并成内部专案，同时核验玩家提供的证据。" : "值夜者把新的失踪报告并入内部卷宗。" },
-    "steam-church": { delta: evidence.find((item) => item.id === "ev-gas-map")?.discovered ? 6 : 2, detail: evidence.find((item) => item.id === "ev-gas-map")?.discovered ? "机械之心封存了一座调压站，并开始追查被销毁的管网蓝图。" : "机械之心复核本周煤气事故和异常设备记录。" },
-    "aurora-order": { delta: 2, detail: "极光会外围尝试接触一名被官方忽视的失踪者家属。" },
-    police: { delta: game.influence >= 35 ? 3 : 1, detail: game.secrecy < 50 ? "警察厅把事务所的出入记录列入例行检查，并向房东询问租约。" : "警察把新报案继续归入普通治安卷宗。" },
-    press: { delta: game.influence >= 30 ? 3 : 2, detail: knowsPopulation ? "晚报编辑留下了人口异常的备份稿，却暂时拒绝刊登未经保护的证人姓名。" : "报社继续收集东区事故短讯和被撤下的讣告。" },
-    "black-market": { delta: 2, detail: /材料|配方|采购/.test(observedActions) ? "黑市抬高了玩家所需材料的报价，并有人打听组织的真实买家。" : "桥区掮客重新核对本周危险材料买家。" },
-  };
-  const next = factions.map((faction) => {
-    let delta = behavior[faction.id]?.delta ?? 1;
-    if (faction.id === "night-church" && knowsPopulation) delta += 5;
-    const planProgress = Math.min(100, faction.planProgress + delta);
-    const visible = faction.visibility !== "未知" || faction.suspicion >= 25 || faction.interest >= 25;
-    const detail = behavior[faction.id]?.detail ?? `${faction.name}继续推进“${faction.currentPlan}”。`;
-    if (visible) moves.push({ id: `move-${game.week}-${faction.id}`, factionId: faction.id, title: `${faction.name}的本周动向`, detail, week: game.week, visibility: faction.visibility === "持续往来" ? "确认" : "迹象" });
-    return { ...faction, planProgress, lastMove: detail };
-  });
-  return { factions: next, moves };
-}
-
-function localWorldSignals(game: GameState, moves: WorldMove[]): WorldSignal[] {
-  const channelFor = (factionId: string): WorldSignal["channel"] => factionId === "press" ? "报纸" : factionId === "police" || factionId === "night-church" || factionId === "steam-church" ? "官方通告" : factionId === "black-market" ? "行业消息" : "街谈";
-  const reliabilityFor = (move: WorldMove): WorldSignal["reliability"] => move.visibility === "确认" ? "公开事实" : move.visibility === "获知" ? "多源传闻" : "单一消息";
-  const visible = moves.slice(0, 4).map((move, index) => ({
-    id: `signal-${game.week}-${move.factionId}-${index}`,
-    week: game.week,
-    channel: channelFor(move.factionId),
-    headline: move.title.replace(/的本周动向$/, ""),
-    body: move.detail,
-    reliability: reliabilityFor(move),
-    relatedFactionId: move.factionId,
-  } satisfies WorldSignal));
-  const activeTimeline = game.timeline.find((event) => event.status === "active");
-  const cityNoise: WorldSignal[] = [
-    { id: `signal-${game.week}-street`, week: game.week, channel: "街谈", headline: "清晨马车夫谈起了几条临时封闭的街道", body: "说法彼此矛盾：有人归因于煤气检修，有人声称夜里见过没有标识的货车。书记员只把共同出现的时间与街区写进了记录。", reliability: "多源传闻", districtId: game.organizationProfile.headquartersDistrictId },
-    { id: `signal-${game.week}-occult`, week: game.week, channel: "神秘征兆", headline: "据点周围的灵性噪声出现了新的节律", body: game.missions.some((mission) => mission.state === "active" && mission.deadline <= 2) ? "变化与当前压力的临界窗口重合，但现有观察无法证明两者来自同一源头。" : "变化很轻，尚不足以定位来源；它至少说明首都的神秘活动没有因为组织沉默而停止。", reliability: "异常感知" },
-    ...(activeTimeline ? [{ id: `signal-${game.week}-timeline`, week: game.week, channel: "私人来信" as const, headline: "一封外埠来信提到了远方正在变化的人与事", body: activeTimeline.summary, reliability: "单一消息" as const }] : []),
-  ];
-  return [...visible, ...cityNoise].slice(0, 6);
-}
-
-function canonTurn(game: GameState, nextWeek: number) {
-  return game.canonActors.map((actor) => {
-    if (actor.id === "klein" && nextWeek >= 10) return { ...actor, location: "贝克兰德", publicIdentity: "夏洛克·莫里亚蒂", state: "以私人侦探身份进入首都，并独立追查新的委托。", awareness: game.influence >= 45 ? "间接听闻" as const : actor.awareness, lastMove: "在桥区接下了一宗看似普通的调查；他的行动有自己的目标，不受玩家调度。" };
-    if (actor.id === "klein" && nextWeek >= 6) return { ...actor, state: "廷根事件改变了他的身份与行动方式。", lastMove: "离开熟悉的城市，为进入贝克兰德做准备。" };
-    if (actor.id === "audrey" && nextWeek >= 9) return { ...actor, state: "已经接触真正的神秘学圈层。", awareness: game.factions.find((item) => item.id === "press")?.interest && game.influence >= 35 ? "间接听闻" as const : actor.awareness, lastMove: "从贵族社交与心理观察中察觉人口议题的不协调。" };
-    if (actor.id === "dunn" && nextWeek >= 7) return { ...actor, state: "廷根事件已经完成结算；他的命运取决于那条未受玩家直接控制的历史线。", lastMove: "原著锚点已越过，只有此前足够强的远程偏转才能改变其结果。" };
-    return { ...actor };
   });
 }
 
@@ -792,8 +848,9 @@ export async function generateLiteraryChapter(config: AiConfig, game: GameState,
     discoveredEvidence: game.evidenceNodes.filter((item) => item.discovered),
     availableOpportunities: game.opportunities.filter((item) => item.state === "available"),
     visibleFactionMoves: game.worldMoves.slice(0, 8),
-    worldState: game.worldSnapshots?.find((snapshot) => snapshot.week === local.week) ?? null,
+    worldState: (() => { const snapshot = game.worldSnapshots?.find((item) => item.week === local.week); return snapshot ? { week: snapshot.week, date: snapshot.date, atmosphere: snapshot.atmosphere, changes: snapshot.changes } : null; })(),
     publicSignals: game.worldSignals?.filter((signal) => signal.week === local.week).slice(0, 8) ?? [],
+    playerWorldKnowledge: game.worldKernel.knowledge.filter((node) => node.visibility === "public" || node.holderIds.includes("player")).slice(-16),
     localReference: local.sections,
     forbidden: ["改变行动成败", "新增未经结算的线索", "泄露幕后真相", "替玩家决定内心信念", "擅自判定玩家死亡"],
   };
@@ -848,6 +905,7 @@ export function localSituationBrief(game: GameState): SituationBrief {
 
 export async function generateSituationBrief(config: AiConfig, game: GameState): Promise<SituationBrief> {
   const fallback = localSituationBrief(game);
+  const lore = loreForPlayer(game, `${game.date} 贝克兰德 ${game.missions.filter((item) => item.state === "active").map((item) => item.title).join(" ")} ${game.worldSignals.slice(0, 5).map((item) => item.headline).join(" ")}`);
   const payload = {
     week: game.week,
     date: game.date,
@@ -855,10 +913,11 @@ export async function generateSituationBrief(config: AiConfig, game: GameState):
     organization: { name: game.organizationName, cover: game.coverIdentity, conditions: game.organizationConditions, members: game.members.map((member) => ({ name: member.name, role: member.role, status: member.status })) },
     pressures: game.missions.filter((mission) => mission.state === "active"),
     lastChapter: game.chronicle[0] ? { title: game.chronicle[0].title, summary: game.chronicle[0].summary } : null,
-    currentWorld: game.worldSnapshots?.[0] ?? null,
+    currentWorld: game.worldSnapshots?.[0] ? { week: game.worldSnapshots[0].week, date: game.worldSnapshots[0].date, atmosphere: game.worldSnapshots[0].atmosphere, changes: game.worldSnapshots[0].changes } : null,
     publicSignals: game.worldSignals?.slice(0, 8) ?? [],
     knownFacts: game.facts.slice(-16),
-    worldBible: config.worldBible?.trim().slice(0, 20000) || null,
+    authorizedLore: lore.context || null,
+    loreRecordIds: lore.records.map((item) => item.id),
   };
   const raw = extractJson(await callModel(config, "你为原创维多利亚神秘主义互动小说《灰雾纪事》写玩家进入存档时看到的当前现状。它必须像小说真正开始的一页，不是教程、任务清单、系统摘要或模板化周报。使用有限视角、具体物件、声音、天气、人物动作与消息来源，让玩家理解此刻身在何处、世界刚发生了什么、什么压力正在逼近以及自己可以自由行动。不要替玩家决定情绪或选择，不泄露角色未知的幕后真相，不复制任何现成小说句子。只返回JSON。", `写一个标题、日期行和3至6个自然段。段落可以长短不一，不要使用“当前状况/你的目标/建议行动”之类标签。返回{"title":"小说式标题","dateline":"日期与地点","paragraphs":["完整段落"]}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 3200, temperature: .92 }));
   const title = typeof raw.title === "string" && raw.title.trim() ? raw.title.trim().slice(0, 80) : fallback.title;
@@ -870,6 +929,7 @@ export async function generateSituationBrief(config: AiConfig, game: GameState):
 export async function generateNpcDialogue(config: AiConfig, game: GameState, memberId: string, playerText: string, context: "council" | "private" = "council"): Promise<NpcDialogueResult> {
   const member = game.members.find((item) => item.id === memberId);
   if (!member) throw new Error("没有找到这名成员");
+  const lore = loreForActor(game, member, `${playerText} ${member.role} ${member.specialty} ${game.date}`);
   const thread = game.dialogueThreads.find((item) => item.memberId === memberId);
   const currentPressure = game.missions.find((item) => item.state === "active");
   const system = `你正在扮演原创人物${member.name}，参加维多利亚神秘组织的${context === "council" ? "每周密议" : "私下谈话"}。组织领导人是${game.playerName || "尚未登记姓名的负责人"}，正式场合应自然地称其为“${game.playerAddress || "会长阁下"}”，但不要每一段都重复称呼。你不是菜单、助手或任务发布器，而是一个有局限、有利益、有情绪、有当下注意力的人。
@@ -888,9 +948,14 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
     currentPressure: currentPressure ? { title: currentPressure.title, premise: currentPressure.premise, consequence: currentPressure.consequence } : null,
     lastWeek: game.chronicle[0] ? { summary: game.chronicle[0].summary, results: game.chronicle[0].results.map((item) => ({ title: item.title, outcome: item.outcome, findings: item.findings })) } : null,
     knownFacts: game.facts.slice(-14),
-    currentWorld: game.worldSnapshots?.[0] ?? null,
+    currentWorld: game.worldSnapshots?.[0] ? { week: game.worldSnapshots[0].week, date: game.worldSnapshots[0].date, atmosphere: game.worldSnapshots[0].atmosphere, changes: game.worldSnapshots[0].changes } : null,
+    authorizedWorldView: game.worldKernel ? {
+      observations: game.worldKernel.observations.filter((item) => item.visibility === "public" || item.holderIds.includes(member.id)).slice(-12),
+      knowledge: game.worldKernel.knowledge.filter((item) => item.visibility === "public" || item.holderIds.includes(member.id)).slice(-12),
+    } : null,
     recentSignals: game.worldSignals?.slice(0, 8) ?? [],
-    worldBible: config.worldBible?.trim().slice(0, 16000) || null,
+    authorizedLore: lore.context || null,
+    loreRecordIds: lore.records.map((item) => item.id),
     scheduledOrders: game.schedule.map((item) => ({ title: item.title, leaderId: item.leaderId, risk: item.risk })),
   };
   const raw = extractJson(await callModel(config, system, `像真实人物一样回应此刻这一句话。长度完全服从内容：可以20字，也可以在复杂问题中达到500字；不要为满足格式凭空扩写。普通谈话不要生成任务或提案卡。返回：{"reply":"自然动作与口语组成的回应，不包含分类标签","mood":"不超过8字的当前状态","memory":"真正值得以后记住的关系事实或null","trustDelta":-2到2}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 1900, temperature: .96 }));
@@ -905,6 +970,7 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
 export async function generateAiWorldDelta(config: AiConfig, game: GameState, chapter: ChronicleChapter, onStage: (value: string) => void): Promise<GameState> {
   onStage(chapter.results.length ? "世界推演器正在结算城市对本周行动的回应" : "世界推演器正在推进没有玩家干预的这一周");
   const worldConfig = { ...config, model: config.worldModel?.trim() || config.model };
+  const lore = loreForWorld(game, `${game.date} ${chapter.results.map((item) => item.contract.rawIntent).join(" ")} ${game.worldKernel.projects.filter((item) => item.status === "active").map((item) => item.title).join(" ")} ${game.worldKernel.actors.map((item) => `${item.name} ${item.agenda}`).join(" ")}`);
   const payload = {
     resolvingWeek: chapter.week,
     currentWeek: game.week,
@@ -917,9 +983,13 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     recentWorld: game.worldSnapshots?.slice(0, 4) ?? [],
     recentSignals: game.worldSignals?.slice(0, 10) ?? [],
     knownEvidence: game.evidenceNodes.filter((item) => item.discovered).map((item) => ({ label: item.label, certainty: item.certainty, summary: item.summary })),
-    worldBible: config.worldBible?.trim().slice(0, 24000) || null,
+    persistentWorld: { ...game.worldKernel, events: game.worldKernel.events.slice(-80), observations: game.worldKernel.observations.slice(-80), knowledge: game.worldKernel.knowledge.slice(-100) },
+    authorizedLore: lore.context,
+    loreRecordIds: lore.records.map((item) => item.id),
+    designerSupplement: config.worldBible?.trim().slice(0, 12000) || null,
   };
-  const raw = extractJson(await callModel(worldConfig, "你是《灰雾纪事》专用的持续世界模拟器。每一周必须先推进整个世界，再考虑玩家是否介入。势力、原著人物、城市生活、公共机构和神秘异常都拥有自己的目标与惯性；玩家无行动绝不等于世界无事件。规则引擎已经锁定玩家行动成败、资源和生死边界，你不得改写这些结算，不得杀死玩家，不得控制玩家意志，也不得把隐藏真相直接变成角色知识。公开信息必须通过报纸、街谈、通告、行业消息、私人来信或可感知征兆进入玩家视野。只返回严格JSON。", `独立完成这一周的世界推演。先在内部推演各方计划，再输出玩家实际能接触到的结果。没有玩家命令时，actionReports必须为空，但世界动向、原著人物行动、城市消息和时间线仍须推进。避免重复上一周措辞，避免所有事件都围绕玩家组织发生。返回：{"worldSummary":{"atmosphere":"本周首都整体气氛，80至180字","changes":["3至6条客观变化"],"undercurrents":["2至4条玩家目前只能间接察觉的暗流"]},"publicSignals":[{"channel":"报纸|街谈|官方通告|行业消息|神秘征兆|私人来信","headline":"自然标题","body":"具体可见信息，60至220字","reliability":"公开事实|多源传闻|单一消息|异常感知","districtId":"已有城区id或空","relatedFactionId":"已有势力id或空"}],"actionReports":[{"actionId":"已有actionId","fieldReport":"小说化现场述职","observableFacts":["2至4条可核验事实"],"followUp":"自然产生的可能方向"}],"factionMoves":[{"factionId":"已有id","title":"短标题","detail":"该势力自主推进的具体行动","visibility":"迹象|获知|确认","suspicionDelta":-4到6,"progressDelta":1到8}],"canonMoves":[{"actorId":"已有id","lastMove":"独立于玩家的自主行动","awareness":"未知|间接听闻|注意|直接接触"}],"emergentPressure":{"title":"只在因果确实形成时出现","premise":"来源","consequence":"放任后果","deadline":2到6}|null,"emergentLead":{"districtId":"已有城区id","label":"线索名","summary":"可观察事实","source":"来源","tags":["document|track|social|occult|official|protect"],"followUp":"可自由调查的方向"}|null}。每周给出3至6条publicSignals、3至5个factionMoves、1至3个canonMoves；它们之间应有跨周连续性，但不要把所有暗流强行连成同一阴谋。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 6200, temperature: .72 }));
+  const kernelProtocol = `同时必须返回kernelDelta，作为下周继续推演的权威世界状态增量：{"kernelDelta":{"newActors":[{"id":"稳定英文id","name":"本周首次进入推演且值得长期追踪的人物","locationId":"已有地点id","agenda":"长期诉求","shortTermGoal":"当前目标","condition":"处境"}],"newFactions":[{"id":"稳定英文id","name":"本周首次进入推演的组织","posture":"立场与目标","resources":0到100,"suspicion":0到100}],"newProjects":[{"id":"稳定英文id","ownerId":"已有或新角色/势力id","title":"新形成的持续计划","stage":"阶段","progress":0到100,"momentum":-10到10,"secrecy":0到100,"nextMilestone":"下一里程碑","blockers":[],"status":"active|paused|completed|failed"}],"actorUpdates":[{"actorId":"persistentWorld中的id","locationId":"已有地点id","shortTermGoal":"下一阶段目标","lastAction":"本周实际行动","condition":"当前处境"}],"factionUpdates":[{"factionId":"已有id","posture":"当前姿态与目标","resourcesDelta":-8到8,"suspicionDelta":-6到6,"lastAction":"本周自主行动"}],"projectUpdates":[{"projectId":"persistentWorld中的项目id","progressDelta":-8到10,"stage":"当前阶段","nextMilestone":"可检验的下一里程碑","blockers":["阻碍"],"status":"active|paused|completed|failed"}],"locationUpdates":[{"locationId":"已有地点id","riskDelta":-8到8,"stabilityDelta":-8到8,"publicMood":"普通人可感受到的气氛","condition":"本周形成的地点状态"}],"events":[{"id":"本回合内部临时id","title":"事件名","detail":"世界真相层发生的具体事件","locationId":"已有地点id或空","actorIds":["已有或newActors的id"],"factionIds":["已有或newFactions的id"],"causeIds":["本回合事件临时id或既有事件id"],"visibility":"world|public|player|actors"}],"observations":[{"eventId":"对应事件临时id","channel":"观察来源","text":"实际能被某方获知的内容","visibility":"public|player|actors","holderIds":["仅actors时填写角色id"]}],"knowledge":[{"subject":"对象","statement":"新形成的认知，允许为误判","truth":"confirmed|likely|false|unknown","visibility":"world|public|player|actors","holderIds":["持有者id"],"loreRecordIds":["本次authorizedLore中确实被获知的记录id"],"sourceEventId":"事件临时id"}],"canon":{"mode":"anchored|diverging","deviationDelta":0到8,"pivotEventIds":["明确偏转事件临时id"]}}}。newActors/newFactions只用于真正需要跨周追踪的新主体，不能每周滥造。至少生成3个彼此不全围绕玩家的events并推进2项持续project。世界真相事件默认visibility=world；只有observations可以把其中一部分转化为角色或玩家认知。不要因为模型读到了authorizedLore，就让NPC或玩家自动知道它。历史偏转未达到门槛时必须保持anchored，并让原著锚点大致按时间惯性发展。`;
+  const raw = extractJson(await callModel(worldConfig, "你是《灰雾纪事》专用的持续世界模拟器。每一周必须先推进整个世界，再考虑玩家是否介入。势力、原著人物、城市生活、公共机构和神秘异常都拥有自己的目标与惯性；玩家无行动绝不等于世界无事件。规则引擎已经锁定玩家行动成败、资源和生死边界，你不得改写这些结算，不得杀死玩家，不得控制玩家意志，也不得把隐藏真相直接变成角色知识。公开信息必须通过报纸、街谈、通告、行业消息、私人来信或可感知征兆进入玩家视野。只返回严格JSON。", `独立完成这一周的世界推演。先在内部推演各方计划，再输出玩家实际能接触到的结果。没有玩家命令时，actionReports必须为空，但世界动向、原著人物行动、城市消息和时间线仍须推进。避免重复上一周措辞，避免所有事件都围绕玩家组织发生。返回：{"worldSummary":{"atmosphere":"本周首都整体气氛，80至180字","changes":["3至6条客观变化"],"undercurrents":["2至4条玩家目前只能间接察觉的暗流"]},"publicSignals":[{"channel":"报纸|街谈|官方通告|行业消息|神秘征兆|私人来信","headline":"自然标题","body":"具体可见信息，60至220字","reliability":"公开事实|多源传闻|单一消息|异常感知","districtId":"已有城区id或空","relatedFactionId":"已有势力id或空"}],"actionReports":[{"actionId":"已有actionId","fieldReport":"小说化现场述职","observableFacts":["2至4条可核验事实"],"followUp":"自然产生的可能方向"}],"factionMoves":[{"factionId":"已有id","title":"短标题","detail":"该势力自主推进的具体行动","visibility":"迹象|获知|确认","suspicionDelta":-4到6,"progressDelta":1到8}],"canonMoves":[{"actorId":"已有id","lastMove":"独立于玩家的自主行动","awareness":"未知|间接听闻|注意|直接接触"}],"emergentPressure":{"title":"只在因果确实形成时出现","premise":"来源","consequence":"放任后果","deadline":2到6}|null,"emergentLead":{"districtId":"已有城区id","label":"线索名","summary":"可观察事实","source":"来源","tags":["document|track|social|occult|official|protect"],"followUp":"可自由调查的方向"}|null}。每周给出3至6条publicSignals、3至5个factionMoves、1至3个canonMoves；它们之间应有跨周连续性，但不要把所有暗流强行连成同一阴谋。\n${kernelProtocol}\n${JSON.stringify(payload)}`, { json: true, maxTokens: 8200, temperature: .72 }));
   const moves = Array.isArray(raw.factionMoves) ? raw.factionMoves.slice(0, 5) : [];
   const factions = game.factions.map((item) => ({ ...item }));
   const worldMoves: WorldMove[] = [];
@@ -1015,6 +1085,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   });
   const enrichedChapter = { ...chapter, results: enrichedResults };
   const chronicle = game.chronicle.map((item) => item.id === chapter.id ? enrichedChapter : item);
+  const worldKernel = { ...applyWorldTurn(game.worldKernel, parseWorldKernelDelta(raw, game, chapter, publicSignals, worldMoves)), currentWeek: game.week, currentDate: game.date };
   return {
     ...game,
     factions,
@@ -1025,6 +1096,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     worldMoves: [...worldMoves, ...game.worldMoves].slice(0, 80),
     worldSignals: [...publicSignals, ...(game.worldSignals ?? []).filter((signal) => signal.week !== chapter.week || !publicSignals.length)].slice(0, 120),
     worldSnapshots: [worldSnapshot, ...(game.worldSnapshots ?? []).filter((snapshot) => snapshot.week !== chapter.week)].slice(0, 60),
+    worldKernel,
     chronicle,
   };
 }

@@ -2,6 +2,8 @@ import { AiConfig, callModel } from "./ai-client";
 import {
   Ability, AbilityContext, AbilityScene, AbilityUseRecord, GameState, HiddenWorldFact, PATHWAYS,
 } from "./game-model";
+import { LORE_RECORDS } from "./generated-lore-compendium";
+import { retrieveLoreContext } from "./lore-knowledge";
 
 type AbilityDraft = Omit<AbilityUseRecord, "id" | "week" | "abilityId" | "abilityName" | "context" | "intent" | "cost"> & {
   lockedFact?: string;
@@ -90,6 +92,8 @@ function extractJson(raw: string) {
 export async function generateAbilityDraft(config: AiConfig, game: GameState, ability: Ability, intent: string, context: AbilityContext): Promise<AbilityDraft> {
   const fallback = localDraft(game, ability, intent, context);
   const relevantHidden = game.hiddenWorldFacts.filter((item) => item.subjectKey === context.targetId || item.subjectKey === context.label).slice(-3);
+  const knownLoreIds = [...new Set((game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes("player")).flatMap((node) => node.loreRecordIds ?? []))];
+  const lore = retrieveLoreContext(LORE_RECORDS, { query: `${intent} ${context.label} ${ability.name}`, audience: { kind: "player", knownLoreIds, topicGrants: ["pathways", "beyonder-system"] }, limit: 10, maxChars: 4200 });
   const payload = {
     pathway: PATHWAYS[game.pathwayId].name,
     sequence: game.currentSequence,
@@ -97,6 +101,8 @@ export async function generateAbilityDraft(config: AiConfig, game: GameState, ab
     intent,
     context,
     knownFacts: game.facts.slice(-14),
+    authorizedLore: lore.context,
+    authorizedWorldKnowledge: (game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes("player")).slice(-12),
     lockedHiddenFacts: relevantHidden,
     recentUses: game.abilityJournal.slice(-6),
   };
@@ -159,6 +165,7 @@ export function resolveImmediateAbility(game: GameState, ability: Ability, inten
       abilityJournal: [record, ...game.abilityJournal].slice(0, 120),
       hiddenWorldFacts: hiddenFact ? [...game.hiddenWorldFacts, hiddenFact] : game.hiddenWorldFacts,
       activeAbilityScene: scene,
+      worldKernel: { ...game.worldKernel, knowledge: [...game.worldKernel.knowledge, { id: `knowledge-${record.id}`, subject: context.label, statement: record.interpretation, truth: result.confidence === "确认" ? "confirmed" : "likely", visibility: "player", holderIds: ["player"], loreRecordIds: [], acquiredWeek: game.week }].slice(-400) },
       facts: [...game.facts, { id: `fact-${record.id}`, subject: context.label, statement: `${ability.name}得到的个人判断：${record.interpretation}`, certainty: "线索" as const, source: `${PATHWAYS[game.pathwayId].name}·${ability.name}`, week: game.week }].slice(-100),
     },
   };
