@@ -7,8 +7,8 @@
 ---
 
 **Project:** 灰雾纪事
-**Generated:** 2026-08-02 12:22:03
-**Category:** Gaming
+**Generated:** 2026-08-02 12:59:35
+**Category:** E-commerce
 
 ---
 
@@ -18,19 +18,17 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#1E293B` | `--color-primary` |
-| Secondary | `#334155` | `--color-secondary` |
-| CTA/Accent | `#22C55E` | `--color-cta` |
-| Background | `#0F172A` | `--color-background` |
-| Text | `#F8FAFC` | `--color-text` |
-
-**Color Notes:** Dark tech + status green
+| Primary | `#2563EB` | `--color-primary` |
+| Secondary | `#3B82F6` | `--color-secondary` |
+| CTA/Accent | `#F97316` | `--color-cta` |
+| Background | `#F8FAFC` | `--color-background` |
+| Text | `#1E293B` | `--color-text` |
 
 ### Typography
 
 - **Heading Font:** Inter
 - **Body Font:** Inter
-- **Mood:** Bold + Impactful typography
+- **Mood:** Engaging + Clear hierarchy
 
 ### Spacing Variables
 
@@ -62,7 +60,7 @@
 ```css
 /* Primary Button */
 .btn-primary {
-  background: #22C55E;
+  background: #F97316;
   color: white;
   padding: 12px 24px;
   border-radius: 8px;
@@ -79,8 +77,8 @@
 /* Secondary Button */
 .btn-secondary {
   background: transparent;
-  color: #1E293B;
-  border: 2px solid #1E293B;
+  color: #2563EB;
+  border: 2px solid #2563EB;
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -93,7 +91,7 @@
 
 ```css
 .card {
-  background: #0F172A;
+  background: #F8FAFC;
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow-md);
@@ -119,9 +117,9 @@
 }
 
 .input:focus {
-  border-color: #1E293B;
+  border-color: #2563EB;
   outline: none;
-  box-shadow: 0 0 0 3px #1E293B20;
+  box-shadow: 0 0 0 3px #2563EB20;
 }
 ```
 
@@ -147,13 +145,13 @@
 
 ## Style Guidelines
 
-**Style:** Y2K Aesthetic
+**Style:** Vibrant & Block-based
 
-**Keywords:** Neon pink, chrome, metallic, bubblegum, iridescent, glossy, retro-futurism, 2000s, futuristic nostalgia
+**Keywords:** Bold, energetic, playful, block layout, geometric shapes, high color contrast, duotone, modern, energetic
 
-**Best For:** Fashion brands, music platforms, Gen Z brands, nostalgia marketing, entertainment, youth-focused
+**Best For:** Startups, creative agencies, gaming, social media, youth-focused, entertainment, consumer
 
-**Key Effects:** linear-gradient metallic, glossy buttons, 3D chrome effects, glow animations, bubble shapes
+**Key Effects:** Large sections (48px+ gaps), animated patterns, bold hover (color shift), scroll-snap, large type (32px+), 200-300ms
 
 ### Page Pattern
 
@@ -167,8 +165,8 @@
 
 ## Anti-Patterns (Do NOT Use)
 
-- ❌ Minimalist design
-- ❌ Static assets
+- ❌ Flat design without depth
+- ❌ Text-heavy pages
 
 ### Additional Forbidden Patterns
 

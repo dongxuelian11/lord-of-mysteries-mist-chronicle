@@ -53,6 +53,48 @@ export type Member = {
   relationshipStage?: "接触" | "临时合作" | "长期盟友或线人" | "正式成员";
 };
 
+export type DialogueMessage = {
+  id: string;
+  role: "player" | "member";
+  text: string;
+  week: number;
+  context: "council" | "private";
+  mood?: string;
+};
+
+export type NpcProposal = {
+  id: string;
+  memberId: string;
+  title: string;
+  intent: string;
+  districtId: string;
+  rationale: string;
+  status: "open" | "accepted" | "dismissed";
+};
+
+export type DialogueThread = {
+  memberId: string;
+  messages: DialogueMessage[];
+  memories: string[];
+  lastMood: string;
+  proposal?: NpcProposal;
+  lastUpdatedWeek: number;
+};
+
+export type CouncilDecision = {
+  id: string;
+  title: string;
+  rawIntent: string;
+  proposerId: string | "player";
+  status: "draft" | "scheduled" | "resolved";
+};
+
+export type CouncilRecord = {
+  week: number;
+  status: "convened" | "adjourned";
+  decisions: CouncilDecision[];
+};
+
 export type District = {
   id: string;
   name: string;
@@ -433,6 +475,8 @@ export type GameState = {
   organizationProfile: OrganizationProfile;
   ritualReadiness: number;
   instability: number;
+  dialogueThreads: DialogueThread[];
+  councilRecords: CouncilRecord[];
 };
 
 const seq = (rank: number, name: string, capabilities: string[], acting: string): Sequence => ({ rank, name, capabilities, acting });
@@ -735,7 +779,7 @@ export const INITIAL_TIMELINE: TimelineEvent[] = [
 
 export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
   return {
-    version: 8,
+    version: 9,
     week: 1,
     date: "1349年6月30日",
     pathwayId,
@@ -805,5 +849,7 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     organizationProfile: { headquartersDistrictId: "cherwood", legalStatus: "未获许可", satellites: [], formerOrganizations: [] },
     ritualReadiness: 0,
     instability: 4,
+    dialogueThreads: [],
+    councilRecords: [{ week: 1, status: "convened", decisions: [] }],
   };
 }

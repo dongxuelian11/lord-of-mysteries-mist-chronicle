@@ -16,16 +16,18 @@ async function requestWorker(request) {
   return worker.fetch(request, { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
 }
 
-test("server-renders the complete free-intent game shell", async () => {
+test("server-renders the AI-native weekly council game shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /<title>灰雾纪事/);
   assert.match(html, /跳到主要内容/);
-  assert.match(html, /你想让组织做什么/);
-  assert.match(html, /生成行动契约/);
-  assert.match(html, /当前主要压力/);
-  assert.match(html, /本周日程/);
+  assert.match(html, /每周密议/);
+  assert.match(html, /上周述职/);
+  assert.match(html, /本周议题/);
+  assert.match(html, /形成决议/);
+  assert.match(html, /必须知情的压力/);
+  assert.match(html, /点名追问/);
   assert.match(html, /游戏主导航/);
   assert.match(html, /调查/);
   assert.match(html, /晋升/);
@@ -39,8 +41,9 @@ test("DeepSeek relay validates requests without exposing an open proxy", async (
 });
 
 test("implements the complete simulation systems and accessible Apple-style UI", async () => {
-  const [app, engine, aiClient, aiSettings, aiRoute, finale, finaleView, model, board, operations, css, finaleCss, apiCss, layout] = await Promise.all([
+  const [app, council, engine, aiClient, aiSettings, aiRoute, finale, finaleView, model, board, operations, css, councilCss, finaleCss, apiCss, layout] = await Promise.all([
     readFile(new URL("../app/complete-game.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/weekly-council.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game-engine.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ai-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ai-settings.tsx", import.meta.url), "utf8"),
@@ -51,22 +54,23 @@ test("implements the complete simulation systems and accessible Apple-style UI",
     readFile(new URL("../app/investigation-board.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/organization-operations.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/complete-game.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/weekly-council.css", import.meta.url), "utf8"),
     readFile(new URL("../app/finale-campaign.css", import.meta.url), "utf8"),
     readFile(new URL("../app/api-settings.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(app, /localStorage/);
-  assert.match(app, /生成行动契约/);
+  assert.match(app, /议桌对发言的规则化理解/);
   assert.match(app, /行动、证据与规则附录/);
   assert.match(app, /主据点/);
   assert.match(app, /部门授权/);
   assert.match(app, /晋升材料/);
-  assert.match(app, /普通交谈不消耗行动/);
+  assert.match(app, /这是自由对话，不是关键词菜单/);
   assert.match(app, /sendChat/);
   assert.match(app, /character-dialogue/);
-  assert.match(app, /重新阅读完整章节/);
+  assert.match(council, /重读小说章节/);
   assert.match(app, /每周小说总结都会永久保存/);
-  assert.match(app, /mist-chronicle-complete-v8/);
+  assert.match(app, /mist-chronicle-complete-v9/);
   assert.match(app, /LEGACY_SAVE_KEYS/);
   assert.match(app, /旧历史分支/);
   assert.match(app, /InvestigationBoard/);
@@ -86,6 +90,9 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /resolveFatalSituation/);
   assert.match(engine, /resolveFinale/);
   assert.match(engine, /generateAiWorldDelta/);
+  assert.match(engine, /generateNpcDialogue/);
+  assert.match(engine, /actionReports/);
+  assert.match(engine, /现场述职/);
   assert.match(engine, /emergentLead/);
   assert.match(engine, /ai-emergent/);
   assert.match(engine, /connectEvidence/);
@@ -127,6 +134,13 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(model, /core:/);
   assert.match(model, /voice:/);
   assert.match(model, /arc:/);
+  assert.match(model, /DialogueThread/);
+  assert.match(model, /CouncilRecord/);
+  assert.match(council, /每周密议/);
+  assert.match(council, /AI 议事原则/);
+  assert.match(council, /点名追问，允许他自由回答/);
+  assert.match(council, /不是选项题/);
+  assert.match(council, /散会并执行本周决议/);
   assert.match(board, /由证据开放的可能性/);
   assert.match(board, /世界没有等待你/);
   assert.match(board, /建立玩家假设连接/);
@@ -142,6 +156,10 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(css, /investigation-grid/);
   assert.match(css, /organization-operations/);
   assert.match(css, /@media\(max-width:760px\)/);
+  assert.match(councilCss, /council-room/);
+  assert.match(councilCss, /council-table/);
+  assert.match(councilCss, /living-dialogue/);
+  assert.match(councilCss, /prefers-reduced-motion:reduce/);
   assert.match(finaleCss, /smog-crises/);
   assert.match(finaleCss, /prefers-reduced-motion:reduce/);
   assert.match(apiCss, /provider-choice/);
@@ -149,4 +167,5 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(layout, /complete-game\.css/);
   assert.match(layout, /finale-campaign\.css/);
   assert.match(layout, /api-settings\.css/);
+  assert.match(layout, /weekly-council\.css/);
 });
