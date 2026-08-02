@@ -1,8 +1,8 @@
-.council-page{max-width:1180px;margin:0 auto;padding:8px 0 72px;color:#2d2924}
+.council-page{max-width:1180px;margin:0 auto;padding:8px 0 72px;color:#eee7d9}
 .council-masthead{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;margin:4px 0 18px;padding:0 4px}
-.council-masthead>div:first-child p,.free-order-heading p{margin:0 0 5px;color:#826d48;font-size:12px;font-weight:750;letter-spacing:.12em;text-transform:uppercase}
-.council-masthead h1{margin:0;font-family:var(--font-display,Georgia,serif);font-size:clamp(31px,4vw,48px);font-weight:550;letter-spacing:.04em}
-.council-masthead>div:first-child>span{display:block;margin-top:7px;color:#746e65;font-size:14px;line-height:1.65}
+.council-masthead>div:first-child p,.free-order-heading p{margin:0 0 5px;color:#d1ad6c;font-size:13px;font-weight:750;letter-spacing:.12em;text-transform:uppercase}
+.council-masthead h1{margin:0;color:#f4ead7;font-family:var(--font-display,Georgia,serif);font-size:clamp(34px,4vw,50px);font-weight:550;letter-spacing:.04em;text-shadow:0 2px 24px rgba(0,0,0,.46)}
+.council-masthead>div:first-child>span{display:block;margin-top:8px;color:#c9c1b3;font-size:15px;line-height:1.7}
 .council-rule{display:flex;align-items:flex-start;gap:10px;max-width:350px;padding:12px 14px;border:1px solid rgba(122,101,64,.18);border-radius:16px;background:rgba(255,252,244,.7);box-shadow:0 10px 30px rgba(44,35,24,.05);backdrop-filter:blur(16px)}
 .council-rule svg{flex:0 0 auto;color:#8a7248;margin-top:2px}.council-rule span{display:grid;gap:2px}.council-rule strong{font-size:13px}.council-rule small{color:#777067;font-size:12px;line-height:1.5}
 
@@ -34,6 +34,9 @@
 @media(prefers-reduced-motion:reduce){.council-haze,.council-panel{animation:none}.council-seat,.council-stages button{transition:none}}
 @media(max-width:900px){.council-masthead{align-items:flex-start;flex-direction:column}.council-rule{max-width:none}.agenda-panel{grid-template-columns:1fr}.council-pressure{grid-row:auto}.npc-proposals{grid-column:1}.agenda-panel>.panel-advance{grid-column:1}.council-room{height:380px}.council-table{width:66%}.seat-1{left:3%;top:19%}.seat-2{right:3%;top:19%}.seat-3{left:3%;bottom:22%}.seat-4{right:3%;bottom:22%}}
 @media(max-width:650px){.council-page{padding-bottom:96px}.council-room{height:470px;border-radius:22px}.council-table{width:82%;height:37%;top:48%}.council-seat{min-width:135px}.seat-1{left:4%;top:12%}.seat-2{right:4%;top:12%}.seat-3{left:4%;bottom:16%}.seat-4{right:4%;bottom:16%}.council-stages button{padding:10px 8px;justify-content:center}.council-stages button>span{display:none}.council-stages small{display:none}.member-agendas{grid-template-columns:1fr}.council-panel>header,.panel-advance,.decision-ledger>footer,.council-composer>footer{align-items:stretch;flex-direction:column}.council-side-notes{grid-template-columns:1fr}.council-masthead h1{font-size:34px}.council-panel>header h2{font-size:21px}.decision-ledger>footer>div{justify-content:space-between}.adjourn-button{justify-content:center;width:100%}}
+
+/* Readability boundary: the page sits on the dark shell, while papers retain dark ink. */
+.council-panel{color:#2d2924;background:rgba(255,253,248,.92);box-shadow:0 18px 48px rgba(0,0,0,.18)}
 
 .council-dialogue-backdrop{background:rgba(15,15,12,.68);backdrop-filter:blur(14px)}
 .living-dialogue{width:min(720px,calc(100vw - 28px));max-height:min(860px,calc(100vh - 28px));border-color:rgba(173,143,85,.32);background:linear-gradient(180deg,#fbf8f1,#f3eee5);box-shadow:0 30px 100px rgba(0,0,0,.38)}
