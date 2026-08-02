@@ -49,48 +49,6 @@ export function abilityForFreeIntent(game: GameState, intent: string): Ability {
   return scored[0]?.ability ?? abilities.find((item) => !item.passive) ?? abilities[0];
 }
 
-function targetDetail(game: GameState, context: AbilityContext) {
-  const member = game.members.find((item) => item.id === context.targetId);
-  if (member?.id === "mara") return "她汇报撤离路线时没有迟疑；提及失踪工人家属后，右手拇指反复摩擦杯沿。";
-  if (member?.id === "cedric") return "他的语速始终稳定，但你的视线移向账本第三页时，他停止了敲击桌面的动作。";
-  if (member?.id === "ines") return "她谈到匿名信时看向你的眼睛，提到前主编时视线却短暂落向没有封口的信封。";
-  if (member?.id === "rowan") return "他说到封印安全时呼吸平稳；挂坠的名字出现后，他下意识把左手藏进袖口。";
-  if (context.kind === "district") return `${context.label}的公开秩序之下存在一处节奏不协调的活动点：人员停留时间与附近机构的正常作息不符。`;
-  if (context.kind === "organization") return `${context.label}留下的日常痕迹并不均匀；最常被使用的位置，反而刚刚经过一次刻意清理。`;
-  return `${context.label}周围出现了一个可以继续验证的细节，它与现有记录并不完全一致。`;
-}
-
-function localDraft(game: GameState, ability: Ability, intent: string, context: AbilityContext): AbilityDraft {
-  const detail = targetDetail(game, context);
-  const seed = hash(`${game.week}:${ability.id}:${context.targetId ?? context.label}:${intent}:${game.abilityJournal.length}`);
-  const abilityText = `${ability.name}${ability.description}`;
-  const deepLayer = ability.sceneLayer ?? (/梦境|梦境行者|织梦/.test(abilityText) ? "dream" as const : /灵界|旅行家|漫游|星界/.test(abilityText) ? "spirit" as const : undefined);
-  const path = game.pathwayId;
-  const observation = ability.sceneLayer === "spirit" ? `你没有借助吊坠、占卜或仪式。空间边界在自身能力下变薄，现实中的声音先被拉远，随后颜色与方向同时失去日常意义。你按照原意保留了返回锚点；灵界已经展开，下一步行动仍由你决定。`
-    : ability.sceneLayer === "dream" ? `你没有替梦主补写任何记忆。意识越过清醒与睡眠的边界后，梦境以自身逻辑展开；远处的门、光线与反复出现的声音构成了第一层锚点。你已进入其中，尚未选择接触任何节点。`
-      : ability.id.startsWith("artifact-") ? `你严格按照自己描述的方式解除必要的一层封存，没有把封印物改作其他用途。${context.label}首先出现了一个可观察变化：${detail}`
-        : path === "spectator" ? detail
-    : path === "seer" ? `你收束呼吸后开启感知。${context.label}的灵性轮廓并非静止：靠近目标的一侧呈现断续的深蓝色，另有一缕灰白残留向外延伸。`
-      : path === "apprentice" ? `空间直觉把${context.label}拆成了边界与通路。你确认一处正常视线不会注意到的薄弱连接，同时记住了返回原位的相对方向。`
-        : path === "hunter" ? `你没有盯住目标本身，而是检查它必然改变的环境。${detail}`
-          : `你辨认出${context.label}上的三个神秘学层次；最外层可以解释，中层有近期重复使用痕迹，内层符号被人为抹去了关键一笔。`;
-  const interpretation = path === "spectator" ? "目标在控制语言，但身体反应说明某个具体名词触及了未被说出的私人压力；这更像隐瞒相关信息，而非证明其参与阴谋。"
-    : path === "seer" ? "残留来自近期反复接触，不像一次偶然污染；延伸方向可以用于下一次追踪，但不足以确定幕后主体。"
-      : path === "apprentice" ? "这条边界可以成为观察或撤离入口，但另一侧空间是否被非凡力量扭曲仍无法确认。"
-        : path === "hunter" ? "目标正在维持一种人为规律。打破其中一个固定环节，可能迫使它暴露新的路线或联系人。"
-          : "该结构由掌握基础神秘学的人布置，并且曾被第二个人修改；修改者更谨慎，也更了解污染隔离。";
-  const intrusive = /引导|暗示|催眠|侵入|控制|通灵|进入/.test(`${ability.name}${intent}`);
-  return {
-    observation,
-    interpretation,
-    confidence: seed % 7 === 0 ? "中等" : "较高",
-    unknown: deepLayer ? `更深层的${deepLayer === "dream" ? "梦境防御" : "灵界坐标"}仍未展开；继续会增加精神负荷。` : "目前无法区分主动伪装、外部干扰与单纯巧合，需要换一种能力或现实证据交叉验证。",
-    detection: intrusive ? (seed % 4 === 0 ? "目标似乎察觉到一瞬间的不自然，警觉正在上升。" : "目标没有确认能力来源，但本能地收紧了防御。") : "未发现目标察觉。",
-    mentalLoad: deepLayer ? 3 : intrusive ? 2 : 1,
-    deepLayer,
-  };
-}
-
 function extractJson(raw: string) {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? raw;
   const start = fenced.indexOf("{");
@@ -100,7 +58,6 @@ function extractJson(raw: string) {
 }
 
 export async function generateAbilityDraft(config: AiConfig, game: GameState, ability: Ability, intent: string, context: AbilityContext): Promise<AbilityDraft> {
-  const fallback = localDraft(game, ability, intent, context);
   const relevantHidden = game.hiddenWorldFacts.filter((item) => item.subjectKey === context.targetId || item.subjectKey === context.label).slice(-3);
   const knownLoreIds = [...new Set((game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes("player")).flatMap((node) => node.loreRecordIds ?? []))];
   const lore = retrieveLoreContext(LORE_RECORDS, { query: `${intent} ${context.label} ${ability.name}`, audience: { kind: "player", knownLoreIds, topicGrants: ["pathways", "beyonder-system"] }, limit: 10, maxChars: 4200 });
@@ -118,20 +75,21 @@ export async function generateAbilityDraft(config: AiConfig, game: GameState, ab
     recentUses: game.abilityJournal.slice(-6),
   };
   const raw = extractJson(await callModel(config, `你是非凡能力即时结算器。最高优先级是严格服从玩家写明的目的、手段、排除条件与停止条件。绝不把“主动进入灵界”改写成触碰吊坠、占卜或调查某个事件；绝不擅自添加玩家未选择的封印物、仪式、协助者或媒介。若规则允许直接进入梦境或灵界，就必须进入连续场景；若不允许，应由规则层拒绝而不是替换手段。能力必须立刻产生具体、可追问的信息，但不能直接泄露核心幕后真相，不能把心理推断冒充事实，不能替玩家行动，也不能宣布玩家死亡。已锁定隐藏事实不可改写。只返回JSON。`, `玩家原始意图是不可改写的行动契约：${intent}\n选定手段：${ability.name}（${ability.verb}）\n结算这一次使用。直接观察必须是感官可得的具体细节；专业判断要说明可信度；未知项要说明遮蔽来自哪里；察觉反馈必须明确。返回{"observation":"100至220字的即时小说式感知","interpretation":"专业判断","confidence":"较低|中等|较高|确认","unknown":"仍无法确认的部分","detection":"对方或环境是否察觉","mentalLoad":1到6,"deepLayer":"dream|spirit|null","lockedFact":"可选，只允许局部原创事实"}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 1500, temperature: .62 }));
+  if (typeof raw.observation !== "string" || typeof raw.interpretation !== "string" || typeof raw.unknown !== "string" || typeof raw.detection !== "string" || !["较低", "中等", "较高", "确认"].includes(String(raw.confidence)) || !Number.isFinite(Number(raw.mentalLoad))) throw new Error("模型没有返回完整的能力结算；本次使用未扣除灵性，也没有写入替代反馈");
+  const requestedLayer = ability.sceneLayer ?? (/进入.{0,6}梦境|梦境.{0,6}进入/.test(intent) ? "dream" as const : /进入.{0,6}灵界|灵界.{0,6}进入/.test(intent) ? "spirit" as const : undefined);
   return {
-    observation: typeof raw.observation === "string" ? raw.observation.slice(0, 800) : fallback.observation,
-    interpretation: typeof raw.interpretation === "string" ? raw.interpretation.slice(0, 500) : fallback.interpretation,
-    confidence: ["较低", "中等", "较高", "确认"].includes(String(raw.confidence)) ? raw.confidence as AbilityDraft["confidence"] : fallback.confidence,
-    unknown: typeof raw.unknown === "string" ? raw.unknown.slice(0, 400) : fallback.unknown,
-    detection: typeof raw.detection === "string" ? raw.detection.slice(0, 300) : fallback.detection,
-    mentalLoad: Math.max(1, Math.min(6, Number(raw.mentalLoad) || fallback.mentalLoad)),
-    deepLayer: fallback.deepLayer,
+    observation: raw.observation.slice(0, 800),
+    interpretation: raw.interpretation.slice(0, 500),
+    confidence: raw.confidence as AbilityDraft["confidence"],
+    unknown: raw.unknown.slice(0, 400),
+    detection: raw.detection.slice(0, 300),
+    mentalLoad: Math.max(1, Math.min(6, Number(raw.mentalLoad))),
+    deepLayer: requestedLayer,
     lockedFact: typeof raw.lockedFact === "string" && raw.lockedFact.trim() ? raw.lockedFact.trim().slice(0, 300) : undefined,
   };
 }
 
-export function resolveImmediateAbility(game: GameState, ability: Ability, intent: string, context: AbilityContext, draft?: AbilityDraft) {
-  const result = draft ?? localDraft(game, ability, intent, context);
+export function resolveImmediateAbility(game: GameState, ability: Ability, intent: string, context: AbilityContext, result: AbilityDraft) {
   const focusCost = ability.passive ? 1 : ability.cost;
   const overdraw = Math.max(0, focusCost - game.spirituality);
   const record: AbilityUseRecord = {

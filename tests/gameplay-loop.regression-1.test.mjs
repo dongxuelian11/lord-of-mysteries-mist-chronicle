@@ -48,12 +48,15 @@ test("investigation wording cannot silently create a facility", async () => {
   assert.doesNotMatch(source, /if \(\/建\|修建\|改造\|据点/);
 });
 
-test("map locations expose distinct dossiers, routes and withdrawal conditions", async () => {
-  const source = await read("app/city-map-workspace.tsx");
-  assert.match(source, /const ROUTE_NOTES/);
+test("map locations expose dossiers, sourced routes, conflicts and historical playback", async () => {
+  const [source, spatial] = await Promise.all([read("app/city-map-workspace.tsx"), read("app/spatial-intelligence.ts")]);
+  assert.match(source, /buildSpatialIntelligence/);
   assert.match(source, /function publicLocationIntel/);
-  assert.match(source, /<strong>撤离<\/strong>/);
-  assert.match(source, /地点情报与区域推断已分开记录/);
+  assert.match(source, /路线、时间与来源冲突/);
+  assert.match(source, /历史播放/);
+  assert.match(source, /玩家假设/);
+  assert.match(spatial, /DISTRICT_EDGES/);
+  assert.match(spatial, /SpatialConflict/);
 });
 
 test("city workspace responds to its own embedded width without horizontal layer scrolling", async () => {

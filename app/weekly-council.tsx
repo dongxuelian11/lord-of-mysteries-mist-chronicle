@@ -34,6 +34,7 @@ type Props = {
   onStartDiscussion: (text: string) => Promise<string | null>;
   onSummarizeTopic: (topicId: string) => Promise<void>;
   onPinTopic: (topicId: string) => void;
+  onAddRouteHypothesis: (fromDistrictId: string, toDistrictId: string, statement: string) => void;
 };
 
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -144,7 +145,7 @@ export default function WeeklyCouncil(props: Props) {
         })}</div>
         <details className="portfolio-index"><summary><span>八项职责索引</span><small>需要时展开；同一负责人只出现一次</small></summary><div>{COUNCIL_PORTFOLIOS.map((portfolio) => { const owner = portfolioOwner(game, portfolio); return <button key={portfolio.id} onClick={() => owner && props.onQuestionMember(owner.id, `请只围绕${portfolio.name}回答：先说本周新增事实与来源，再说未知，最后说明是否需要我拍板。`)}><span><strong>{portfolio.name}</strong><small>{portfolio.mandate}</small></span><b>{owner?.name ?? "待任命"}</b></button>; })}</div></details>
       </section>
-      <CityMapWorkspace game={game} selectedDistrictId={props.selectedDistrictId} onDistrict={props.onDistrict} onOpenDiscussion={(seed) => { setDiscussionText(seed); void startDiscussion(seed); }} onFormDirection={(seed, districtId) => bringToDecision(seed, districtId)} onUseAbility={props.onUseAbility} />
+      <CityMapWorkspace game={game} selectedDistrictId={props.selectedDistrictId} onDistrict={props.onDistrict} onOpenDiscussion={(seed) => { setDiscussionText(seed); void startDiscussion(seed); }} onFormDirection={(seed, districtId) => bringToDecision(seed, districtId)} onUseAbility={props.onUseAbility} onAddHypothesis={props.onAddRouteHypothesis} />
       <footer className="panel-advance"><span>议题只负责暴露问题；你可以全部搁置并提出自己的方向。</span><button onClick={() => setStage("discussion")}>进入自由讨论 <ArrowRight size={15} /></button></footer>
     </section>}
 

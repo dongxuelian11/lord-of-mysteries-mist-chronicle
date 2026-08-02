@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Archive, Eye, FileSearch, Layers3, MapPin, MessageSquareText, Newspaper, Route, Search, ShieldAlert, Sparkles, UsersRound } from "lucide-react";
+import { Archive, Check, Eye, FileSearch, Layers3, MapPin, MessageSquareText, Newspaper, Pin, Play, Route, Search, ShieldAlert, Sparkles, UsersRound } from "lucide-react";
 import { AbilityContext, DISTRICTS, GameState } from "./game-model";
+import { buildSpatialIntelligence, DISTRICT_LOCATIONS, estimateRoute, mapHistoryWeeks } from "./spatial-intelligence";
 
 type MapLayer = "network" | "factions" | "anomalies" | "city" | "risk" | "occult";
 type ProjectionKind = "observation" | "signal" | "evidence" | "order";
@@ -22,32 +23,6 @@ const LAYERS: { id: MapLayer; label: string }[] = [
   { id: "network", label: "组织网络" }, { id: "factions", label: "已知势力" }, { id: "anomalies", label: "异常案件" },
   { id: "city", label: "城市运行" }, { id: "risk", label: "风险暴露" }, { id: "occult", label: "神秘空间" },
 ];
-
-const EXTRA_LOCATIONS: Record<string, [string, string][]> = {
-  north: [["知识与蒸汽博物馆", "公开机构"], ["河畔出版社", "消息网络"]],
-  empress: [["伯爵宅邸群", "受限住宅"], ["仆役后门巷", "人员通道"]],
-  west: [["慈善晚宴会馆", "社交场所"], ["律师事务街", "身份渠道"]],
-  hillston: [["保险契约库", "受控档案"], ["交易所后巷", "灰色渠道"]],
-  cherwood: [["旧剧院街", "公共场所"], ["事务所后巷", "组织锚点"]],
-  government: [["公共工程档案厅", "官方档案"], ["议员俱乐部侧门", "受限社交"]],
-  east: [["临时招工棚", "人口节点"], ["烟囱巷救济点", "基层网络"]],
-  bridge: [["南岸换乘场", "交通节点"], ["拱桥下层通道", "隐蔽路线"]],
-  south: [["夜间义诊站", "救助网络"], ["洗衣工会会所", "社区节点"]],
-  dock: [["检疫泊位", "受控港区"], ["潮痕仓库群", "灰色货运"]],
-};
-
-const ROUTE_NOTES: Record<string, { outward: string; returnPath: string; exposure: string }> = {
-  north: { outward: "乔伍德—西区—北区的公共马车线，约45分钟", returnPath: "沿大学街向西撤入出版社街，再换乘有轨车", exposure: "教会与大学门房会记录反复来访者" },
-  empress: { outward: "乔伍德—希尔斯顿—皇后区的换乘线，约50分钟", returnPath: "不走原门，借仆役后巷退向希尔斯顿区", exposure: "贵族宅邸的访客名册会留下身份痕迹" },
-  west: { outward: "从事务所沿剧院街向西步行，约25分钟", returnPath: "沿律师街进入两处公开营业场所后分散返回", exposure: "教会、律师与私人侦探的视线彼此重叠" },
-  hillston: { outward: "沿商业马车环线直达银行街，约30分钟", returnPath: "穿过大型百货，从西侧公共出口离开", exposure: "银行与交易所保安会核对时间和着装" },
-  cherwood: { outward: "据点周边步行圈，5至18分钟", returnPath: "事务所后巷与旧剧院街均可返回据点", exposure: "同一面孔频繁活动会暴露组织的固定锚点" },
-  government: { outward: "乔伍德—希尔斯顿—政府区公交线，约40分钟", returnPath: "从市政厅南侧进入桥区交通网", exposure: "证件、申请与查档都会形成可检索记录" },
-  east: { outward: "先至桥区换乘，再从招工市场进入东区，约65分钟", returnPath: "沿烟囱巷向南退至诊所网络，避免原路返回", exposure: "帮派、工头与便衣会注意不属于本地的人" },
-  bridge: { outward: "从乔伍德沿南向马车线直达总站，约35分钟", returnPath: "通过旧货市场更换交通工具后返回", exposure: "换乘点人多，但黑市会记住打听特殊货物的人" },
-  south: { outward: "经桥区南岸换乘场进入，约55分钟", returnPath: "借诊所与洗衣工会的社区通道向西撤离", exposure: "外来者容易被紧密的社区关系识别" },
-  dock: { outward: "经桥区货运线抵达港务外围，约75分钟", returnPath: "优先走水手区公共码头，必要时改走水路", exposure: "海关、走私者与港务雇员同时记录货物动向" },
-};
 
 function publicLocationIntel(name: string, type: string) {
   const entrances = /档案|图书馆|博物馆|事务/.test(name) ? "公开柜台、工作人员入口和闭馆后的货运门"
@@ -97,6 +72,7 @@ type Props = {
   onOpenDiscussion: (seed: string) => void;
   onFormDirection: (seed: string, districtId: string) => void;
   onUseAbility: (context: AbilityContext, prompt: string) => void;
+  onAddHypothesis: (fromDistrictId: string, toDistrictId: string, statement: string) => void;
 };
 
 export default function CityMapWorkspace(props: Props) {
@@ -104,14 +80,27 @@ export default function CityMapWorkspace(props: Props) {
   const [showHistory, setShowHistory] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedProjectionId, setSelectedProjectionId] = useState("");
+  const historyWeeks = useMemo(() => mapHistoryWeeks(props.game), [props.game]);
+  const [playbackWeek, setPlaybackWeek] = useState(props.game.week);
+  const [selectedRouteId, setSelectedRouteId] = useState("");
+  const [hypothesisFrom, setHypothesisFrom] = useState(props.game.organizationProfile.headquartersDistrictId);
+  const [hypothesisTo, setHypothesisTo] = useState(props.selectedDistrictId);
+  const [hypothesisText, setHypothesisText] = useState("");
+  const [contextIds, setContextIds] = useState<string[]>([]);
   const district = DISTRICTS.find((item) => item.id === props.selectedDistrictId) ?? DISTRICTS[0];
   const [selectedLocation, setSelectedLocation] = useState(district.landmarks[0]);
-  const locations = useMemo(() => [...district.landmarks.map((name, index) => [name, index === 0 ? "主要地标" : "固定地点"] as [string, string]), ...(EXTRA_LOCATIONS[district.id] ?? [])], [district]);
+  const locations = useMemo(() => [...district.landmarks.map((name, index) => [name, index === 0 ? "主要地标" : "固定地点"] as [string, string]), ...(DISTRICT_LOCATIONS[district.id] ?? []).map((item) => [item.name, item.kind] as [string, string])], [district]);
   const activeLocation = locations.find(([name]) => name === selectedLocation)?.[0] ?? locations[0]?.[0] ?? district.name;
   const activeType = locations.find(([name]) => name === activeLocation)?.[1] ?? "固定地点";
   const publicIntel = publicLocationIntel(activeLocation, activeType);
-  const route = ROUTE_NOTES[district.id];
-  const liveLocation = props.game.worldKernel?.locations.find((item) => item.id === district.id);
+  const playbackSnapshot = showHistory ? props.game.worldSnapshots.find((item) => item.week === playbackWeek) : undefined;
+  const displayedRisk = (districtId: string) => playbackSnapshot?.districtStates?.find((item) => item.districtId === districtId)?.risk ?? props.game.worldKernel?.locations.find((item) => item.id === districtId)?.risk ?? DISTRICTS.find((item) => item.id === districtId)?.danger ?? 0;
+  const spatial = useMemo(() => buildSpatialIntelligence(props.game, showHistory ? playbackWeek : props.game.week), [playbackWeek, props.game, showHistory]);
+  const activeRoutes = useMemo(() => spatial.routes.filter((route) => route.fromDistrictId === district.id || route.toDistrictId === district.id).slice(0, 5), [district.id, spatial.routes]);
+  const selectedRoute = activeRoutes.find((route) => route.id === selectedRouteId) ?? activeRoutes[0];
+  const selectedRouteSources = selectedRoute ? spatial.sources.filter((source) => selectedRoute.sourceIds.includes(source.id)) : [];
+  const selectedRouteConflict = selectedRoute?.conflictIds.length ? spatial.conflicts.find((conflict) => selectedRoute.conflictIds.includes(conflict.id)) : undefined;
+  const mapRoutes = spatial.routes.slice(0, 5);
 
   const projections = useMemo<MapProjection[]>(() => {
     const kernel = props.game.worldKernel;
@@ -142,7 +131,7 @@ export default function CityMapWorkspace(props: Props) {
   }, [props.game]);
 
   const latestWorldWeek = Math.max(1, props.game.worldSnapshots?.[0]?.week ?? props.game.week - 1);
-  const visibleProjections = useMemo(() => projections.filter((item) => showHistory || item.kind === "evidence" || item.kind === "order" || item.week >= latestWorldWeek), [latestWorldWeek, projections, showHistory]);
+  const visibleProjections = useMemo(() => projections.filter((item) => showHistory ? item.week <= playbackWeek : item.kind === "evidence" || item.kind === "order" || item.week >= latestWorldWeek), [latestWorldWeek, playbackWeek, projections, showHistory]);
   const layerProjections = useMemo(() => visibleProjections.filter((item) => projectionMatchesLayer(item, layer)), [layer, visibleProjections]);
   const districtProjections = layerProjections.filter((item) => item.districtId === district.id);
   const selectedProjection = districtProjections.find((item) => item.id === selectedProjectionId) ?? districtProjections[0];
@@ -150,8 +139,7 @@ export default function CityMapWorkspace(props: Props) {
 
   function layerSummary(id: string) {
     const count = layerProjections.filter((item) => item.districtId === id).length;
-    const location = props.game.worldKernel?.locations.find((item) => item.id === id);
-    if (layer === "risk") return `${location?.risk ?? DISTRICTS.find((item) => item.id === id)?.danger ?? 0} 风险 · ${count}项动静`;
+    if (layer === "risk") return `${displayedRisk(id)} 风险 · ${count}项动静`;
     return count ? `${count}项可读动静` : "本层暂无消息";
   }
 
@@ -168,19 +156,24 @@ export default function CityMapWorkspace(props: Props) {
       <label className="map-query"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="让情报负责人整理一个空间问题……" /><button disabled={!query.trim()} onClick={() => props.onOpenDiscussion(`请情报负责人依据现有地图、消息和档案整理：${query.trim()}。必须区分确认、推断与未知。`)}>带入讨论</button></label>
     </header>
     <nav className="map-layers" aria-label="地图图层">{LAYERS.map((item) => <button key={item.id} className={layer === item.id ? "active" : ""} onClick={() => setLayer(item.id)}><Layers3 size={13} />{item.label}</button>)}</nav>
-    <div className="map-legend" aria-label="地图投射图例"><span><Newspaper size={12} />城市消息</span><span><Eye size={12} />观察回声</span><span><FileSearch size={12} />证据</span><span><UsersRound size={12} />本周决议</span><button className={showHistory ? "active" : ""} aria-pressed={showHistory} onClick={() => setShowHistory((value) => !value)}><Archive size={12} />{showHistory ? "收起历史" : "查看历史"}</button><b>{layerProjections.length}项{showHistory ? "历史投射" : "近期投射"}</b></div>
+    <div className="map-legend" aria-label="地图投射图例"><span><Newspaper size={12} />城市消息</span><span><Eye size={12} />观察回声</span><span><FileSearch size={12} />证据</span><span><UsersRound size={12} />本周决议</span><button className={showHistory ? "active" : ""} aria-pressed={showHistory} onClick={() => { setShowHistory((value) => !value); setPlaybackWeek(props.game.week); }}><Archive size={12} />{showHistory ? "退出历史播放" : "历史播放"}</button><b>{layerProjections.length}项{showHistory ? `截至第${playbackWeek}周` : "近期投射"}</b></div>
+    {showHistory && <div className="map-history-player"><Play size={13} /><strong>组织当时知道的贝克兰德</strong><input type="range" min={0} max={Math.max(0, historyWeeks.length - 1)} value={Math.max(0, historyWeeks.indexOf(playbackWeek))} onChange={(event) => setPlaybackWeek(historyWeeks[Number(event.target.value)] ?? props.game.week)} /><span>第 {playbackWeek} 周</span><small>后来的证据不会倒灌进旧周视野</small></div>}
     <div className={`map-workbench layer-${layer}`}>
       <div className="engraved-map" aria-label="贝克兰德行政区与动态世界投射">
         <div className="map-paper-grain" /><div className="map-thames" />
-        {DISTRICTS.map((item) => { const liveRisk = props.game.worldKernel?.locations.find((entry) => entry.id === item.id)?.risk ?? item.danger; return <button key={item.id} className={`engraved-district ${item.id === district.id ? "selected" : ""} ${liveRisk >= 65 ? "danger" : ""}`} style={{ left: `${item.x}%`, top: `${item.y}%` }} onClick={() => chooseDistrict(item.id)}><span>{item.name}</span><small>{layerSummary(item.id)}</small></button>; })}
+        <div className="known-route-layer" aria-label="已知路线">{mapRoutes.map((route) => { const from = DISTRICTS.find((item) => item.id === route.fromDistrictId); const to = DISTRICTS.find((item) => item.id === route.toDistrictId); if (!from || !to) return null; const dx = to.x - from.x; const dy = to.y - from.y; const width = Math.sqrt(dx * dx + dy * dy); const angle = Math.atan2(dy, dx) * 180 / Math.PI; return <button key={route.id} className={`known-route ${route.status === "有冲突" ? "conflicted" : route.status === "玩家假设" ? "hypothesis" : ""} ${selectedRoute?.id === route.id ? "selected" : ""}`} style={{ left: `${from.x + 4}%`, top: `${from.y + 3}%`, width: `${width}%`, transform: `rotate(${angle}deg)` }} title={`${route.subject} · ${route.earliestMinutes}—${route.latestMinutes}分钟`} onClick={() => { setSelectedRouteId(route.id); chooseDistrict(route.toDistrictId); }}><i /><span>{route.status}</span></button>; })}</div>
+        {DISTRICTS.map((item) => { const liveRisk = displayedRisk(item.id); return <button key={item.id} className={`engraved-district ${item.id === district.id ? "selected" : ""} ${liveRisk >= 65 ? "danger" : ""}`} style={{ left: `${item.x}%`, top: `${item.y}%` }} onClick={() => chooseDistrict(item.id)}><span>{item.name}</span><small>{layerSummary(item.id)}</small></button>; })}
         {DISTRICTS.map((item) => { const items = layerProjections.filter((projection) => projection.districtId === item.id); if (!items.length) return null; const latest = items[0]; return <button key={`projection-${item.id}`} className={`map-projection-marker kind-${latest.kind} ${item.id === district.id ? "selected" : ""}`} style={{ left: `${Math.min(92, item.x + 8)}%`, top: `${Math.max(8, item.y - 7)}%` }} onClick={() => chooseDistrict(item.id, latest.id)} aria-label={`${item.name}有${items.length}项${LAYERS.find((entry) => entry.id === layer)?.label}动静：${latest.title}`} title={`${latest.title} · 第${latest.week}周`}><span>{latest.kind === "order" ? <UsersRound size={13} /> : latest.kind === "evidence" ? <FileSearch size={13} /> : latest.kind === "signal" ? <Newspaper size={13} /> : <Eye size={13} />}</span><b>{items.length}</b></button>; })}
         <div className="map-scale"><Route size={13} />动态标记只代表已知投射，不代表幕后全貌</div>
       </div>
       <aside className="district-workspace">
-        <header><span><MapPin size={15} /></span><div><small>{district.subtitle}</small><h3>{district.name}</h3></div><b className={(liveLocation?.risk ?? district.danger) >= 65 ? "danger" : ""}>{liveLocation?.risk ?? district.danger} 风险</b></header>
+        <header><span><MapPin size={15} /></span><div><small>{district.subtitle}</small><h3>{district.name}</h3></div><b className={displayedRisk(district.id) >= 65 ? "danger" : ""}>{displayedRisk(district.id)} 风险</b></header>
         <p>{district.background}</p>
         <section className="map-projection-feed"><header><strong>{showHistory ? "本图层的历史档案" : "最近一周的已知动静"}</strong><small>{districtProjections.length ? `${districtProjections.length}项 · 最近第${districtProjections[0].week}周` : "没有可显示记录"}</small></header>{districtProjections.length ? <div>{districtProjections.slice(0, 6).map((projection) => <button key={projection.id} className={selectedProjection?.id === projection.id ? "active" : ""} onClick={() => setSelectedProjectionId(projection.id)}><span><b>{projectionLabel(projection.kind)}</b><small>第{projection.week}周 · {projection.source}</small></span><strong>{projection.title}</strong><p>{projection.detail}</p>{projection.factionName && <em>已知关联：{projection.factionName}</em>}</button>)}</div> : <p className="empty-projections">这一图层暂时没有组织可知的变化。世界仍在运行，只是尚未留下能送上议桌的来源。</p>}</section>
-        <details className="location-dossier"><summary><span>地点档案与往返路线</span><small>地点情报与区域推断已分开记录 · {locations.length}个固定地点</small></summary><div className="location-grid">{locations.map(([name, type]) => <button key={name} className={activeLocation === name ? "active" : ""} onClick={() => setSelectedLocation(name)}><span>{name}</span><small>{type} · {knownMarker(props.game, district.id, name)}</small></button>)}</div><article className="location-brief"><header><strong>{activeLocation}</strong><span>{activeType} · 地点档案</span></header><p><b>已确认：</b>{knownEvidence.length ? knownEvidence.map((item) => `${item.label}——${item.summary}`).join("；") : `${activeLocation}的公开用途属于“${activeType}”；可观察入口包括${publicIntel.entrances}。`}</p><p><b>可核验：</b>无需预设阴谋即可检查{publicIntel.observable}。这些结果只能形成地点证据，不能直接证明幕后主体。</p><div className="route-brief"><span><Route size={13} /><strong>去程</strong>{route.outward}</span><span><Route size={13} /><strong>撤离</strong>{route.returnPath}</span><span><ShieldAlert size={13} /><strong>暴露</strong>{route.exposure}</span></div></article></details>
+        <details className="location-dossier"><summary><span>地点档案</span><small>地点与路线分开记账 · {locations.length}个固定地点</small></summary><div className="location-grid">{locations.map(([name, type]) => <button key={name} className={activeLocation === name ? "active" : ""} onClick={() => setSelectedLocation(name)}><span>{name}</span><small>{type} · {knownMarker(props.game, district.id, name)}</small></button>)}</div><article className="location-brief"><header><strong>{activeLocation}</strong><span>{activeType} · 地点档案</span></header><p><b>已确认：</b>{knownEvidence.length ? knownEvidence.map((item) => `${item.label}——${item.summary}`).join("；") : `${activeLocation}的公开用途属于“${activeType}”；可观察入口包括${publicIntel.entrances}。`}</p><p><b>可核验：</b>可以检查{publicIntel.observable}。地点事实本身不能直接证明幕后主体。</p></article></details>
+        <section className="route-intelligence"><header><div><Route size={14} /><strong>路线、时间与来源冲突</strong></div><small>最多展开5条活跃路线</small></header>{activeRoutes.length ? <div className="route-claim-list">{activeRoutes.map((route) => <button key={route.id} className={`${selectedRoute?.id === route.id ? "active" : ""} ${route.status === "有冲突" ? "conflicted" : ""}`} onClick={() => setSelectedRouteId(route.id)}><span>{DISTRICTS.find((item) => item.id === route.fromDistrictId)?.name} → {DISTRICTS.find((item) => item.id === route.toDistrictId)?.name}</span><strong>{route.subject}</strong><small>{route.earliestMinutes}—{route.latestMinutes}分钟 · 第{route.week}周 · {route.status}</small></button>)}</div> : <p className="empty-projections">当前没有来源足以画成行动路线。世界中的秘密移动不会因为地图空白而自动暴露。</p>}{selectedRoute && <article className="route-source-card"><p>{selectedRoute.purpose}</p><div>{selectedRouteSources.map((source) => <span key={source.id}><b>{source.reliability}</b>{source.label} · 第{source.week}周</span>)}</div>{selectedRouteConflict && <p className="route-conflict"><ShieldAlert size={13} /><strong>{selectedRouteConflict.title}</strong>{selectedRouteConflict.question}</p>}<button onClick={() => setContextIds((current) => current.includes(selectedRoute.id) ? current.filter((id) => id !== selectedRoute.id) : [...current, selectedRoute.id].slice(-4))}>{contextIds.includes(selectedRoute.id) ? <Check size={13} /> : <Pin size={13} />}{contextIds.includes(selectedRoute.id) ? "已放入空间篮" : "放入空间篮"}</button></article>}</section>
+        <details className="route-hypothesis"><summary><Route size={13} />提出一条玩家假设路线</summary><div><select value={hypothesisFrom} onChange={(event) => setHypothesisFrom(event.target.value)}>{DISTRICTS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><span>→</span><select value={hypothesisTo} onChange={(event) => setHypothesisTo(event.target.value)}>{DISTRICTS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><textarea value={hypothesisText} onChange={(event) => setHypothesisText(event.target.value)} placeholder="写下你怀疑谁、为何移动，以及希望核验什么。地图不会把它当成事实。" /><small>规则基线：约{estimateRoute(props.game, hypothesisFrom, hypothesisTo).minutes.join("—")}分钟；异常能力、封锁和污染可能改变区间。</small><button disabled={!hypothesisText.trim() || hypothesisFrom === hypothesisTo} onClick={() => { props.onAddHypothesis(hypothesisFrom, hypothesisTo, hypothesisText.trim()); setHypothesisText(""); }}>记录为“玩家假设”</button></details>
+        <div className="map-context-basket"><header><span><Pin size={13} />空间情报篮</span><b>{contextIds.length}/4</b></header><p>{contextIds.length ? activeRoutes.filter((route) => contextIds.includes(route.id)).map((route) => route.subject).join("；") : "从路线档案中钉住需要一起讨论的空间事实。"}</p><div><button disabled={!spatial.routes.length && !spatial.conflicts.length} onClick={() => props.onOpenDiscussion(`请一键整理当前地图情报。只依据第${showHistory ? playbackWeek : props.game.week}周以前可知的${spatial.routes.length}条路线与${spatial.conflicts.length}项来源冲突，分别列出已确认、相互冲突、关键缺口和可用的核验手段；不要自动形成任务。`)}>一键整理空间情报</button><button disabled={!contextIds.length} onClick={() => props.onFormDirection(`围绕以下已钉住的空间情报形成一个总体推进方向：${activeRoutes.filter((route) => contextIds.includes(route.id)).map((route) => `${route.subject}（${route.purpose}）`).join("；")}。我要实现的是：`, district.id)}>带入决议</button></div></div>
         <div className="map-actions">
           <button onClick={() => props.onUseAbility({ kind: "district", targetId: `${district.id}:${activeLocation}`, label: `${district.name}·${activeLocation}` }, `我以${activeLocation}为明确空间目标，自由使用选定能力；只采用我随后指定的手段，不得擅自改用仪式、吊坠或其他封印物。`)}><Sparkles size={14} />立即使用能力</button>
           <button onClick={() => props.onOpenDiscussion(`围绕${district.name}${selectedProjection ? `的“${selectedProjection.title}”` : `的${activeLocation}`}展开内部自由讨论。请依据地图中标注的来源与时间，区分事实、推断与未知，并指出是否值得投入本周资源。`)}><MessageSquareText size={14} />带入内部讨论</button>

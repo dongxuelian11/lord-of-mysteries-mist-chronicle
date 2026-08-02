@@ -950,8 +950,15 @@ export function resolveWeek(game: GameState) {
   const facilityCost = facilities.filter((item) => item.status === "运转中").reduce((sum, item) => sum + (item.maintenance ?? Math.max(2, item.level * 3)), 0) + game.organizationProfile.satellites.reduce((sum, item) => sum + item.upkeep, 0);
   const departmentCost = game.departments.reduce((sum, item) => sum + item.budget, 0);
   const actionCost = results.reduce((sum, item) => sum + item.contract.budget, 0);
-  money += coverIncome + contractIncome - facilityCost - departmentCost;
-  const economyEntry = { week: game.week, coverIncome, contractIncome, facilityCost, departmentCost, actionCost, balance: money };
+  const staffSupport = members.reduce((sum, member) => sum + (member.pathway ? 5 : 3), 0);
+  money += coverIncome + contractIncome - facilityCost - departmentCost - staffSupport;
+  const commitments = [
+    ...facilities.filter((item) => item.status === "运转中").map((item) => ({ id: `facility:${item.id}`, label: item.name, amount: item.maintenance ?? Math.max(2, item.level * 3), dueWeek: nextWeek, kind: "设施" as const })),
+    ...game.departments.map((item) => ({ id: `department:${item.id}`, label: item.name, amount: item.budget, dueWeek: nextWeek, kind: "部门" as const })),
+    { id: `staff:${nextWeek}`, label: `${members.length}名核心成员的生活与身份维持`, amount: staffSupport, dueWeek: nextWeek, kind: "人员" as const },
+  ];
+  const expectedBalance = money + coverIncome - commitments.reduce((sum, item) => sum + item.amount, 0);
+  const economyEntry = { week: game.week, coverIncome, contractIncome, facilityCost, departmentCost, actionCost, staffSupport, balance: money, expectedBalance, commitments };
   const baseDeviation = Math.min(100, game.deviation + results.filter((result) => result.outcome === "成功").length * .55 + results.reduce((sum, item) => sum + (item.unlockedEvidenceIds?.length ?? 0), 0) * .32);
   const pivotResolution = buildPivots(game, nextWeek, evidenceNodes, factions, baseDeviation);
   let timeline = timelineAfterWeek(game.timeline, nextWeek, evidenceNodes);
@@ -974,11 +981,10 @@ export function resolveWeek(game: GameState) {
   // table from impersonating a living world.
   const canonActors = game.canonActors.map((actor) => ({ ...actor }));
   const cases = updateCases(game, evidenceNodes, nextWeek);
-  const ending = game.ending.phase === "running" && nextWeek >= 21
-    ? { ...game.ending, phase: "finale" as const, campaign: createFinaleCampaign() }
-    : game.ending;
+  const shouldEnterFinale = game.ending.phase === "running" && nextWeek >= 21;
+  const ending = game.ending;
   const organizationCausality = advanceOrganizationCausality({ ...game, members, recruitPool }, results, nextWeek);
-  const nextState: GameState = {
+  let nextState: GameState = {
     ...game,
     week: nextWeek,
     date: addWeeksToDate(nextWeek),
@@ -1024,6 +1030,7 @@ export function resolveWeek(game: GameState) {
     playerCondition,
     ending,
   };
+  if (shouldEnterFinale) nextState = { ...nextState, ending: { ...nextState.ending, phase: "finale", campaign: createFinaleCampaign(nextState) } };
   return { state: nextState, chapter };
 }
 
@@ -1040,7 +1047,7 @@ function validateChapter(value: Record<string, unknown>) {
 }
 
 function literaryAgencyIssue(chapter: ReturnType<typeof validateChapter>, game: GameState, local: ChronicleChapter) {
-  if (local.results.length) return null;
+  if (local.results.length || local.title.startsWith("终局")) return null;
   const prose = chapter.sections.flatMap((section) => section.paragraphs).join("\n");
   const identities = [game.playerName, game.playerName.split("·").at(-1), ...game.members.map((member) => member.name)]
     .filter(Boolean)
@@ -1084,8 +1091,11 @@ export async function generateLiteraryChapter(config: AiConfig, game: GameState,
     worldState: (() => { const snapshot = game.worldSnapshots?.find((item) => item.week === local.week); return snapshot ? { week: snapshot.week, date: snapshot.date, publicAtmosphere: snapshot.atmosphere } : null; })(),
     publicSignals: game.worldSignals?.filter((signal) => signal.week === local.week).slice(0, 8).map((signal) => ({ ...signal, relatedFactionId: undefined })) ?? [],
     playerWorldKnowledge: game.worldKernel.knowledge.filter((node) => node.visibility === "public" || node.holderIds.includes("player")).slice(-16),
+    finale: game.ending.campaign ? { stage: game.ending.campaign.stage, doctrine: game.ending.campaign.doctrine, reports: game.ending.campaign.reports.slice(0, 2), aftermath: game.ending.campaign.aftermath } : null,
     localReference: local.sections,
-    agencyBoundary: local.results.length
+    agencyBoundary: game.ending.campaign && local.title.startsWith("终局")
+      ? "这是已经由终局规则结算的阶段。只能叙述finale.reports和aftermath里锁定的行动与代价，不得新增行动、幸存、死亡或胜利。"
+      : local.results.length
       ? "玩家与组织成员只能执行results.contract中明确结算的行动，不得扩写契约之外的外出、接触、调查或取证。"
       : "本周没有任何玩家决议。玩家与组织成员不得离开据点、调查、接触、追踪、取证、获得新文件或自行决定下一步；只能阅读publicSignals、维持据点日常与观察城市公开变化。",
     forbidden: ["改变行动成败", "新增未经结算的线索", "泄露幕后真相", "替玩家决定内心信念", "擅自判定玩家死亡", "让无决议玩家或成员自行外出调查"],
@@ -1121,26 +1131,7 @@ export type SituationBrief = {
   paragraphs: string[];
 };
 
-export function localSituationBrief(game: GameState): SituationBrief {
-  const pressure = game.missions.find((mission) => mission.state === "active");
-  const snapshot = game.worldSnapshots?.[0];
-  const signals = (game.worldSignals ?? []).filter((signal) => signal.week >= Math.max(1, game.week - 1)).slice(0, 3);
-  return {
-    title: game.week === 1 ? "雨水还留在门槛上" : `第${game.week}周 · 城市没有等候`,
-    dateline: `${game.date} · 贝克兰德 · ${game.organizationName}`,
-    paragraphs: [
-      game.week === 1
-        ? `廷根的一名年轻人刚从死亡中醒来。数百里外，贝克兰德的煤烟正压在屋脊之间；你的事务所已经收到一件不属于普通委托的东西。黑玻璃挂坠被锁进储藏间，浸水名单摊在灯下，送信的人却没有回来。`
-        : snapshot?.atmosphere ?? `你离开密议室的这些日子里，贝克兰德继续吞吐煤烟、货物、消息与失踪者。组织保存下来的记录只照亮了其中很小的一部分。`,
-      pressure ? `${pressure.premise} 这不是替你规定道路的任务，而是一件正在发生、会在${pressure.deadline}周后自行越过临界点的事。` : "眼下没有一项压力要求你立刻回应，但各方计划仍在向前推进。",
-      signals.length ? signals.map((signal) => `${signal.channel}带来一条消息：“${signal.headline}”。${signal.body}`).join(" ") : "桌面上还没有足够的新消息。窗外仍有马车经过，城市的沉默并不等于安全。",
-      `你以序列${game.currentSequence}·${PATHWAYS[game.pathwayId].sequences.find((sequence) => sequence.rank === game.currentSequence)?.name}的身份主持这个未获许可的组织。你可以召集成员、追问消息、发动能力、改变据点与组织结构，也可以整周不下达命令；无论选择什么，世界都会继续运行。`,
-    ],
-  };
-}
-
 export async function generateSituationBrief(config: AiConfig, game: GameState): Promise<SituationBrief> {
-  const fallback = localSituationBrief(game);
   const lore = loreForPlayer(game, `${game.date} 贝克兰德 ${game.missions.filter((item) => item.state === "active").map((item) => item.title).join(" ")} ${game.worldSignals.slice(0, 5).map((item) => item.headline).join(" ")}`);
   const payload = {
     week: game.week,
@@ -1156,10 +1147,11 @@ export async function generateSituationBrief(config: AiConfig, game: GameState):
     loreRecordIds: lore.records.map((item) => item.id),
   };
   const raw = extractJson(await callModel(config, "你为原创维多利亚神秘主义互动小说《灰雾纪事》写玩家进入存档时看到的当前现状。它必须像小说真正开始的一页，不是教程、任务清单、系统摘要或模板化周报。使用有限视角、具体物件、声音、天气、人物动作与消息来源，让玩家理解此刻身在何处、世界刚发生了什么、什么压力正在逼近以及自己可以自由行动。不要替玩家决定情绪或选择，不泄露角色未知的幕后真相，不复制任何现成小说句子。只返回JSON。", `写一个标题、日期行和3至6个自然段。段落可以长短不一，不要使用“当前状况/你的目标/建议行动”之类标签。返回{"title":"小说式标题","dateline":"日期与地点","paragraphs":["完整段落"]}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 3200, temperature: .92 }));
-  const title = typeof raw.title === "string" && raw.title.trim() ? raw.title.trim().slice(0, 80) : fallback.title;
-  const dateline = typeof raw.dateline === "string" && raw.dateline.trim() ? raw.dateline.trim().slice(0, 120) : fallback.dateline;
+  const title = typeof raw.title === "string" && raw.title.trim() ? raw.title.trim().slice(0, 80) : "";
+  const dateline = typeof raw.dateline === "string" && raw.dateline.trim() ? raw.dateline.trim().slice(0, 120) : "";
   const paragraphs = Array.isArray(raw.paragraphs) ? raw.paragraphs.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim().slice(0, 1200)).slice(0, 6) : [];
-  return { title, dateline, paragraphs: paragraphs.length ? paragraphs : fallback.paragraphs };
+  if (!title || !dateline || paragraphs.length < 3) throw new Error("模型没有返回完整的开局现状页；游戏仍停留在标题页，不会显示模板替代内容");
+  return { title, dateline, paragraphs };
 }
 
 export async function generateNpcDialogue(config: AiConfig, game: GameState, memberId: string, playerText: string, context: "council" | "private" = "council"): Promise<NpcDialogueResult> {
@@ -1275,13 +1267,16 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   if (worldMoves.length < 2) throw new Error("世界模型没有让足够的独立势力采取行动，本周拒绝结算");
   const summaryValue = raw.worldSummary && typeof raw.worldSummary === "object" && !Array.isArray(raw.worldSummary) ? raw.worldSummary as Record<string, unknown> : {};
   const list = (value: unknown, limit: number) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, limit).map((item) => item.slice(0, 260)) : [];
-  const latestLocalSnapshot = (game.worldSnapshots ?? []).find((snapshot) => snapshot.week === chapter.week);
+  const atmosphere = typeof summaryValue.atmosphere === "string" ? summaryValue.atmosphere.trim().slice(0, 420) : "";
+  if (!atmosphere) throw new Error("世界模型没有返回本周城市气氛；本周拒绝结算，不使用本地替代文本");
   const worldSnapshot: WorldSnapshot = {
     week: chapter.week,
     date: chapter.date,
-    atmosphere: typeof summaryValue.atmosphere === "string" && summaryValue.atmosphere.trim() ? summaryValue.atmosphere.trim().slice(0, 420) : latestLocalSnapshot?.atmosphere ?? "城市在组织视野之外继续运转。",
+    atmosphere,
     changes: publicSignals.slice(0, 6).map((signal) => `${signal.channel}：${signal.headline}`),
-    undercurrents: list(summaryValue.undercurrents, 4).length ? list(summaryValue.undercurrents, 4) : latestLocalSnapshot?.undercurrents ?? [],
+    undercurrents: list(summaryValue.undercurrents, 4),
+    eventIds: worldKernel.events.filter((event) => event.week === chapter.week).map((event) => event.id),
+    districtStates: worldKernel.locations.map((location) => ({ districtId: location.id, risk: location.risk, stability: location.stability, conditions: location.conditions.slice(-4) })),
   };
   let missions = game.missions;
   const pressure = raw.emergentPressure;

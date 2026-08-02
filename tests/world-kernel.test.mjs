@@ -6,7 +6,7 @@ import { createInitialGame } from "../app/game-model.ts";
 
 test("a new campaign begins with a persistent anchored world, not an empty weekly summary shell", () => {
   const game = createInitialGame("spectator");
-  assert.equal(game.version, 14);
+  assert.equal(game.version, 15);
   assert.equal(game.worldKernel.canon.mode, "anchored");
   assert.ok(game.worldKernel.projects.length >= game.factions.length + game.timeline.length);
   assert.ok(game.worldKernel.actors.some((actor) => actor.id === "klein" && actor.locationId === "tingen"));

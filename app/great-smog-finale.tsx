@@ -47,12 +47,12 @@ export default function GreatSmogFinale({ game, busy, onDoctrine, onAssign, onAu
       <header className="smog-command-header">
         <div className="smog-mark"><CloudFog size={24} /></div>
         <div>
-          <p>贝克兰德大雾霾 · 第 {campaign.stage}/4 阶段</p>
+          <p>贝克兰德终局窗口 · 第 {campaign.stage} 阶段</p>
           <h1 id="smog-title">{campaign.stageTitle}</h1>
           <span>{campaign.stageBrief}</span>
         </div>
-        <div className="smog-stage-track" aria-label={`终局第${campaign.stage}阶段，共4阶段`}>
-          {[1, 2, 3, 4].map((stage) => <i key={stage} className={stage <= campaign.stage ? "active" : ""}>{stage}</i>)}
+        <div className="smog-stage-track" aria-label={`终局第${campaign.stage}阶段，后续长度由世界状态决定`}>
+          {Array.from({ length: Math.max(campaign.totalStages ?? 3, campaign.stage) }, (_, index) => index + 1).map((stage) => <i key={stage} className={stage <= campaign.stage ? "active" : ""}>{stage}</i>)}
         </div>
       </header>
 
@@ -64,7 +64,7 @@ export default function GreatSmogFinale({ game, busy, onDoctrine, onAssign, onAu
       </section>
 
       {!campaign.doctrine ? <section className="smog-doctrine">
-        <header><Route size={17} /><div><strong>先确定组织立场</strong><span>这是方向，不是自动结局；之后仍需完成四阶段部署。</span></div></header>
+        <header><Route size={17} /><div><strong>先确定组织立场</strong><span>这是方向，不是预设任务。危机前线与阶段数量会由世界状态继续生成。</span></div></header>
         <div>{DOCTRINES.map((item) => <button key={item.id} onClick={() => onDoctrine(item.id)}>
           <span>{item.id}</span><strong>{item.title}</strong><p>{item.description}</p><small>{item.cost}</small>
         </button>)}</div>

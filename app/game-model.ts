@@ -388,6 +388,11 @@ export type EconomyLedger = {
   departmentCost: number;
   actionCost: number;
   balance: number;
+  staffSupport?: number;
+  debtPayment?: number;
+  exceptionalCost?: number;
+  expectedBalance?: number;
+  commitments?: { id: string; label: string; amount: number; dueWeek: number; kind: "设施" | "部门" | "人员" | "债务" | "行动" }[];
 };
 
 export type WorldMove = {
@@ -416,6 +421,59 @@ export type WorldSnapshot = {
   atmosphere: string;
   changes: string[];
   undercurrents: string[];
+  eventIds?: string[];
+  districtStates?: { districtId: string; risk: number; stability: number; conditions: string[] }[];
+};
+
+export type SpatialSource = {
+  id: string;
+  label: string;
+  kind: "现场观察" | "报纸" | "街谈" | "官方记录" | "组织命令" | "证据" | "非凡感知";
+  week: number;
+  reliability: "低" | "中" | "高" | "确认";
+};
+
+export type SpatialRouteClaim = {
+  id: string;
+  fromDistrictId: string;
+  toDistrictId: string;
+  subject: string;
+  purpose: string;
+  earliestMinutes: number;
+  latestMinutes: number;
+  week: number;
+  moment: number;
+  status: "已确认" | "较可信" | "有冲突" | "玩家假设";
+  sourceIds: string[];
+  conflictIds: string[];
+  visibility: "player" | "world";
+};
+
+export type SpatialConflict = {
+  id: string;
+  title: string;
+  routeIds: string[];
+  sourceIds: string[];
+  question: string;
+  status: "未解决" | "部分核验" | "已解决";
+  week: number;
+};
+
+export type PlayerRouteHypothesis = {
+  id: string;
+  createdWeek: number;
+  fromDistrictId: string;
+  toDistrictId: string;
+  statement: string;
+  status: "玩家假设" | "已证伪" | "已转为线索";
+};
+
+export type SpatialContextItem = {
+  id: string;
+  kind: "区域" | "地点" | "路线" | "来源冲突";
+  label: string;
+  detail: string;
+  districtId?: string;
 };
 
 export type CaseFile = {
@@ -481,7 +539,7 @@ export type FinaleDoctrine = "阻止" | "利用" | "改变" | "逃离";
 
 export type FinaleCrisis = {
   id: string;
-  stage: 1 | 2 | 3 | 4;
+  stage: number;
   districtId: string;
   title: string;
   scene: string;
@@ -494,6 +552,7 @@ export type FinaleCrisis = {
   assignedFacilityId?: string;
   outcome?: "成功" | "部分成功" | "失败";
   consequence: string;
+  sourceFactIds?: string[];
 };
 
 export type FinaleReport = {
@@ -505,7 +564,8 @@ export type FinaleReport = {
 };
 
 export type FinaleCampaign = {
-  stage: 1 | 2 | 3 | 4;
+  stage: number;
+  totalStages?: number;
   doctrine?: FinaleDoctrine;
   stageTitle: string;
   stageBrief: string;
@@ -516,6 +576,15 @@ export type FinaleCampaign = {
   rescued: number;
   casualties: number;
   exposedTruth: number;
+  crisisKey?: string;
+  resolvedFrontIds?: string[];
+  aftermath?: {
+    organization: string[];
+    members: string[];
+    city: string[];
+    factions: string[];
+    history: string[];
+  };
 };
 
 export type OrganizationProfile = {
@@ -676,6 +745,8 @@ export type GameState = {
   dialogueThreads: DialogueThread[];
   councilRecords: CouncilRecord[];
   councilTopics: CouncilTopic[];
+  routeHypotheses?: PlayerRouteHypothesis[];
+  spatialContext?: SpatialContextItem[];
 };
 
 const seq = (rank: number, name: string, capabilities: string[], acting: string): Sequence => ({ rank, name, capabilities, acting });
@@ -1021,7 +1092,7 @@ export function initializeWorldKernel(input?: Partial<Pick<GameState, "week" | "
 export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
   const worldKernel = initializeWorldKernel();
   return {
-    version: 14,
+    version: 15,
     prologueComplete: false,
     playerName: "",
     playerAddress: "会长阁下",
@@ -1123,5 +1194,7 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     dialogueThreads: [],
     councilRecords: [{ week: 1, status: "convened", decisions: [] }],
     councilTopics: [],
+    routeHypotheses: [],
+    spatialContext: [],
   };
 }

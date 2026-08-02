@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowRight, BookOpen, CloudFog, Database, Settings, Sparkles } from "lucide-react";
+import { useRef } from "react";
+import { ArrowRight, BookOpen, CloudFog, Database, Download, Settings, Sparkles, Upload } from "lucide-react";
 import { GameState } from "./game-model";
 import { SituationBrief } from "./game-engine";
 
@@ -11,9 +12,12 @@ type TitleProps = {
   onContinue: () => void;
   onNewGame: () => void;
   onSettings: () => void;
+  onExport: () => void;
+  onImport: (file: File) => void;
 };
 
-export function TitleScreen({ hydrated, hasSave, save, onContinue, onNewGame, onSettings }: TitleProps) {
+export function TitleScreen({ hydrated, hasSave, save, onContinue, onNewGame, onSettings, onExport, onImport }: TitleProps) {
+  const importRef = useRef<HTMLInputElement>(null);
   return <main className="chronicle-title-screen">
     <div className="title-fog" aria-hidden="true" />
     <section className="title-edition">
@@ -27,6 +31,7 @@ export function TitleScreen({ hydrated, hasSave, save, onContinue, onNewGame, on
         <button onClick={onNewGame} disabled={!hydrated}><Sparkles size={17} /><span><strong>开始新游戏</strong><small>重新选择身份、经历、途径与初始班底</small></span></button>
         <button onClick={onSettings}><Settings size={17} /><span><strong>模型与世界资料</strong><small>配置人物对话、专用世界推演模型和设定资料</small></span></button>
       </div>
+      <div className="title-save-tools"><button disabled={!hasSave} onClick={onExport}><Download size={14} />导出唯一存档</button><button onClick={() => importRef.current?.click()}><Upload size={14} />导入并预览</button><input ref={importRef} hidden type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImport(file); event.currentTarget.value = ""; }} /></div>
       <footer><Database size={13} /><span>存档保存在当前浏览器；每次打开都从标题页进入。</span></footer>
     </section>
   </main>;

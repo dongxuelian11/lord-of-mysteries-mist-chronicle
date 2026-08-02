@@ -116,10 +116,10 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /buildPivots/);
   assert.match(engine, /createFinaleCampaign/);
   assert.match(finale, /resolveFinalePhase/);
-  assert.match(finale, /名单与暗流/);
-  assert.match(finale, /核心仪式之夜/);
-  assert.match(finale, /player-link/);
-  assert.match(finale, /canonContributors/);
+  assert.match(finale, /crisisCandidates/);
+  assert.match(finale, /buildStageCrises/);
+  assert.match(finale, /aftermathLedger/);
+  assert.doesNotMatch(finale, /const STAGES/);
   assert.match(finaleView, /本阶段并发危机/);
   assert.match(finaleView, /城市中的其他行动者/);
   assert.match(finaleView, /此前阶段战报/);
@@ -177,7 +177,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(cityMap, /worldSignals/);
   assert.match(cityMap, /visibility !== "player"/);
   assert.match(cityMap, /mentionedDistrictIds/);
-  assert.match(cityMap, /查看历史/);
+  assert.match(cityMap, /历史播放/);
   assert.match(cityMap, /最近一周的已知动静/);
   assert.match(cityMap, /只显示组织已经看到、听到或亲自安排的内容/);
   assert.match(app, /key={`\$\{game\.week\}:\$\{councilDecisionSignal\}`}/);
