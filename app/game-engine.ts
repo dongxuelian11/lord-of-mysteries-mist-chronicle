@@ -43,12 +43,17 @@ function isExplicitConstruction(intent: string) {
 
 function inferKind(intent: string): ActionContract["kind"] {
   if (isExplicitConstruction(intent)) return "建设";
-  if (/招募|邀请|吸收|加入组织|发展线人/.test(intent)) return "招募";
-  if (/谈判|说服|交涉|拜访|联系|交易|举报/.test(intent)) return "交涉";
-  if (/研究|配方|材料|样本|档案|分析|鉴定/.test(intent)) return "研究";
-  if (/仪式|占卜|通灵|祈祷|召唤/.test(intent)) return "仪式";
-  if (/休息|休整|恢复|处理冲突|开会/.test(intent)) return "休整";
-  if (/调查|追踪|查明|寻找|监视|潜入|打听/.test(intent)) return "调查";
+  const primaryClause = intent.split(/[，。；]/).map((part) => part.trim()).find((part) => part && !/^(?:不要|不得|避免|不惊动|不接触|不伤害|禁止)/.test(part)) ?? intent;
+  const candidates: Array<[ActionContract["kind"], RegExp]> = [
+    ["调查", /调查|追踪|查明|寻找|监视|潜入|打听/],
+    ["交涉", /谈判|说服|交涉|拜访|联系|交易|举报/],
+    ["研究", /研究|配方|材料|样本|档案|分析|鉴定/],
+    ["仪式", /仪式|占卜|通灵|祈祷|召唤/],
+    ["招募", /招募|邀请|吸收|加入组织|发展线人/],
+    ["休整", /休息|休整|恢复|处理冲突|开会/],
+  ];
+  const firstAction = candidates.map(([kind, pattern]) => ({ kind, index: primaryClause.search(pattern) })).filter((item) => item.index >= 0).sort((a, b) => a.index - b.index)[0];
+  if (firstAction) return firstAction.kind;
   return "自由行动";
 }
 
@@ -151,7 +156,10 @@ export async function interpretIntentWithAi(config: AiConfig, args: Parameters<t
   const kindOptions = ["调查", "交涉", "研究", "建设", "招募", "仪式", "休整", "自由行动"];
   const riskOptions = ["低", "中", "高", "致命"];
   const proposedKind = kindOptions.includes(String(value.kind)) ? value.kind as ActionContract["kind"] : fallback.kind;
-  const safeKind = proposedKind === "建设" && !isExplicitConstruction(args.intent) ? fallback.kind : proposedKind;
+  const explicitKind = inferKind(args.intent);
+  const safeKind = proposedKind === "建设" && !isExplicitConstruction(args.intent)
+    ? fallback.kind
+    : explicitKind !== "自由行动" && proposedKind !== explicitKind ? explicitKind : proposedKind;
   const safeTarget = typeof value.target === "string" ? targetFrom(`${fallback.kind === "调查" ? "调查" : "接触"}${value.target}`) : fallback.target;
   return {
     ...fallback,

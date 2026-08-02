@@ -37,6 +37,8 @@ test("offline council replies cite state, responsibility and a concrete next ste
 test("investigation wording cannot silently create a facility", async () => {
   const source = await read("app/game-engine.ts");
   assert.match(source, /function isExplicitConstruction/);
+  assert.match(source, /const primaryClause = intent\.split/);
+  assert.match(source, /explicitKind !== "自由行动" && proposedKind !== explicitKind/);
   assert.match(source, /proposedKind === "建设" && !isExplicitConstruction/);
   assert.match(source, /facilityId: safeKind === "建设"/);
   assert.doesNotMatch(source, /if \(\/建\|修建\|改造\|据点/);
