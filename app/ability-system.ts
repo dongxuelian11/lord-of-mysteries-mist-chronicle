@@ -27,7 +27,11 @@ export function abilityForFreeIntent(game: GameState, intent: string): Ability {
     if (game.pathwayId !== "spectator" || game.currentSequence > 5) throw new Error("你的当前途径与序列不具备直接进入梦境的能力。可以寻找梦境媒介、仪式、封印物或梦境行者协助，但系统不会擅自替你选择。 ");
     return { id: "direct-dream-entry", name: "梦境行走", verb: "主动进入梦境", description: "以自身梦境行者能力进入指定梦境；梦主、锚点、目的和退出条件完全由玩家意图约束。", cost: 3, risk: "梦主防御、共享潜意识与错误记忆会持续侵蚀场景稳定。", ruleTags: ["dream", "direct-entry"] };
   }
-  const artifact = game.inventory.find((item) => item.category === "封印物" && (normalized.includes(item.name) || normalized.includes(item.id) || (/封印物|挂坠/.test(normalized) && game.inventory.filter((entry) => entry.category === "封印物").length === 1)));
+  const artifactMentionNegated = /(?:不|不得|不要|避免|拒绝|无需|不借助|不触碰|不使用)[^，。；]{0,18}(?:封印物|挂坠)|(?:封印物|挂坠)[^，。；]{0,12}(?:不用|不触碰|不使用)/.test(normalized);
+  const explicitlyUsesArtifact = /(?:使用|发动|启用|借助|触碰|解封|打开|激活)[^，。；]{0,18}(?:封印物|挂坠)|(?:封印物|挂坠)[^，。；]{0,12}(?:使用|发动|启用|解封|激活)/.test(normalized);
+  const artifact = !artifactMentionNegated && explicitlyUsesArtifact
+    ? game.inventory.find((item) => item.category === "封印物" && (normalized.includes(item.name) || normalized.includes(item.id) || game.inventory.filter((entry) => entry.category === "封印物").length === 1))
+    : undefined;
   if (artifact) return { id: `artifact-${artifact.id}`, name: artifact.name, verb: "按玩家描述使用封印物", description: `封印物位于${artifact.location}，由${artifact.keeper}保管。真实能力、激活条件与负面效果由规则固定；玩家可以自由指定使用方式。`, cost: 1, risk: artifact.risk, ruleTags: ["artifact", artifact.id] };
   const abilities = PATHWAYS[game.pathwayId].startingAbilities;
   if (/观察|感知|看|辨认|灵视/.test(normalized)) return abilities.find((item) => /观察|感知|灵视/.test(`${item.name}${item.verb}`)) ?? abilities[0];

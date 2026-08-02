@@ -33,3 +33,38 @@ test("malformed world envelopes receive one bounded structural retry", async () 
   assert.match(engine, /requestWorldEnvelope\(worldConfig/);
   assert.match(engine, /无玩家命令的一周不应生成行动报告/);
 });
+
+test("world envelopes reject mechanical weekly repetition and repair raw control characters", async () => {
+  const engine = await read("app/game-engine.ts");
+  assert.match(engine, /function textSimilarity/);
+  assert.match(engine, /公开消息与最近四周高度复写/);
+  assert.match(engine, /势力行动只是复述上一周/);
+  assert.match(engine, /character\.charCodeAt\(0\) < 32/);
+  assert.match(engine, /JSON\.parse\(repaired\)/);
+});
+
+test("non-investigation orders keep their own semantics instead of becoming clue hunts", async () => {
+  const engine = await read("app/game-engine.ts");
+  for (const domain of ["finance", "training", "security", "recruitment", "cover", "diplomacy"]) {
+    assert.match(engine, new RegExp(`domain === "${domain}"`));
+  }
+  assert.match(engine, /function seeksEvidence\(contract/);
+  assert.match(engine, /\? discoverEvidence/);
+  assert.match(engine, /if \(!report \|\| !seeksEvidence\(result\.contract\)\) return result/);
+  assert.match(engine, /非调查行动不得凭空发现档案补录、马车路线、晚宴名单/);
+});
+
+test("no-order literary chapters cannot make the player investigate off-screen", async () => {
+  const engine = await read("app/game-engine.ts");
+  assert.match(engine, /function literaryAgencyIssue/);
+  assert.match(engine, /本周没有任何玩家决议/);
+  assert.match(engine, /连续性编辑正在纠正玩家行动越权/);
+  assert.match(engine, /一次连续性修复后仍未通过/);
+});
+
+test("negated artifact mentions do not silently replace the chosen pathway ability", async () => {
+  const ability = await read("app/ability-system.ts");
+  assert.match(ability, /artifactMentionNegated/);
+  assert.match(ability, /explicitlyUsesArtifact/);
+  assert.match(ability, /!artifactMentionNegated && explicitlyUsesArtifact/);
+});
