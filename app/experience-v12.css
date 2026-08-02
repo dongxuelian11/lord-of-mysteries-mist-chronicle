@@ -51,18 +51,19 @@
 .portfolio-board button > b { display: grid; justify-items: end; white-space: nowrap; color: #c9a86a; }
 .portfolio-board button em { color: #817864; font-size: 10px; font-style: normal; text-transform: uppercase; }
 
-.city-workspace { margin-top: 24px; border: 1px solid rgba(201,168,106,.16); background: #101413; border-radius: 24px; overflow: hidden; }
-.city-workspace-head { display: grid; grid-template-columns: 1fr minmax(330px, .8fr); gap: 24px; padding: 22px 24px 17px; align-items: end; }
+.city-workspace { container: city-map / inline-size; inline-size: 100%; min-width: 0; max-width: 100%; margin-top: 24px; border: 1px solid rgba(201,168,106,.16); background: #101413; border-radius: 24px; overflow: hidden; }
+.city-workspace-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(330px, .8fr); gap: 24px; min-width: 0; padding: 22px 24px 17px; align-items: end; }
+.city-workspace-head > * { min-width: 0; }
 .city-workspace-head p { margin: 0 0 4px; color: #9e8b64; letter-spacing: .08em; }
-.city-workspace-head h2 { margin: 0 0 5px; font-size: 24px; }
+.city-workspace-head h2 { margin: 0 0 5px; font-size: 24px; word-break: keep-all; overflow-wrap: normal; }
 .city-workspace-head > div > span { color: #928b7c; }
 .map-query { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; padding: 7px 8px 7px 12px; border: 1px solid rgba(201,168,106,.18); background: rgba(255,255,255,.035); border-radius: 14px; }
 .map-query input { min-width: 0; border: 0; outline: 0; background: transparent; color: #e1dacb; font-size: 13px; }
 .map-query button { padding: 8px 10px; border: 0; border-radius: 9px; background: #b39861; color: #171712; font-weight: 700; }
-.map-layers { display: flex; gap: 6px; padding: 0 24px 14px; overflow-x: auto; }
+.map-layers { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; padding: 0 24px 14px; overflow-x: clip; }
 .map-layers button { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; padding: 8px 11px; color: #948d7e; background: transparent; border: 1px solid rgba(201,168,106,.12); border-radius: 999px; }
 .map-layers button.active { color: #dac697; border-color: rgba(201,168,106,.4); background: rgba(201,168,106,.09); }
-.map-workbench { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(330px, .75fr); min-height: 610px; border-top: 1px solid rgba(201,168,106,.12); }
+.map-workbench { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(330px, .75fr); min-width: 0; min-height: 610px; border-top: 1px solid rgba(201,168,106,.12); }
 .engraved-map { position: relative; min-height: 610px; overflow: hidden; background: radial-gradient(circle at 54% 44%, rgba(220,201,158,.92), rgba(161,140,99,.88) 58%, rgba(77,66,48,.96)), repeating-linear-gradient(6deg, transparent 0 18px, rgba(45,36,25,.05) 18px 19px); box-shadow: inset -25px 0 45px rgba(34,28,20,.28); }
 .engraved-map::before, .engraved-map::after { content: ""; position: absolute; inset: 7%; border: 1px solid rgba(52,43,29,.23); border-radius: 46% 42% 48% 40%; transform: rotate(-4deg); }
 .engraved-map::after { inset: 17% 13%; border-radius: 30%; transform: rotate(8deg); }
@@ -96,6 +97,29 @@
 .map-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 13px; }
 .map-actions button { display: flex; justify-content: center; align-items: center; gap: 7px; padding: 10px; color: #c9c1b1; background: rgba(255,255,255,.03); border: 1px solid rgba(201,168,106,.14); border-radius: 10px; }
 .map-actions button.primary { grid-column: 1 / -1; color: #171712; background: #b89a61; }
+
+/* The game can be embedded in a narrow pane inside a wide desktop window.
+   Respond to the map's own width, not the browser viewport, so its heading
+   and dossier never squeeze the map title down to one character per line. */
+@container city-map (max-width: 900px) {
+  .city-workspace-head { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .map-workbench { grid-template-columns: minmax(0, 1fr); }
+  .engraved-map { min-height: 540px; }
+}
+
+@container city-map (max-width: 560px) {
+  .city-workspace-head { padding: 20px 16px 16px; }
+  .city-workspace-head h2 { font-size: clamp(20px, 6.5cqi, 24px); }
+  .map-query { grid-template-columns: auto minmax(0, 1fr); }
+  .map-query button { grid-column: 1 / -1; }
+  .map-layers { padding: 0 16px 14px; }
+  .map-layers button { flex: 1 1 auto; justify-content: center; }
+  .engraved-map { min-height: 500px; }
+  .engraved-district { min-width: 72px; padding: 7px; }
+  .engraved-district small { display: none; }
+  .district-workspace { min-width: 0; padding-inline: 16px; }
+  .location-grid { grid-template-columns: minmax(0, 1fr); }
+}
 
 .discussion-panel { min-height: 560px; }
 .discussion-head { display: flex; justify-content: space-between; gap: 20px; }

@@ -52,6 +52,15 @@ test("map locations expose distinct dossiers, routes and withdrawal conditions",
   assert.match(source, /地点情报与区域推断已分开记录/);
 });
 
+test("city workspace responds to its own embedded width without horizontal layer scrolling", async () => {
+  const source = await read("app/experience-v12.css");
+  assert.match(source, /\.city-workspace \{ container: city-map \/ inline-size;/);
+  assert.match(source, /@container city-map \(max-width: 900px\) \{[\s\S]*?\.city-workspace-head \{ grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(source, /@container city-map \(max-width: 560px\) \{[\s\S]*?\.map-query \{ grid-template-columns: auto minmax\(0, 1fr\);/);
+  assert.match(source, /\.map-layers \{[^}]*flex-wrap: wrap;[^}]*overflow-x: clip;/);
+  assert.match(source, /\.city-workspace-head h2 \{[^}]*word-break: keep-all;/);
+});
+
 test("weekly prose normalizes punctuation and carries consequences into the next council", async () => {
   const [source, reader] = await Promise.all([read("app/game-engine.ts"), read("app/complete-game.tsx")]);
   assert.match(source, /function cleanNarrative/);
