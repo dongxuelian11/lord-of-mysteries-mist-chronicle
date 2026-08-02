@@ -4,6 +4,7 @@ import {
 } from "./game-model";
 import { LORE_RECORDS } from "./generated-lore-compendium";
 import { retrieveLoreContext } from "./lore-knowledge";
+import { abilitiesFor, abilityRuleSummary } from "./pathway-abilities";
 
 type AbilityDraft = Omit<AbilityUseRecord, "id" | "week" | "abilityId" | "abilityName" | "context" | "intent" | "cost"> & {
   lockedFact?: string;
@@ -21,11 +22,11 @@ export function abilityForFreeIntent(game: GameState, intent: string): Ability {
   const wantsDream = /(?:进入|潜入|行走|穿行).{0,8}(?:梦境|梦中)|(?:梦境|梦中).{0,8}(?:进入|潜入|行走|穿行)/.test(normalized);
   if (wantsSpirit) {
     if (game.pathwayId !== "apprentice" || game.currentSequence > 5) throw new Error("你的当前途径与序列不具备直接进入灵界的能力。可以另行寻找仪式、入口、封印物或具备灵界穿梭能力的协助者，但系统不会擅自替你选择。 ");
-    return { id: "direct-spirit-entry", name: "灵界穿梭", verb: "主动进入灵界", description: "以自身旅行家能力直接进入灵界，并以玩家指定的现实锚点、目标与退出条件行动。", cost: 4, risk: "持续停留会消耗灵性；错误锚点、危险存在与方向失真可能切断归途。", ruleTags: ["spirit", "direct-entry"] };
+    return abilitiesFor(game.pathwayId, game.currentSequence).find((item) => item.id === "apprentice-spirit-travel")!;
   }
   if (wantsDream) {
     if (game.pathwayId !== "spectator" || game.currentSequence > 5) throw new Error("你的当前途径与序列不具备直接进入梦境的能力。可以寻找梦境媒介、仪式、封印物或梦境行者协助，但系统不会擅自替你选择。 ");
-    return { id: "direct-dream-entry", name: "梦境行走", verb: "主动进入梦境", description: "以自身梦境行者能力进入指定梦境；梦主、锚点、目的和退出条件完全由玩家意图约束。", cost: 3, risk: "梦主防御、共享潜意识与错误记忆会持续侵蚀场景稳定。", ruleTags: ["dream", "direct-entry"] };
+    return abilitiesFor(game.pathwayId, game.currentSequence).find((item) => item.id === "spectator-dream-entry")!;
   }
   const artifactMentionNegated = /(?:不|不得|不要|避免|拒绝|无需|不借助|不触碰|不使用)[^，。；]{0,18}(?:封印物|挂坠)|(?:封印物|挂坠)[^，。；]{0,12}(?:不用|不触碰|不使用)/.test(normalized);
   const explicitlyUsesArtifact = /(?:使用|发动|启用|借助|触碰|解封|打开|激活)[^，。；]{0,18}(?:封印物|挂坠)|(?:封印物|挂坠)[^，。；]{0,12}(?:使用|发动|启用|解封|激活)/.test(normalized);
@@ -33,11 +34,18 @@ export function abilityForFreeIntent(game: GameState, intent: string): Ability {
     ? game.inventory.find((item) => item.category === "封印物" && (normalized.includes(item.name) || normalized.includes(item.id) || game.inventory.filter((entry) => entry.category === "封印物").length === 1))
     : undefined;
   if (artifact) return { id: `artifact-${artifact.id}`, name: artifact.name, verb: "按玩家描述使用封印物", description: `封印物位于${artifact.location}，由${artifact.keeper}保管。真实能力、激活条件与负面效果由规则固定；玩家可以自由指定使用方式。`, cost: 1, risk: artifact.risk, ruleTags: ["artifact", artifact.id] };
-  const abilities = PATHWAYS[game.pathwayId].startingAbilities;
-  if (/观察|感知|看|辨认|灵视/.test(normalized)) return abilities.find((item) => /观察|感知|灵视/.test(`${item.name}${item.verb}`)) ?? abilities[0];
-  if (/占卜|启示|预兆/.test(normalized)) return abilities.find((item) => /占卜/.test(`${item.name}${item.verb}`)) ?? abilities[0];
-  if (/交谈|引导|询问|情绪/.test(normalized)) return abilities.find((item) => /交谈|情绪|心理/.test(`${item.name}${item.verb}`)) ?? abilities[0];
-  return abilities.find((item) => !item.passive) ?? abilities[0];
+  const abilities = abilitiesFor(game.pathwayId, game.currentSequence);
+  const keywords = normalized.toLowerCase().split(/[\s，。；、：]+/).filter((item) => item.length >= 2);
+  const scored = abilities.map((ability) => {
+    const corpus = `${ability.name} ${ability.verb} ${ability.description} ${(ability.ruleTags ?? []).join(" ")} ${ability.mode ?? ""} ${(ability.constraints ?? []).join(" ")}`.toLowerCase();
+    let score = keywords.reduce((sum, word) => sum + (corpus.includes(word) ? Math.min(5, word.length) : 0), 0);
+    if (/观察|感知|辨认|灵视|调查/.test(normalized) && ability.mode === "感知") score += 8;
+    if (/影响|暗示|催眠|挑衅|操纵/.test(normalized) && ability.mode === "影响") score += 8;
+    if (/进入|移动|撤退|传送|穿越/.test(normalized) && ability.mode === "移动") score += 8;
+    if (/攻击|战斗|破坏|拦截/.test(normalized) && ability.mode === "战斗") score += 8;
+    return { ability, score };
+  }).sort((left, right) => right.score - left.score);
+  return scored[0]?.ability ?? abilities.find((item) => !item.passive) ?? abilities[0];
 }
 
 function targetDetail(game: GameState, context: AbilityContext) {
@@ -55,13 +63,10 @@ function localDraft(game: GameState, ability: Ability, intent: string, context: 
   const detail = targetDetail(game, context);
   const seed = hash(`${game.week}:${ability.id}:${context.targetId ?? context.label}:${intent}:${game.abilityJournal.length}`);
   const abilityText = `${ability.name}${ability.description}`;
-  const deepLayer = ability.id === "direct-dream-entry" ? "dream" as const
-    : ability.id === "direct-spirit-entry" ? "spirit" as const
-      : /梦境|梦境行者|织梦/.test(abilityText) ? "dream" as const
-        : /灵界|旅行家|漫游|星界/.test(abilityText) ? "spirit" as const : undefined;
+  const deepLayer = ability.sceneLayer ?? (/梦境|梦境行者|织梦/.test(abilityText) ? "dream" as const : /灵界|旅行家|漫游|星界/.test(abilityText) ? "spirit" as const : undefined);
   const path = game.pathwayId;
-  const observation = ability.id === "direct-spirit-entry" ? `你没有借助吊坠、占卜或仪式。空间边界在自身能力下变薄，现实中的声音先被拉远，随后颜色与方向同时失去日常意义。你按照原意保留了返回锚点；灵界已经展开，下一步行动仍由你决定。`
-    : ability.id === "direct-dream-entry" ? `你没有替梦主补写任何记忆。意识越过清醒与睡眠的边界后，梦境以自身逻辑展开；远处的门、光线与反复出现的声音构成了第一层锚点。你已进入其中，尚未选择接触任何节点。`
+  const observation = ability.sceneLayer === "spirit" ? `你没有借助吊坠、占卜或仪式。空间边界在自身能力下变薄，现实中的声音先被拉远，随后颜色与方向同时失去日常意义。你按照原意保留了返回锚点；灵界已经展开，下一步行动仍由你决定。`
+    : ability.sceneLayer === "dream" ? `你没有替梦主补写任何记忆。意识越过清醒与睡眠的边界后，梦境以自身逻辑展开；远处的门、光线与反复出现的声音构成了第一层锚点。你已进入其中，尚未选择接触任何节点。`
       : ability.id.startsWith("artifact-") ? `你严格按照自己描述的方式解除必要的一层封存，没有把封印物改作其他用途。${context.label}首先出现了一个可观察变化：${detail}`
         : path === "spectator" ? detail
     : path === "seer" ? `你收束呼吸后开启感知。${context.label}的灵性轮廓并非静止：靠近目标的一侧呈现断续的深蓝色，另有一缕灰白残留向外延伸。`
@@ -102,6 +107,7 @@ export async function generateAbilityDraft(config: AiConfig, game: GameState, ab
     pathway: PATHWAYS[game.pathwayId].name,
     sequence: game.currentSequence,
     ability,
+    abilityRules: abilityRuleSummary(ability),
     intent,
     context,
     knownFacts: game.facts.slice(-14),

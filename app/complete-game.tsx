@@ -10,10 +10,10 @@ import {
 } from "lucide-react";
 import {
   ActionContract, ADVANCEMENT_RITUALS, ChronicleChapter, createInitialGame, DISTRICTS, Facility, FIXED_RECRUIT_POOL, GameState, INITIAL_MEMBERS, initializeWorldKernel, PATHWAYS,
-  AbilityContext, AbilityUseRecord, PathwayId, PlayerOrigin, RiskLevel, ViewId,
+  Ability, AbilityContext, AbilityUseRecord, PathwayId, PlayerOrigin, RiskLevel, ViewId,
 } from "./game-model";
 import {
-  advanceSequence, availableAbilities, canAdvance, generateAiWorldDelta, generateLiteraryChapter, generateNpcDialogue, generateSituationBrief,
+  advanceSequence, availableAbilities, beginAdvancement, canAdvance, generateAiWorldDelta, generateLiteraryChapter, generateNpcDialogue, generateSituationBrief, progressAdvancement,
   connectEvidence, enterSandbox, interpretIntentWithAi, resolveFatalSituation,
   resolveWeek, scheduleContract, SituationBrief, transformOrganization,
 } from "./game-engine";
@@ -30,9 +30,10 @@ import { SituationOpening, TitleScreen } from "./title-screen";
 import { abilityForFreeIntent, continueAbilityScene, generateAbilityDraft, generateSceneResponse, resolveImmediateAbility } from "./ability-system";
 import { generateCouncilReplies, generateCouncilSummary } from "./council-ai";
 import { localCouncilSummary } from "./council-system";
+import { actingPrinciplesFor, advancementStatus } from "./progression-system";
 
-const SAVE_KEY = "mist-chronicle-complete-v13";
-const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v12", "mist-chronicle-complete-v11", "mist-chronicle-complete-v10", "mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
+const SAVE_KEY = "mist-chronicle-complete-v14";
+const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v13", "mist-chronicle-complete-v12", "mist-chronicle-complete-v11", "mist-chronicle-complete-v10", "mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
 const AI_KEY = "mist-chronicle-save-v3-ai";
 const AI_SESSION_KEY = "mist-chronicle-session-ai-key";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -42,7 +43,23 @@ function displayNarrative(text: string) {
 }
 
 function normalizeNarrativeGame(game: GameState): GameState {
-  return { ...game, version: 13, worldSignals: game.worldSignals ?? [], worldSnapshots: game.worldSnapshots ?? [], worldKernel: game.worldKernel ?? initializeWorldKernel(game), chronicle: game.chronicle.map((chapter) => ({ ...chapter, sections: chapter.sections.map((section) => ({ ...section, paragraphs: section.paragraphs.map(displayNarrative) })) })) };
+  const fresh = createInitialGame(game.pathwayId ?? "seer");
+  return {
+    ...game,
+    version: 14,
+    actingMarks: game.actingMarks ?? [],
+    advancementProcess: game.advancementProcess ?? null,
+    materials: (game.materials ?? fresh.materials).map((item) => ({ authenticity: item.obtained ? "已确认" : "未知", purity: item.obtained ? 80 : 0, freshness: item.obtained ? 75 : 0, contamination: 0, traceRisk: 0, storage: item.obtained ? "组织材料柜" : "尚未入库", provenance: item.obtained ? item.source : "尚未建立来源链", ...item })),
+    members: (game.members ?? fresh.members).map((item) => ({ relationshipMomentum: 0, personalPressure: 8, personalEventSignals: [], promises: [], lastRelationshipChangeWeek: 0, ...item })),
+    recruitPool: (game.recruitPool ?? fresh.recruitPool).map((item) => ({ relationshipMomentum: 0, personalPressure: 5, personalEventSignals: [], promises: [], lastRelationshipChangeWeek: 0, ...item })),
+    departments: (game.departments ?? fresh.departments).map((item) => ({ memberIds: [item.leadMemberId], capacity: 50, cohesion: 60, exposure: 10, backlog: 20, standingOrder: item.mandate, tensions: [], lastReport: "等待本周汇报", ...item })),
+    departmentReports: game.departmentReports ?? [],
+    organizationIssues: game.organizationIssues ?? [],
+    worldSignals: game.worldSignals ?? [],
+    worldSnapshots: game.worldSnapshots ?? [],
+    worldKernel: game.worldKernel ?? initializeWorldKernel(game),
+    chronicle: (game.chronicle ?? []).map((chapter) => ({ ...chapter, sections: chapter.sections.map((section) => ({ ...section, paragraphs: section.paragraphs.map(displayNarrative) })) })),
+  };
 }
 
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Command }[] = [
@@ -73,6 +90,7 @@ export default function CompleteGame() {
   const [abilityPanelOpen, setAbilityPanelOpen] = useState(false);
   const [abilityContext, setAbilityContext] = useState<AbilityContext>({ kind: "council", label: "每周密议室" });
   const [abilitySelectedId, setAbilitySelectedId] = useState("");
+  const [abilitySupportIds, setAbilitySupportIds] = useState<string[]>([]);
   const [abilityAssistId, setAbilityAssistId] = useState("");
   const [abilityIntent, setAbilityIntent] = useState("");
   const [abilityLoading, setAbilityLoading] = useState(false);
@@ -108,15 +126,15 @@ export default function CompleteGame() {
       const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
-        try { const value = JSON.parse(saved) as GameState; if (value.version === 13) { setGame(normalizeNarrativeGame(value)); setHasSave(Boolean(value.prologueComplete)); } }
+        try { const value = JSON.parse(saved) as GameState; if (value.version === 14) { setGame(normalizeNarrativeGame(value)); setHasSave(Boolean(value.prologueComplete)); } }
         catch { window.localStorage.removeItem(SAVE_KEY); }
       } else if (legacySaved) {
         try {
           const legacy = JSON.parse(legacySaved) as Partial<GameState>;
           setHasSave(Boolean(legacy.prologueComplete ?? true));
           const fresh = createInitialGame(legacy.pathwayId ?? "seer");
-          const abilityFields = { version: 13, spirituality: Math.max(12, legacy.spirituality ?? 12), spiritualityMax: 18, mentalLoad: legacy.mentalLoad ?? 0, lastMeditationWeek: legacy.lastMeditationWeek ?? 0, abilityJournal: legacy.abilityJournal ?? [], hiddenWorldFacts: legacy.hiddenWorldFacts ?? fresh.hiddenWorldFacts, activeAbilityScene: legacy.activeAbilityScene ?? null, playerOrigin: legacy.playerOrigin ?? fresh.playerOrigin, councilTopics: legacy.councilTopics ?? [], worldSignals: legacy.worldSignals ?? [], worldSnapshots: legacy.worldSnapshots ?? [], worldKernel: initializeWorldKernel(legacy) };
-          if (legacy.version === 12 || legacy.version === 11 || legacy.version === 10) setGame(normalizeNarrativeGame({ ...(legacy as GameState), ...abilityFields }));
+          const abilityFields = { version: 14, spirituality: Math.max(12, legacy.spirituality ?? 12), spiritualityMax: 18, mentalLoad: legacy.mentalLoad ?? 0, lastMeditationWeek: legacy.lastMeditationWeek ?? 0, abilityJournal: legacy.abilityJournal ?? [], hiddenWorldFacts: legacy.hiddenWorldFacts ?? fresh.hiddenWorldFacts, activeAbilityScene: legacy.activeAbilityScene ?? null, playerOrigin: legacy.playerOrigin ?? fresh.playerOrigin, councilTopics: legacy.councilTopics ?? [], worldSignals: legacy.worldSignals ?? [], worldSnapshots: legacy.worldSnapshots ?? [], worldKernel: initializeWorldKernel(legacy) };
+          if ([10, 11, 12, 13].includes(legacy.version ?? 0)) setGame(normalizeNarrativeGame({ ...(legacy as GameState), ...abilityFields }));
           else if (legacy.version === 9) setGame({ ...(legacy as GameState), ...abilityFields, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [] });
           else if (legacy.version === 8) setGame({ ...(legacy as GameState), ...abilityFields, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [], dialogueThreads: [], councilRecords: [{ week: legacy.week ?? 1, status: "convened", decisions: [] }] });
           else if ([5, 6, 7].includes(legacy.version ?? 0) && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));
@@ -324,7 +342,11 @@ export default function CompleteGame() {
   }
 
   function attemptAdvance() {
-    try { const next = advanceSequence(game); setGame(next); setSelectedRank(next.currentSequence); setToast(`晋升完成：序列${next.currentSequence} · ${PATHWAYS[next.pathwayId].sequences.find((item) => item.rank === next.currentSequence)?.name}`); }
+    try {
+      const next = canAdvance(game) ? advanceSequence(game) : game.advancementProcess ? progressAdvancement(game) : beginAdvancement(game);
+      setGame(next); setSelectedRank(next.currentSequence);
+      setToast(canAdvance(game) ? `晋升完成：序列${next.currentSequence} · ${PATHWAYS[next.pathwayId].sequences.find((item) => item.rank === next.currentSequence)?.name}` : `晋升档案推进：${advancementStatus(next)}`);
+    }
     catch (error) { setToast(error instanceof Error ? error.message : "尚不能晋升"); }
   }
 
@@ -366,7 +388,7 @@ export default function CompleteGame() {
       members: chosen,
       recruitPool: reserve,
       facilities: base.facilities.map((facility) => ({ ...facility, assignedMemberId: chosen.some((member) => member.id === facility.assignedMemberId) ? facility.assignedMemberId : undefined })),
-      departments: base.departments.map((department) => ({ ...department, leadMemberId: department.id === "field" ? fieldLead?.id ?? chosen[0].id : supportLead?.id ?? chosen[0].id })),
+      departments: base.departments.map((department) => ({ ...department, leadMemberId: department.id === "field" ? fieldLead?.id ?? chosen[0].id : supportLead?.id ?? chosen[0].id, memberIds: department.id === "field" ? chosen.filter((member) => /追踪|调查|灵体|警|路线|急救/.test(`${member.specialty}${member.role}`)).map((member) => member.id) : chosen.filter((member) => !/追踪|调查|灵体|警|路线|急救/.test(`${member.specialty}${member.role}`)).map((member) => member.id) })),
       facts: [...base.facts,
         { id: `fact-player-name-${Date.now()}`, subject: "组织负责人", statement: `${name}以“${address}”的称谓主持组织第一次正式密议。`, certainty: "确认" as const, source: "密议室会议记录", week: base.week },
         { id: `fact-player-origin-${Date.now()}`, subject: "组织负责人", statement: `公开身份为${origin.identityLabel}；关键经历是${origin.experienceLabel}${origin.experienceDetail ? `：${origin.experienceDetail}` : ""}。`, certainty: "确认" as const, source: "创立档案", week: base.week },
@@ -405,6 +427,7 @@ export default function CompleteGame() {
     setAbilityContext(context);
     setAbilitySelectedId(!abilityId || abilityId === "free-intent" ? "free-intent" : preferred?.id ?? "free-intent");
     setAbilityAssistId("");
+    setAbilitySupportIds([]);
     setAbilityIntent(prompt);
     setAbilityError("");
     setAbilityResult(null);
@@ -418,7 +441,19 @@ export default function CompleteGame() {
     setAbilityError("");
     setAbilityLoading(true);
     try {
-      const ability = abilitySelectedId === "free-intent" ? abilityForFreeIntent(game, intent) : abilities.find((item) => item.id === abilitySelectedId) ?? abilityForFreeIntent(game, intent);
+      const coreAbility = abilitySelectedId === "free-intent" ? abilityForFreeIntent(game, intent) : abilities.find((item) => item.id === abilitySelectedId) ?? abilityForFreeIntent(game, intent);
+      const supportAbilities = abilities.filter((item) => abilitySupportIds.includes(item.id) && item.id !== coreAbility.id).slice(0, 3);
+      const ability: Ability = supportAbilities.length ? {
+        ...coreAbility,
+        id: `${coreAbility.id}+${supportAbilities.map((item) => item.id).join("+")}`,
+        name: `${coreAbility.name} · ${supportAbilities.map((item) => item.name).join(" / ")}`,
+        description: `${coreAbility.description} 辅助能力：${supportAbilities.map((item) => `${item.name}（${item.description}）`).join("；")}`,
+        cost: coreAbility.cost + supportAbilities.reduce((sum, item) => sum + (item.passive ? 1 : item.cost), 0),
+        ruleTags: [...new Set([...(coreAbility.ruleTags ?? []), ...supportAbilities.flatMap((item) => item.ruleTags ?? [])])],
+        constraints: [...new Set([...(coreAbility.constraints ?? []), ...supportAbilities.flatMap((item) => item.constraints ?? [])])],
+        risk: `${coreAbility.risk} 叠加${supportAbilities.length}项辅助能力会增加灵性协调负担与现场痕迹。`,
+        sceneLayer: coreAbility.sceneLayer ?? supportAbilities.find((item) => item.sceneLayer)?.sceneLayer,
+      } : coreAbility;
       const assistant = game.members.find((item) => item.id === abilityAssistId && item.pathway);
       const effectiveIntent = assistant ? `${intent}\n在场协同：${assistant.name}以其${assistant.pathway}途径能力提供辅助观察，但不得替负责人越过能力边界。` : intent;
       const draft = await generateAbilityDraft(aiConfig, game, ability, effectiveIntent, abilityContext);
@@ -444,7 +479,7 @@ export default function CompleteGame() {
       setGame(next);
       setAbilityResult(resolved.record);
       setAbilityPanelOpen(false);
-      setAbilityIntent("");
+      setAbilityIntent(""); setAbilitySupportIds([]);
     } catch (error) {
       setAbilityError(error instanceof Error ? error.message : "能力反馈未能稳定成形；请补充对象、手段或停止条件后再试。");
     } finally { setAbilityLoading(false); }
@@ -572,7 +607,7 @@ export default function CompleteGame() {
         <div className="city-legend"><span><i className="safe" />相对稳定</span><span><i className="watch" />多方关注</span><span><i className="danger" />高风险</span><small>风险是已知威胁估计，不代表区域中没有未知危险。</small></div>
       </div>}
 
-      {view === "organization" && <div className="organization-page page-enter">
+      {view === "organization" && <div className="organization-page page-enter" aria-label="组织建设与部门授权">
         <header className="page-title row"><div><p>地点 · 人员 · 制度</p><h1>{game.organizationName}</h1><span>{game.coverIdentity}</span></div><button className="complete-primary compact" onClick={() => applySuggestion("把空置后室改造成一间隐蔽的炼金实验室，优先隔绝气味与灵性波动。", "cherwood")}><Hammer size={15} />提出建设方案</button></header>
         <OrganizationOperations game={game} onTransform={applyOrganizationChange} onMemberEvent={(memberId) => { const member = game.members.find((item) => item.id === memberId); if (member) applySuggestion(`与${member.name}处理其个人事件：${member.personalEvent}。先听取诉求，再决定组织承担多少风险。`, "cherwood"); }} />
         <div className="organization-grid">
@@ -582,9 +617,9 @@ export default function CompleteGame() {
             <article className="asset-summary complete-card"><header><Boxes size={14} /><strong>非凡资产</strong><button onClick={() => setView("archive")}>全部</button></header>{game.inventory.slice(0, 5).map((item) => <div key={item.id}><span><PackageSearch size={13} /></span><p><strong>{item.name}</strong><small>{item.category} · {item.location}</small></p><b>×{item.quantity}</b></div>)}</article>
           </aside>
         </div>
-        <section className="departments complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>部门授权</strong></span><small>扩大自主权提高效率，也会增加隐瞒与派系风险</small></header><div>{game.departments.map((department) => <article key={department.id}><header><span>{department.name}</span><b>{department.status}</b></header><p>{department.mandate}</p><label><span>自主权 {department.autonomy}%</span><input type="range" min="0" max="100" value={department.autonomy} onChange={(event) => setGame((current) => ({ ...current, departments: current.departments.map((item) => item.id === department.id ? { ...item, autonomy: Number(event.target.value) } : item) }))} /></label><footer><span>负责人：{game.members.find((member) => member.id === department.leadMemberId)?.name}</span><span>预算 £{department.budget}/周</span></footer></article>)}</div></section>
-        <section className="roster complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>核心成员</strong></span><small>成员有自己的晋升意志、疲劳与忠诚</small></header><div>{game.members.map((member) => <article key={member.id}><div className="member-monogram">{member.name.slice(0, 1)}</div><h3>{member.name}</h3><p>{member.role}{member.pathway ? ` · 序列${member.sequence} ${member.pathway}` : " · 普通人"}</p><dl><div><dt>专长</dt><dd>{member.specialty}</dd></div><div><dt>忠诚</dt><dd>{member.loyalty}</dd></div><div><dt>疲劳</dt><dd>{member.fatigue}</dd></div></dl><div className="member-context-actions"><button onClick={() => openMemberChat(member.id)}>档案与对话 <ChevronRight size={13} /></button><button onClick={() => openAbility({ kind: "organization", targetId: member.id, label: member.name }, "", `我在组织日常环境中使用能力观察${member.name}最近的精神状态、异常影响与未说出口的压力；不进行强制干涉。`)}><WandSparkles size={13} />即时感知</button></div></article>)}</div></section>
-        <section className="recruit-pool complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>固定人物池与关系阶梯</strong></span><small>接触 → 临时合作 → 长期盟友或线人 → 正式成员</small></header><div>{game.recruitPool.map((member) => <article key={member.id}><header><div className="member-monogram">{member.name.slice(0, 1)}</div><span><strong>{member.name}</strong><small>{member.role}</small></span><b>{member.relationshipStage}</b></header><p>{member.background}</p><footer><span>{member.specialty}</span><button onClick={() => applySuggestion(`与${member.name}推进关系。先回应其当前关切并提供可验证的合作条件，不强迫其加入组织。`, member.id === "sylvie" ? "empress" : member.id === "ollie" ? "dock" : member.id === "elsa" ? "north" : member.id === "nora" ? "south" : "bridge")}>安排接触 <ArrowRight size={13} /></button></footer></article>)}</div></section>
+        <section className="departments complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>持续运转的部门</strong></span><small>常设命令会跨周执行；只有越过授权边界的事项才进入议会</small></header><div>{game.departments.map((department) => <article key={department.id}><header><span>{department.name}</span><b>{department.status}</b></header><p>{department.mandate}</p><p><strong>常设命令：</strong>{department.standingOrder}</p><div className="department-vitals"><span>能力 {department.capacity}</span><span>凝聚 {department.cohesion}</span><span>暴露 {department.exposure}</span><span>积压 {department.backlog}</span></div><small>{department.lastReport}</small><label><span>自主权 {department.autonomy}%</span><input type="range" min="0" max="100" value={department.autonomy} onChange={(event) => setGame((current) => ({ ...current, departments: current.departments.map((item) => item.id === department.id ? { ...item, autonomy: Number(event.target.value) } : item) }))} /></label><footer><span>负责人：{game.members.find((member) => member.id === department.leadMemberId)?.name}</span><span>预算 £{department.budget}/周</span></footer></article>)}</div></section>
+        <section className="roster complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>核心成员</strong></span><small>个人压力由跨周经历累积，不会突然跳出模板事件</small></header><div>{game.members.map((member) => <article key={member.id}><div className="member-monogram">{member.name.slice(0, 1)}</div><h3>{member.name}</h3><p>{member.role}{member.pathway ? ` · 序列${member.sequence} ${member.pathway}` : " · 普通人"}</p><dl><div><dt>专长</dt><dd>{member.specialty}</dd></div><div><dt>忠诚</dt><dd>{member.loyalty}</dd></div><div><dt>疲劳</dt><dd>{member.fatigue}</dd></div><div><dt>个人压力</dt><dd>{member.personalPressure ?? 0}</dd></div></dl>{member.personalEventSignals?.slice(-1).map((signal) => <p className="member-signal" key={signal}>{signal}</p>)}<div className="member-context-actions"><button onClick={() => openMemberChat(member.id)}>档案与对话 <ChevronRight size={13} /></button><button onClick={() => openAbility({ kind: "organization", targetId: member.id, label: member.name }, "", `我在组织日常环境中使用能力观察${member.name}最近的精神状态、异常影响与未说出口的压力；不进行强制干涉。`)}><WandSparkles size={13} />即时感知</button></div></article>)}</div></section>
+        <section className="recruit-pool complete-card"><header className="section-heading"><span><UsersRound size={15} /><strong>招募关系与动态人物档案</strong></span><small>接触 → 临时合作 → 长期盟友或线人 → 正式成员；关系也会停滞或倒退</small></header><div>{game.recruitPool.map((member) => <article key={member.id}><header><div className="member-monogram">{member.name.slice(0, 1)}</div><span><strong>{member.name}</strong><small>{member.role}</small></span><b>{member.relationshipStage}</b></header><p>{member.background}</p><small>关系动量 {member.relationshipMomentum ?? 0} · 信任 {member.trust ?? member.loyalty}</small>{member.personalEventSignals?.slice(-1).map((signal) => <p className="member-signal" key={signal}>{signal}</p>)}<footer><span>{member.specialty}</span><button onClick={() => applySuggestion(`与${member.name}推进关系。先回应其当前关切并提供可验证的合作条件，不强迫其加入组织。`, member.id === "sylvie" ? "empress" : member.id === "ollie" ? "dock" : member.id === "elsa" ? "north" : member.id === "nora" ? "south" : "bridge")}>安排接触 <ArrowRight size={13} /></button></footer></article>)}</div></section>
       </div>}
 
       {view === "progression" && <div className="progression-page page-enter">
@@ -607,11 +642,13 @@ export default function CompleteGame() {
             <header><FlaskConical size={16} /><span><small>下一序列</small><strong>{nextSequence ? `序列${nextSequence.rank} · ${nextSequence.name}` : "序列顶点"}</strong></span></header>
             {nextSequence ? <>
               <div className="advancement-meter"><div><span>魔药消化</span><strong>{game.digestion}%</strong></div><span><i style={{ width: `${game.digestion}%` }} /></span><p>{currentSequence.acting}</p></div>
+              <details className="acting-principles" open><summary>扮演原则与真实经历</summary><div>{actingPrinciplesFor(game).map((principle) => <article key={principle}><strong>{principle}</strong><small>{game.actingMarks.filter((mark) => mark.sequence === game.currentSequence && mark.principle === principle).reduce((sum, mark) => sum + mark.gain, 0)} 点理解</small></article>)}</div>{game.actingMarks.filter((mark) => mark.sequence === game.currentSequence).slice(-3).reverse().map((mark) => <p key={mark.id}><b>第{mark.week}周 +{mark.gain}</b>{mark.evidence}{mark.repeated ? " · 相似经历收益递减" : ""}</p>)}</details>
               <div className="advancement-meter"><div><span>配方知识</span><strong>{game.formulaKnowledge}%</strong></div><span><i style={{ width: `${game.formulaKnowledge}%` }} /></span><p>{game.formulaKnowledge >= 100 ? "完整配方已核验，材料清单可以用于行动契约。" : "需要研究、交易或从其他势力获取更多配方知识。"}</p></div>
               <div className="advancement-meter"><div><span>仪式准备</span><strong>{game.ritualReadiness}%</strong></div><span><i style={{ width: `${game.ritualReadiness}%` }} /></span><p>{ADVANCEMENT_RITUALS[game.pathwayId][nextSequence.rank]}</p><button className="ritual-plan" onClick={() => applySuggestion(`为晋升序列${nextSequence.rank}·${nextSequence.name}准备并执行仪式：${ADVANCEMENT_RITUALS[game.pathwayId][nextSequence.rank]}。先拆分条件、验证安全措施，不在条件不足时服食魔药。`, "cherwood")}>把仪式写入自由行动</button></div>
               <div className={`instability-strip ${game.instability >= 55 ? "danger" : ""}`}><span>失控风险</span><strong>{game.instability}/100</strong><small>{game.instability >= 70 ? "当前禁止晋升：先处理污染、锚点或精神状态。" : "晋升和高位能力会提高风险，休整与成员关系可提供锚点。"}</small></div>
-              <div className="material-list"><header><span>晋升材料</span><small>{game.materials.filter((item) => item.obtained).length}/{game.materials.length}</small></header>{game.materials.map((material) => <button key={material.id} onClick={() => !material.obtained && applySuggestion(`寻找并取得${material.known ? material.name : `序列${nextSequence.rank}配方中缺失的${material.kind}`}。先验证真伪，不接受来源不明的替代品。`, material.source.includes("码头") ? "dock" : material.source.includes("北区") || material.source.includes("大学") ? "north" : "bridge")} disabled={material.obtained}><span className={material.obtained ? "done" : material.known ? "known" : "unknown"}>{material.obtained ? <Check size={13} /> : material.known ? <Search size={13} /> : <LockKeyhole size={13} />}</span><div><strong>{material.known ? material.name : "尚未确认的材料"}</strong><small>{material.kind} · {material.obtained ? "已入库" : material.source}</small></div><ChevronRight size={13} /></button>)}</div>
-              <button className="complete-primary advance-button" onClick={attemptAdvance} disabled={!canAdvance(game)}>{canAdvance(game) ? <><Sparkles size={16} />举行晋升</> : "尚未满足晋升条件"}</button>
+              <div className="material-list"><header><span>晋升材料</span><small>{game.materials.filter((item) => item.obtained).length}/{game.materials.length}</small></header>{game.materials.map((material) => <button key={material.id} onClick={() => !material.obtained && applySuggestion(`寻找并取得${material.known ? material.name : `序列${nextSequence.rank}配方中缺失的${material.kind}`}。必须记录来源、真伪、纯度、鲜度、污染和追踪风险；不接受来源不明的替代品。`, material.source.includes("码头") ? "dock" : material.source.includes("北区") || material.source.includes("大学") ? "north" : "bridge")}><span className={material.obtained ? "done" : material.known ? "known" : "unknown"}>{material.obtained ? <Check size={13} /> : material.known ? <Search size={13} /> : <LockKeyhole size={13} />}</span><div><strong>{material.known ? material.name : "尚未确认的材料"}</strong><small>{material.kind} · {material.obtained ? `${material.authenticity} · 纯度${material.purity} · 鲜度${material.freshness} · 污染${material.contamination}` : material.source}</small>{material.obtained && <small>{material.storage} · 追踪风险{material.traceRisk} · {material.provenance}</small>}</div><ChevronRight size={13} /></button>)}</div>
+              {game.advancementProcess && <details className="advancement-process" open><summary>晋升档案 · {game.advancementProcess.stage}</summary><div className="advancement-stages">{["配方核验", "魔药调制", "仪式执行", "精神稳定", "可以晋升"].map((stage) => <span key={stage} className={stage === game.advancementProcess?.stage ? "current" : ""}>{stage}</span>)}</div>{game.advancementProcess.log.slice().reverse().map((entry) => <p key={entry}>{entry}</p>)}{game.advancementProcess.flaws.map((flaw) => <p className="flaw" key={flaw}>疑点：{flaw}</p>)}</details>}
+              <button className="complete-primary advance-button" onClick={attemptAdvance} disabled={!game.advancementProcess && game.digestion < 100}>{canAdvance(game) ? <><Sparkles size={16} />服食魔药并举行最终晋升</> : game.advancementProcess ? `推进：${game.advancementProcess.stage}` : game.digestion >= 100 ? "建立晋升档案" : "继续消化当前魔药"}</button>
             </> : <p className="sequence-apex">你已经抵达这条途径的序列顶点。此后的问题不再是材料，而是锚点、权柄与世界的回应。</p>}
           </aside>
         </div>
@@ -663,7 +700,7 @@ export default function CompleteGame() {
       </div>;
     })()}
 
-    <AbilityConsole game={game} abilities={abilities} open={abilityPanelOpen} context={abilityContext} selectedId={abilitySelectedId} assistId={abilityAssistId} intent={abilityIntent} loading={abilityLoading} error={abilityError} result={abilityResult} onOpen={() => openAbility()} onClose={() => { setAbilityPanelOpen(false); setAbilityResult(null); setAbilityError(""); }} onSelect={(id) => { setAbilitySelectedId(id); setAbilityError(""); }} onAssist={setAbilityAssistId} onIntent={(value) => { setAbilityIntent(value); if (abilityError) setAbilityError(""); }} onUse={() => void castAbility()} onContinueScene={(intent) => void deepenAbilityScene(intent)} onExitScene={() => setGame((current) => ({ ...current, activeAbilityScene: null }))} />
+    <AbilityConsole game={game} abilities={abilities} open={abilityPanelOpen} context={abilityContext} selectedId={abilitySelectedId} supportIds={abilitySupportIds} assistId={abilityAssistId} intent={abilityIntent} loading={abilityLoading} error={abilityError} result={abilityResult} onOpen={() => openAbility()} onClose={() => { setAbilityPanelOpen(false); setAbilityResult(null); setAbilityError(""); setAbilitySupportIds([]); }} onSelect={(id) => { setAbilitySelectedId(id); setAbilitySupportIds([]); setAbilityError(""); }} onToggleSupport={(id) => setAbilitySupportIds((current) => current.includes(id) ? current.filter((item) => item !== id) : current.length < 3 ? [...current, id] : current)} onAssist={setAbilityAssistId} onIntent={(value) => { setAbilityIntent(value); if (abilityError) setAbilityError(""); }} onUse={() => void castAbility()} onContinueScene={(intent) => void deepenAbilityScene(intent)} onExitScene={() => setGame((current) => ({ ...current, activeAbilityScene: null }))} />
 
     {hydrated && !game.prologueComplete && <OpeningPrologue game={game} onBegin={completePrologue} />}
     {situationBrief && game.prologueComplete && <SituationOpening brief={situationBrief} loading={situationLoading} onEnter={() => { situationDismissed.current = true; setSituationBrief(null); }} />}

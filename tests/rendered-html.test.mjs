@@ -95,7 +95,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /applyWorldTurn/);
   assert.match(engine, /timelineAfterWeek/);
   assert.match(engine, /organizationConditions/);
-  assert.match(engine, /abilityTagsFromText/);
+  assert.match(engine, /abilitiesFor/);
   assert.match(engine, /resolveFatalSituation/);
   assert.match(engine, /resolveFinale/);
   assert.match(engine, /generateAiWorldDelta/);

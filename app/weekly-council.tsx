@@ -66,6 +66,8 @@ export default function WeeklyCouncil(props: Props) {
   const reportWeek = latestChapter?.week ?? Math.max(1, game.week - 1);
   const worldSnapshot = game.worldSnapshots?.find((snapshot) => snapshot.week === reportWeek);
   const worldSignals = (game.worldSignals ?? []).filter((signal) => signal.week === reportWeek).slice(0, 6);
+  const urgentOrganizationIssues = game.organizationIssues.filter((issue) => issue.state === "待裁决" || issue.state === "已逾期").sort((a, b) => b.urgency - a.urgency).slice(0, 3);
+  const currentDepartmentReports = game.departmentReports.filter((report) => report.week === game.week).slice(0, 6);
   const bringToDecision = (text: string, districtId?: string) => { props.onUseSuggestion(text, districtId); setStage("orders"); };
 
   const governanceOwners = useMemo(() => {
@@ -133,6 +135,8 @@ export default function WeeklyCouncil(props: Props) {
       {activeMission && <article className="council-pressure"><header><span><ShieldAlert size={15} />必须知情的压力</span><b>{activeMission.deadline}周后越过临界点</b></header><h2>{activeMission.title}</h2><p>{activeMission.premise}</p><div><span><i style={{ width: `${activeMission.progress}%` }} /></span><strong>{activeMission.progress}%</strong></div><footer><small>若不处理</small><p>{activeMission.consequence}</p></footer></article>}
       <section className="governance-briefing">
         <header><div><p>本周议桌</p><h2>先听主责席，再从地图决定方向</h2></div><span>{activeMission ? "1项临界压力" : "无临界压力"} · {governanceOwners.length}名主责席 · {freshMapSignals}项地图新动静</span></header>
+        {urgentOrganizationIssues.length > 0 && <section className="leadership-docket"><header><Gavel size={14} /><span><strong>必须由会长决定</strong><small>只列已经越过部门授权边界的事项</small></span></header>{urgentOrganizationIssues.map((issue) => <article key={issue.id}><div><span>{issue.category} · 紧迫{issue.urgency}</span><strong>{issue.title}</strong><p>{issue.summary}</p></div><button onClick={() => bringToDecision(`处理“${issue.title}”。我要求组织采取的方向是：`)}><Gavel size={13} />拍板</button></article>)}</section>}
+        {currentDepartmentReports.length > 0 && <details className="department-briefs"><summary><span>部门一句话述职</span><small>{currentDepartmentReports.length}份 · 无需决定的默认折叠</small></summary>{currentDepartmentReports.map((report) => <article key={report.id}><header><strong>{game.departments.find((item) => item.id === report.departmentId)?.name}</strong>{report.requiresDecision && <b>需裁决</b>}</header><p>{report.headline}</p><details><summary>查看依据与后果</summary><p>{report.detail}</p><small>{report.consequence}</small></details></article>)}</details>}
         <div className="governance-owners">{governanceOwners.map(({ member, portfolios }) => {
           const personal = member.personalEventState === "active" && member.personalEvent;
           const prompt = `从你负责的${portfolios.map((item) => item.name).join("、")}中，只挑本周最需要我知情的一件事说起。不要使用固定汇报格式；说明消息从哪里来、哪里仍不确定，以及是否需要我拍板。`;

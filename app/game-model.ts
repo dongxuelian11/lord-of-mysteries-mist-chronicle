@@ -14,6 +14,13 @@ export type Ability = {
   risk: string;
   passive?: boolean;
   ruleTags?: string[];
+  unlockRank?: number;
+  contexts?: AbilityContextKind[];
+  mode?: "感知" | "影响" | "移动" | "防护" | "战斗" | "仪式" | "制作" | "伪装";
+  scope?: string;
+  duration?: string;
+  constraints?: string[];
+  sceneLayer?: "dream" | "spirit";
 };
 
 export type AbilityContextKind = "council" | "dialogue" | "district" | "organization" | "self" | "dream" | "spirit";
@@ -103,6 +110,12 @@ export type Member = {
   personalEventState?: "dormant" | "active" | "resolved";
   injury?: string;
   relationshipStage?: "接触" | "临时合作" | "长期盟友或线人" | "正式成员";
+  relationshipMomentum?: number;
+  personalPressure?: number;
+  personalEventDeadline?: number;
+  personalEventSignals?: string[];
+  promises?: string[];
+  lastRelationshipChangeWeek?: number;
 };
 
 export type DialogueMessage = {
@@ -203,6 +216,13 @@ export type Material = {
   obtained: boolean;
   known: boolean;
   source: string;
+  authenticity?: "未知" | "待核验" | "已确认";
+  purity?: number;
+  freshness?: number;
+  contamination?: number;
+  traceRisk?: number;
+  storage?: string;
+  provenance?: string;
 };
 
 export type InventoryItem = {
@@ -240,6 +260,62 @@ export type Department = {
   budget: number;
   status: string;
   weeklyVerb?: string;
+  memberIds?: string[];
+  capacity?: number;
+  cohesion?: number;
+  exposure?: number;
+  backlog?: number;
+  standingOrder?: string;
+  tensions?: string[];
+  lastReport?: string;
+};
+
+export type ActingMark = {
+  id: string;
+  week: number;
+  sequence: number;
+  principle: string;
+  evidence: string;
+  gain: number;
+  repeated: boolean;
+};
+
+export type AdvancementStage = "未开始" | "配方核验" | "魔药调制" | "仪式执行" | "精神稳定" | "可以晋升";
+
+export type AdvancementProcess = {
+  targetRank: number;
+  stage: AdvancementStage;
+  startedWeek: number;
+  formulaIntegrity: number;
+  brewIntegrity: number;
+  ritualIntegrity: number;
+  stabilization: number;
+  flaws: string[];
+  safeguards: string[];
+  log: string[];
+};
+
+export type OrganizationIssue = {
+  id: string;
+  weekCreated: number;
+  category: "部门" | "招募" | "成员" | "资源";
+  sourceId: string;
+  title: string;
+  summary: string;
+  urgency: number;
+  deadline: number;
+  signals: string[];
+  state: "观察" | "待裁决" | "已处理" | "已逾期";
+};
+
+export type DepartmentReport = {
+  id: string;
+  week: number;
+  departmentId: string;
+  headline: string;
+  detail: string;
+  consequence: string;
+  requiresDecision: boolean;
 };
 
 export type EvidenceNode = {
@@ -546,6 +622,7 @@ export type GameState = {
   pathwayId: PathwayId;
   currentSequence: number;
   digestion: number;
+  actingMarks: ActingMark[];
   spirituality: number;
   spiritualityMax: number;
   mentalLoad: number;
@@ -554,6 +631,7 @@ export type GameState = {
   activeAbilityScene: AbilityScene | null;
   formulaKnowledge: number;
   materials: Material[];
+  advancementProcess: AdvancementProcess | null;
   organizationName: string;
   coverIdentity: string;
   charter: string;
@@ -565,6 +643,8 @@ export type GameState = {
   members: Member[];
   facilities: Facility[];
   departments: Department[];
+  departmentReports: DepartmentReport[];
+  organizationIssues: OrganizationIssue[];
   inventory: InventoryItem[];
   missions: PressureMission[];
   playerIntents: PlayerIntent[];
@@ -786,9 +866,32 @@ export const ADVANCEMENT_RITUALS: Record<PathwayId, Record<number, string>> = {
 };
 
 export function materialsFor(pathwayId: PathwayId, targetRank: number): Material[] {
-  if (targetRank === 8) return RANK_EIGHT_RECIPES[pathwayId].map((item) => ({ ...item }));
+  if (targetRank === 8) return RANK_EIGHT_RECIPES[pathwayId].map((item) => ({
+    ...item,
+    authenticity: item.obtained ? "已确认" : "待核验",
+    purity: item.obtained ? 92 : 0,
+    freshness: item.obtained ? 88 : 0,
+    contamination: item.obtained ? 2 : 0,
+    traceRisk: item.obtained ? 3 : 0,
+    storage: item.obtained ? "低温避光材料柜" : "尚未入库",
+    provenance: item.obtained ? "创立组织时登记的基础库存" : "尚未建立来源链",
+  }));
   const names = HIGHER_RECIPE_NAMES[pathwayId][targetRank] ?? HIGHER_RECIPE_NAMES[pathwayId][0];
-  return names.map((name, index) => ({ id: `${pathwayId}-${targetRank}-${index}`, name, kind: index < 2 ? "主材料" : targetRank <= 4 ? "仪式条件" : "辅助材料", obtained: false, known: false, source: targetRank <= 4 ? "高位势力、遗迹或历史偏转事件" : "完整配方、教会封存库或可靠非凡交易" }));
+  return names.map((name, index) => ({
+    id: `${pathwayId}-${targetRank}-${index}`,
+    name,
+    kind: index < 2 ? "主材料" : targetRank <= 4 ? "仪式条件" : "辅助材料",
+    obtained: false,
+    known: false,
+    source: targetRank <= 4 ? "高位势力、遗迹或历史偏转事件" : "完整配方、教会封存库或可靠非凡交易",
+    authenticity: "未知",
+    purity: 0,
+    freshness: 0,
+    contamination: 0,
+    traceRisk: 0,
+    storage: "尚未入库",
+    provenance: "尚未建立来源链",
+  }));
 }
 
 export const INITIAL_MEMBERS: Member[] = [
@@ -918,7 +1021,7 @@ export function initializeWorldKernel(input?: Partial<Pick<GameState, "week" | "
 export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
   const worldKernel = initializeWorldKernel();
   return {
-    version: 13,
+    version: 14,
     prologueComplete: false,
     playerName: "",
     playerAddress: "会长阁下",
@@ -938,6 +1041,7 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     pathwayId,
     currentSequence: 9,
     digestion: 34,
+    actingMarks: [],
     spirituality: 18,
     spiritualityMax: 18,
     mentalLoad: 0,
@@ -950,6 +1054,7 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     activeAbilityScene: null,
     formulaKnowledge: 100,
     materials: materialsFor(pathwayId, 8),
+    advancementProcess: null,
     organizationName: "鸦羽侦探事务所",
     coverIdentity: "私人调查、失物寻回与商业背景核查",
     charter: "保护组织成员与无辜者；证据不足时不公开指控；未知高位威胁下优先撤退。",
@@ -958,12 +1063,14 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     stability: 71,
     influence: 12,
     deviation: .7,
-    members: INITIAL_MEMBERS.map((item) => ({ ...item })),
+    members: INITIAL_MEMBERS.map((item) => ({ ...item, relationshipMomentum: 0, personalPressure: 8, personalEventSignals: [], promises: [], lastRelationshipChangeWeek: 0 })),
     facilities: INITIAL_FACILITIES.map((item) => ({ ...item })),
     departments: [
-      { id: "field", name: "外勤与调查", leadMemberId: "mara", mandate: "验证异常、建立撤离路线，不与未知非凡者正面冲突。", autonomy: 42, budget: 14, status: "2人编制", weeklyVerb: "自动核验一项已发现线索的外围信息" },
-      { id: "support", name: "档案与后勤", leadMemberId: "cedric", mandate: "维持合法掩护、管理资产与建设项目。", autonomy: 35, budget: 11, status: "2人编制", weeklyVerb: "维持掩护收入并降低设施事故概率" },
+      { id: "field", name: "外勤与调查", leadMemberId: "mara", mandate: "验证异常、建立撤离路线，不与未知非凡者正面冲突。", autonomy: 42, budget: 14, status: "2人编制", weeklyVerb: "自动核验一项已发现线索的外围信息", memberIds: ["mara", "rowan"], capacity: 54, cohesion: 67, exposure: 11, backlog: 23, standingOrder: "优先验证会伤及平民的异常；接触未知非凡者前先建立撤离线。", tensions: [], lastReport: "本周外勤排班尚未开始。" },
+      { id: "support", name: "档案与后勤", leadMemberId: "cedric", mandate: "维持合法掩护、管理资产与建设项目。", autonomy: 35, budget: 11, status: "2人编制", weeklyVerb: "维持掩护收入并降低设施事故概率", memberIds: ["cedric", "ines"], capacity: 58, cohesion: 63, exposure: 8, backlog: 18, standingOrder: "维持掩护收入，所有非凡材料先登记来源与污染状态。", tensions: [], lastReport: "账册、档案与据点掩护均处于正常状态。" },
     ],
+    departmentReports: [],
+    organizationIssues: [],
     inventory: [
       { id: "black-locket", name: "渗水的黑玻璃挂坠", category: "封印物", quantity: 1, location: "封印储藏间", keeper: "罗文·布莱克", risk: "每晚三点传出敲门声；来源未知。" },
       { id: "worker-list", name: "被雨水浸透的工人名单", category: "证据", quantity: 1, location: "证据档案室", keeper: "伊妮丝·科尔", risk: "名单最后三行使用不同墨水补写。" },
@@ -1009,7 +1116,7 @@ export function createInitialGame(pathwayId: PathwayId = "seer"): GameState {
     fatalSituation: null,
     playerCondition: { health: 100, pollution: 3, injuries: [], alive: true },
     ending: { phase: "running", sandboxUnlocked: false },
-    recruitPool: FIXED_RECRUIT_POOL.map((item) => ({ ...item })),
+    recruitPool: FIXED_RECRUIT_POOL.map((item) => ({ ...item, relationshipMomentum: 0, personalPressure: 5, personalEventSignals: [], promises: [], lastRelationshipChangeWeek: 0 })),
     organizationProfile: { headquartersDistrictId: "cherwood", legalStatus: "未获许可", satellites: [], formerOrganizations: [] },
     ritualReadiness: 0,
     instability: 4,
