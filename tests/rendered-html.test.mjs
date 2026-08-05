@@ -21,7 +21,7 @@ test("server always renders the title screen before a save or new game", async (
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /<title>灰雾纪事/);
-  assert.match(html, /世界不会等待议长落槌/);
+  assert.match(html, /命运已在落槌前投下阴影/);
   assert.match(html, /尚无可读取存档/);
   assert.match(html, /开始新游戏/);
   assert.match(html, /模型与世界资料/);
@@ -67,6 +67,8 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(app, /主据点/);
   assert.match(app, /部门授权/);
   assert.match(app, /晋升材料/);
+  assert.match(app, /能力规则预览/);
+  assert.match(app, /权柄前提/);
   assert.match(app, /这是自由对话，不是关键词菜单/);
   assert.match(app, /sendChat/);
   assert.match(app, /character-dialogue/);
@@ -90,7 +92,8 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /generateLiteraryChapter/);
   assert.doesNotMatch(engine, /chronicle: \[chapter, \.\.\.game\.chronicle\]\.slice/);
   assert.match(engine, /advanceSequence/);
-  assert.match(engine, /discoverEvidence/);
+  assert.match(engine, /actionEvidenceIds/);
+  assert.match(engine, /行动报告缺少可核验的现场事实/);
   assert.match(engine, /refreshOpportunities/);
   assert.match(engine, /applyWorldTurn/);
   assert.match(engine, /timelineAfterWeek/);
@@ -119,6 +122,8 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(finale, /crisisCandidates/);
   assert.match(finale, /buildStageCrises/);
   assert.match(finale, /aftermathLedger/);
+  assert.match(app, /refreshFinaleFronts/);
+  assert.match(app, /generateAiWorldDelta\(aiConfig, next, localChapter/);
   assert.doesNotMatch(finale, /const STAGES/);
   assert.match(finaleView, /本阶段并发危机/);
   assert.match(finaleView, /城市中的其他行动者/);
@@ -188,7 +193,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(council, /一键整理意见/);
   assert.match(council, /独立世界推演/);
   assert.match(council, /送上议桌的报纸与传闻/);
-  assert.match(title, /世界不会等待议长落槌/);
+  assert.match(title, /命运已在落槌前投下阴影/);
   assert.match(title, /开始新游戏/);
   assert.match(title, /世界推演模型正在重写这一页/);
   assert.doesNotMatch(app, /我分四层讲|亲历、下属报告、个人推断与未知分别说清/);
@@ -207,6 +212,8 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(abilityConsole, /自由施行/);
   assert.match(abilitySystem, /abilityForFreeIntent/);
   assert.match(abilitySystem, /绝不把“主动进入灵界”改写成触碰吊坠/);
+  assert.match(abilityConsole, /权柄前提/);
+  assert.match(abilityConsole, /不可忽略的后果/);
   assert.match(board, /由证据开放的可能性/);
   assert.match(board, /世界没有等待你/);
   assert.match(board, /建立玩家假设连接/);

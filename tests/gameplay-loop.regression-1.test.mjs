@@ -71,6 +71,7 @@ test("city workspace responds to its own embedded width without horizontal layer
   assert.match(source, /\.council-table\.refined \{[^}]*top: 50%;[^}]*left: 42%;[^}]*translate: -50% -50%;[^}]*transform: none;/);
   assert.match(source, /\.council-seat\.inner-seat \{[^}]*right: auto;[^}]*bottom: auto;/);
   assert.match(source, /@media \(max-width: 900px\) \{[\s\S]*?\.council-seat\.seat-6 \{ left: auto; top: auto; right: 3%; bottom: 29%; \}/);
+  assert.match(source, /@media\(max-width:650px\)\{\.council-stages\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\);overflow:visible\}/);
   assert.match(component, /COUNCIL_STAGE_COPY/);
   assert.match(component, /className="council-session-state"/);
   assert.match(component, /className="supervisor-rail-label"/);

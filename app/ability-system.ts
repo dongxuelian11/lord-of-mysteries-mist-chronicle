@@ -2,9 +2,8 @@ import { AiConfig, callModel } from "./ai-client";
 import {
   Ability, AbilityContext, AbilityScene, AbilityUseRecord, GameState, HiddenWorldFact, PATHWAYS,
 } from "./game-model";
-import { LORE_RECORDS } from "./generated-lore-compendium";
 import { retrieveLoreContext } from "./lore-knowledge";
-import { abilitiesFor, abilityRuleSummary } from "./pathway-abilities";
+import { abilitiesFor, abilityRuleSummary, freeTravelAbility } from "./pathway-abilities";
 import { evaluateImmediateActing } from "./progression-system";
 
 type AbilityDraft = Omit<AbilityUseRecord, "id" | "week" | "abilityId" | "abilityName" | "context" | "intent" | "cost"> & {
@@ -17,17 +16,35 @@ function hash(value: string) {
   return Math.abs(result);
 }
 
+const COMMON_ABILITY_TOKENS = new Set(["感知", "观察", "影响", "防护", "移动", "战斗", "仪式", "伪装", "制作", "攻击", "防御", "追踪", "调查", "进入", "使用", "能力", "手段", "自身", "目标", "区域", "现场"]);
+
+function intentGrams(text: string, min = 2, max = 4) {
+  const chars = [...text.toLowerCase()];
+  const grams = new Set<string>();
+  for (let size = min; size <= max; size += 1) {
+    for (let index = 0; index + size <= chars.length; index += 1) grams.add(chars.slice(index, index + size).join(""));
+  }
+  return grams;
+}
+
+function abilityNameTokens(name: string) {
+  const chars = [...name.toLowerCase()];
+  const tokens = new Set<string>();
+  for (let size = 2; size <= 4; size += 1) {
+    for (let index = 0; index + size <= chars.length; index += 1) tokens.add(chars.slice(index, index + size).join(""));
+  }
+  return [...tokens].filter((token) => !COMMON_ABILITY_TOKENS.has(token));
+}
+
 export function abilityForFreeIntent(game: GameState, intent: string): Ability {
   const normalized = intent.trim();
   const wantsSpirit = /(?:进入|踏入|前往|穿行|穿梭|漫游).{0,8}灵界|灵界.{0,8}(?:进入|穿行|穿梭|漫游)/.test(normalized);
   const wantsDream = /(?:进入|潜入|行走|穿行).{0,8}(?:梦境|梦中)|(?:梦境|梦中).{0,8}(?:进入|潜入|行走|穿行)/.test(normalized);
   if (wantsSpirit) {
-    if (game.pathwayId !== "apprentice" || game.currentSequence > 5) throw new Error("你的当前途径与序列不具备直接进入灵界的能力。可以另行寻找仪式、入口、封印物或具备灵界穿梭能力的协助者，但系统不会擅自替你选择。 ");
-    return abilitiesFor(game.pathwayId, game.currentSequence).find((item) => item.id === "apprentice-spirit-travel")!;
+    return freeTravelAbility(game.pathwayId, game.currentSequence, "spirit");
   }
   if (wantsDream) {
-    if (game.pathwayId !== "spectator" || game.currentSequence > 5) throw new Error("你的当前途径与序列不具备直接进入梦境的能力。可以寻找梦境媒介、仪式、封印物或梦境行者协助，但系统不会擅自替你选择。 ");
-    return abilitiesFor(game.pathwayId, game.currentSequence).find((item) => item.id === "spectator-dream-entry")!;
+    return freeTravelAbility(game.pathwayId, game.currentSequence, "dream");
   }
   const artifactMentionNegated = /(?:不|不得|不要|避免|拒绝|无需|不借助|不触碰|不使用)[^，。；]{0,18}(?:封印物|挂坠)|(?:封印物|挂坠)[^，。；]{0,12}(?:不用|不触碰|不使用)/.test(normalized);
   const explicitlyUsesArtifact = /(?:使用|发动|启用|借助|触碰|解封|打开|激活)[^，。；]{0,18}(?:封印物|挂坠)|(?:封印物|挂坠)[^，。；]{0,12}(?:使用|发动|启用|解封|激活)/.test(normalized);
@@ -36,16 +53,46 @@ export function abilityForFreeIntent(game: GameState, intent: string): Ability {
     : undefined;
   if (artifact) return { id: `artifact-${artifact.id}`, name: artifact.name, verb: "按玩家描述使用封印物", description: `封印物位于${artifact.location}，由${artifact.keeper}保管。真实能力、激活条件与负面效果由规则固定；玩家可以自由指定使用方式。`, cost: 1, risk: artifact.risk, ruleTags: ["artifact", artifact.id] };
   const abilities = abilitiesFor(game.pathwayId, game.currentSequence);
-  const keywords = normalized.toLowerCase().split(/[\s，。；、：]+/).filter((item) => item.length >= 2);
-  const scored = abilities.map((ability) => {
+  const normalizedLower = normalized.toLowerCase();
+  const grams = intentGrams(normalized);
+
+  // 1) 显式指名：意图里出现能力名或其特征片段（如“占卜”“灵视”“门径”）时直接采用
+  const explicit = abilities.filter((ability) => {
+    const name = ability.name.toLowerCase();
+    if (normalizedLower.includes(name)) return true;
+    return abilityNameTokens(name).some((token) => normalizedLower.includes(token));
+  });
+  if (explicit.length === 1) return explicit[0];
+  if (explicit.length > 1) {
+    return explicit.sort((left, right) =>
+      Number(left.passive) - Number(right.passive) || (left.cost ?? 0) - (right.cost ?? 0),
+    )[0];
+  }
+
+  // 2) 通用评分：中文意图按 2-4 字片段匹配能力语料，避免整句被当成一个词
+  const purposePatterns: [RegExp, string][] = [
+    [/观察|感知|辨认|灵视|调查|查看|审视/, "感知"],
+    [/影响|暗示|催眠|挑衅|操纵|煽动|引导/, "影响"],
+    [/进入|移动|撤退|传送|穿越|抵达|穿梭/, "移动"],
+    [/攻击|战斗|破坏|拦截|压制|猎杀/, "战斗"],
+  ];
+  const purposeMode = purposePatterns.find(([pattern]) => pattern.test(normalized))?.[1];
+  const scored = abilities.map((ability, index) => {
     const corpus = `${ability.name} ${ability.verb} ${ability.description} ${(ability.ruleTags ?? []).join(" ")} ${ability.mode ?? ""} ${(ability.constraints ?? []).join(" ")}`.toLowerCase();
-    let score = keywords.reduce((sum, word) => sum + (corpus.includes(word) ? Math.min(5, word.length) : 0), 0);
-    if (/观察|感知|辨认|灵视|调查/.test(normalized) && ability.mode === "感知") score += 8;
-    if (/影响|暗示|催眠|挑衅|操纵/.test(normalized) && ability.mode === "影响") score += 8;
-    if (/进入|移动|撤退|传送|穿越/.test(normalized) && ability.mode === "移动") score += 8;
-    if (/攻击|战斗|破坏|拦截/.test(normalized) && ability.mode === "战斗") score += 8;
-    return { ability, score };
-  }).sort((left, right) => right.score - left.score);
+    let gramScore = 0;
+    for (const gram of grams) {
+      if (corpus.includes(gram)) gramScore += gram.length;
+    }
+    const purposeBonus = purposeMode && ability.mode === purposeMode ? 8 : 0;
+    return { ability, index, score: gramScore + purposeBonus, purposeBonus, passive: Boolean(ability.passive), cost: ability.passive ? 0 : (ability.cost ?? 0) };
+  });
+  scored.sort((left, right) =>
+    right.score - left.score ||
+    right.purposeBonus - left.purposeBonus ||
+    Number(left.passive) - Number(right.passive) ||
+    left.cost - right.cost ||
+    left.index - right.index,
+  );
   return scored[0]?.ability ?? abilities.find((item) => !item.passive) ?? abilities[0];
 }
 
@@ -58,6 +105,7 @@ function extractJson(raw: string) {
 }
 
 export async function generateAbilityDraft(config: AiConfig, game: GameState, ability: Ability, intent: string, context: AbilityContext): Promise<AbilityDraft> {
+  const { LORE_RECORDS } = await import("./generated-lore-compendium");
   const relevantHidden = game.hiddenWorldFacts.filter((item) => item.subjectKey === context.targetId || item.subjectKey === context.label).slice(-3);
   const knownLoreIds = [...new Set((game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes("player")).flatMap((node) => node.loreRecordIds ?? []))];
   const lore = retrieveLoreContext(LORE_RECORDS, { query: `${intent} ${context.label} ${ability.name}`, audience: { kind: "player", knownLoreIds, topicGrants: ["pathways", "beyonder-system"] }, limit: 10, maxChars: 4200 });
@@ -137,7 +185,7 @@ export function resolveImmediateAbility(game: GameState, ability: Ability, inten
       actingMarks: actingMark ? [...game.actingMarks, actingMark].slice(-80) : game.actingMarks,
       hiddenWorldFacts: hiddenFact ? [...game.hiddenWorldFacts, hiddenFact] : game.hiddenWorldFacts,
       activeAbilityScene: scene,
-      worldKernel: { ...game.worldKernel, knowledge: [...game.worldKernel.knowledge, { id: `knowledge-${record.id}`, subject: context.label, statement: record.interpretation, truth: result.confidence === "确认" ? "confirmed" : "likely", visibility: "player", holderIds: ["player"], loreRecordIds: [], acquiredWeek: game.week }].slice(-400) },
+      worldKernel: { ...game.worldKernel, knowledge: [...game.worldKernel.knowledge, { id: `knowledge-${record.id}`, subject: context.label, statement: record.interpretation, truth: result.confidence === "确认" ? "confirmed" as const : "likely" as const, visibility: "player" as const, holderIds: ["player"], loreRecordIds: [], acquiredWeek: game.week }].slice(-400) },
       facts: [...game.facts, { id: `fact-${record.id}`, subject: context.label, statement: `${ability.name}得到的个人判断：${record.interpretation}`, certainty: "线索" as const, source: `${PATHWAYS[game.pathwayId].name}·${ability.name}`, week: game.week }].slice(-100),
     },
   };

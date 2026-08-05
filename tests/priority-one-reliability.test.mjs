@@ -52,8 +52,9 @@ test("non-investigation orders keep their own semantics instead of becoming clue
     assert.match(engine, new RegExp(`domain === "${domain}"`));
   }
   assert.match(engine, /function seeksEvidence\(contract/);
-  assert.match(engine, /\? discoverEvidence/);
-  assert.match(engine, /if \(!report \|\| !seeksEvidence\(result\.contract\)\) return result/);
+  assert.doesNotMatch(engine, /function discoverEvidence/);
+  assert.match(engine, /const actionEvidenceIds = seeksEvidence\(result\.contract\)/);
+  assert.match(engine, /findings: observableFacts\.length \? observableFacts : result\.findings/);
   assert.match(engine, /非调查行动不得凭空发现档案补录、马车路线、晚宴名单/);
 });
 

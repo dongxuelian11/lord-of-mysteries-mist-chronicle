@@ -23,7 +23,7 @@ export function TitleScreen({ hydrated, hasSave, save, onContinue, onNewGame, on
     <section className="title-edition">
       <header><span>AN AI-DRIVEN BEYONDER CHRONICLE</span><i /><small>贝克兰德 · 1349</small></header>
       <div className="title-sigil"><CloudFog size={34} /><span /></div>
-      <p>世界不会等待议长落槌</p>
+      <p>命运已在落槌前投下阴影</p>
       <h1>灰雾纪事</h1>
       <blockquote>建立一个不被历史记住的组织，然后亲眼看它如何改变历史。</blockquote>
       <div className="title-actions">

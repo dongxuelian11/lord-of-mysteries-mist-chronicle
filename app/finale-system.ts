@@ -1,4 +1,5 @@
 import {
+  type ActionResult,
   type ChronicleChapter,
   DISTRICTS,
   type FinaleCampaign,
@@ -103,6 +104,51 @@ function stageHeading(game: GameState, stage: number) {
   return dominant ? `${dominant.title}越过第${stage}道门槛` : `城市危机进入第${stage}次汇合`;
 }
 
+function finaleActionResults(game: GameState, campaign: FinaleCampaign, crises: FinaleCrisis[], report: FinaleReport): ActionResult[] {
+  return crises.map((crisis) => {
+    const reported = report.results.find((item) => item.crisisId === crisis.id)!;
+    const executor = crisis.assignedMemberId === "player" ? game.playerAddress : game.members.find((item) => item.id === crisis.assignedMemberId)?.name ?? "未记录执行者";
+    return {
+      id: `finale-action-${campaign.stage}-${crisis.id}`,
+      title: reported.title,
+      outcome: reported.outcome === "失败" ? "受阻" : reported.outcome,
+      contract: {
+        id: `finale-contract-${campaign.stage}-${crisis.id}`,
+        rawIntent: `终局立场“${campaign.doctrine}”：由${executor}处理${crisis.title}；服从已知威胁、既有证据与撤退边界，不越权改写世界事实。`,
+        title: crisis.title,
+        kind: "自由行动",
+        target: crisis.title,
+        desiredOutcome: `${campaign.doctrine}这条危机前线，并让城市与其他行动者依据结果继续运行。`,
+        approach: `${executor}依靠${crisis.tags.join("、") || "现场判断"}，使用已部署的成员、势力与设施支点执行。`,
+        leaderId: crisis.assignedMemberId ?? "player",
+        memberIds: crisis.assignedMemberId && crisis.assignedMemberId !== "player" ? [crisis.assignedMemberId] : [],
+        districtId: crisis.districtId,
+        abilityIds: [],
+        facilityId: crisis.assignedFacilityId,
+        days: 1,
+        budget: 0,
+        risk: crisis.risk,
+        knownFacts: `${crisis.scene} ${crisis.threat}`,
+        hypothesis: "仍有未进入组织视野的高位行动者与后续反应。",
+        unknowns: "敌对势力、原著人物和城市机构将如何回应，只能由持续世界模型结算。",
+        redLines: "AI不得改写规则成败、资源、伤亡与玩家死亡边界；不得让未公开的世界真相自动成为角色知识。",
+        retreat: "若玩家陷入致命处境，必须进入撤退、求援或继续的明确选择与最终检定。",
+        focus: true,
+        methodTags: crisis.tags,
+      },
+      findings: [reported.detail],
+      consequence: crisis.consequence,
+      abilityEffects: [],
+      digestionGain: 0,
+      missionProgress: 0,
+      resourceChanges: { money: 0, secrecy: 0, stability: 0, influence: 0 },
+      reasons: [`终局规则已锁定为${reported.outcome}；文学模型与世界模型只能据此继续。`],
+      unlockedEvidenceIds: crisis.evidenceIds,
+      futureChanges: [crisis.consequence],
+    };
+  });
+}
+
 export function createFinaleCampaign(game: GameState): FinaleCampaign {
   const base: FinaleCampaign = {
     stage: 1,
@@ -116,6 +162,18 @@ export function createFinaleCampaign(game: GameState): FinaleCampaign {
     resolvedFrontIds: [],
   };
   return { ...base, crises: buildStageCrises(game, base) };
+}
+
+export function refreshFinaleFronts(game: GameState) {
+  const campaign = game.ending.campaign;
+  if (game.ending.phase !== "finale" || !campaign || game.fatalSituation) return game;
+  const refreshed: FinaleCampaign = {
+    ...campaign,
+    stageTitle: stageHeading(game, campaign.stage),
+    stageBrief: "独立世界模型已经写入上一阶段的城市、势力与原著人物回应；这一阶段只从仍在运行的项目、区域压力和已锁定余波中形成前线。",
+    crises: buildStageCrises(game, campaign),
+  };
+  return { ...game, ending: { ...game.ending, campaign: refreshed } };
 }
 
 export function chooseFinaleDoctrine(game: GameState, doctrine: FinaleDoctrine) {
@@ -255,7 +313,7 @@ export function resolveFinalePhase(game: GameState) {
   });
 
   const report: FinaleReport = { stage: campaign.stage, title: campaign.stageTitle, summary: `${results.filter((item) => item.outcome === "成功").length}项成功，${results.filter((item) => item.outcome === "部分成功").length}项部分成功，${results.filter((item) => item.outcome === "失败").length}项失败。`, paragraphs: results.map((item) => item.detail), results };
-  const chapter: ChronicleChapter = { id: `finale-chapter-${campaign.stage}-${Date.now()}`, week: game.week, date: game.date, title: `终局 · ${campaign.stageTitle}`, source: "local", sections: [], results: [], summary: report.summary };
+  const chapter: ChronicleChapter = { id: `finale-chapter-${campaign.stage}-${Date.now()}`, week: game.week, date: game.date, title: `终局 · ${campaign.stageTitle}`, source: "local", sections: [], results: finaleActionResults(game, campaign, crises, report), summary: report.summary };
   const resolvedFrontIds = [...new Set([...(campaign.resolvedFrontIds ?? []), ...crises.filter((item) => item.outcome === "成功").map((item) => item.id)])];
   const updatedCampaign: FinaleCampaign = { ...campaign, crises, reports: [report, ...campaign.reports], momentum, enemyProgress, rescued, casualties, exposedTruth, resolvedFrontIds };
   const facts: WorldFact[] = [...game.facts, { id: `finale-fact-${campaign.stage}-${Date.now()}`, subject: `终局第${campaign.stage}阶段`, statement: report.summary, certainty: "确认", source: "终局规则账本", week: game.week }];

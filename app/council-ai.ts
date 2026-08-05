@@ -1,7 +1,6 @@
 import { AiConfig, callModel } from "./ai-client";
 import { relevantCouncilMembers } from "./council-system";
 import { CouncilTopic, CouncilTopicMessage, GameState } from "./game-model";
-import { LORE_RECORDS } from "./generated-lore-compendium";
 import { retrieveLoreContext } from "./lore-knowledge";
 
 function extractJson(raw: string) {
@@ -13,6 +12,7 @@ function extractJson(raw: string) {
 }
 
 export async function generateCouncilReplies(config: AiConfig, game: GameState, topicText: string): Promise<CouncilTopicMessage[]> {
+  const { LORE_RECORDS } = await import("./generated-lore-compendium");
   const members = relevantCouncilMembers(game, topicText, 3);
   const speakerLore = Object.fromEntries(members.map((member) => {
     const knownLoreIds = [...new Set((game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes(member.id)).flatMap((node) => node.loreRecordIds ?? []))];
@@ -51,4 +51,28 @@ export async function generateCouncilSummary(config: AiConfig, game: GameState, 
   const raw = extractJson(await callModel(config, `你是组织内部议会的书记员。只做中立整理，不推荐方案、不替领导形成决议、不推断未说出口的秘密。每一项必须能追溯到已有发言或已知事实。只返回JSON。`, `整理议题并返回{"facts":[],"consensus":[],"disagreements":[],"risks":[],"directions":[],"unanswered":[]}，每组0至4条，每条不超过80字。\n${JSON.stringify({ topic, members: game.members.map((item) => ({ id: item.id, name: item.name })), knownFacts: game.facts.slice(-16) })}`, { json: true, maxTokens: 1600, temperature: .25 }));
   const list = (key: string) => Array.isArray(raw[key]) ? (raw[key] as unknown[]).filter((item): item is string => typeof item === "string").map((item) => item.slice(0, 120)).slice(0, 4) : [];
   return { facts: list("facts"), consensus: list("consensus"), disagreements: list("disagreements"), risks: list("risks"), directions: list("directions"), unanswered: list("unanswered") };
+}
+
+export async function generateDecisionDraft(config: AiConfig, game: GameState, topic: CouncilTopic): Promise<string> {
+  const payload = {
+    week: topic.week,
+    topicTitle: topic.title,
+    organization: game.organizationName,
+    date: game.date,
+    messages: topic.messages.map((message) => {
+      const member = game.members.find((item) => item.id === message.speakerId);
+      return {
+        speaker: message.speakerId === "player" ? game.playerAddress : member?.name ?? "内部成员",
+        role: message.speakerId === "player" ? "议长" : member?.role ?? "内部成员",
+        stance: message.stance ?? null,
+        text: message.text,
+      };
+    }),
+    summary: topic.summary ?? null,
+    currentWeek: game.week,
+  };
+  const raw = extractJson(await callModel(config, `你是《灰雾纪事》组织议会的书记员。你的职责是把讨论整理成一段可以交给负责人确认的决议原话。只能依据这份讨论记录本身：发言者的观点、明确提出的限制、成员职责与讨论摘要；不得引入讨论之外的案件、物品或世界背景，不得替负责人决定人格或长期信念。讨论中出现的所有“不要/不得/避免/不接触…”限制必须原样保留为决议红线，一条都不能丢。决议必须包含：核心目标、执行方法、尽量从发言者中指定负责人、明确红线（用“不要/不得/避免…”表达）、撤退条件（用“若…则…”表达）。写成连贯的一段话，像议长口述的命令，不使用列表标签。`, `阅读以下讨论记录，整理成一段可直接执行的决议文本，供负责人确认。\n${JSON.stringify(payload)}\n\n返回：{"decision":"一段连贯的决议原话"}`, { json: true, maxTokens: 1400, temperature: .4 }));
+  const decision = typeof raw.decision === "string" ? raw.decision.trim() : "";
+  if (!decision) throw new Error("书记员没有形成决议文本；原始讨论保持不变");
+  return decision.slice(0, 1400);
 }

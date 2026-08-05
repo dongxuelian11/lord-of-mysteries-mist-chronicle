@@ -11,12 +11,24 @@ export async function POST(request: Request) {
     const payload = input.payload as Record<string, unknown>;
     if (typeof payload.model !== "string" || !ALLOWED_MODELS.has(payload.model)) return Response.json({ error: { message: "只允许 DeepSeek V4 Flash 或 V4 Pro" } }, { status: 400 });
     if (!Array.isArray(payload.messages) || payload.messages.length > 8) return Response.json({ error: { message: "消息格式无效" } }, { status: 400 });
+    const stream = payload.stream === true;
     const upstream = await fetch(DEEPSEEK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${input.apiKey}` },
-      body: JSON.stringify({ ...payload, stream: false }),
+      body: JSON.stringify({ ...payload, stream }),
       signal: AbortSignal.timeout(175_000),
     });
+    if (stream && upstream.ok && upstream.body) {
+      return new Response(upstream.body, {
+        status: upstream.status,
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-store",
+          "Connection": "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
     return new Response(await upstream.text(), { status: upstream.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   } catch (error) {
     const timeout = error instanceof Error && error.name === "TimeoutError";

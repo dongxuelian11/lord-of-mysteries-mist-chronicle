@@ -91,8 +91,8 @@ export default function GreatSmogFinale({ game, busy, onDoctrine, onAssign, onAu
               <details className="crisis-intel">
                 <summary><BookOpen size={13} />情报支点 <b>{knownEvidence.length}/{crisis.evidenceIds.length}</b><ChevronDown size={13} /></summary>
                 <div>
-                  {knownEvidence.map((id) => <p className="known" key={id}><CheckCircle2 size={13} />{game.evidenceNodes.find((item) => item.id === id)?.title}</p>)}
-                  {missingEvidence.map((id) => <p key={id}><CircleAlert size={13} />{game.evidenceNodes.find((item) => item.id === id)?.title ?? "未知证据"} · 未取得</p>)}
+                  {knownEvidence.map((id) => <p className="known" key={id}><CheckCircle2 size={13} />{game.evidenceNodes.find((item) => item.id === id)?.label}</p>)}
+                  {missingEvidence.map((id) => <p key={id}><CircleAlert size={13} />{game.evidenceNodes.find((item) => item.id === id)?.label ?? "未知证据"} · 未取得</p>)}
                 </div>
               </details>
               <div className="crisis-deployment">

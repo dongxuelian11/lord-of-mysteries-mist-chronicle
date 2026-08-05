@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createInitialGame } from "../app/game-model.ts";
-import { abilitiesFor } from "../app/pathway-abilities.ts";
+import { abilitiesFor, freeTravelAbility } from "../app/pathway-abilities.ts";
 import { actingPrinciplesFor, advanceAdvancementStage, createAdvancementProcess, evaluateImmediateActing } from "../app/progression-system.ts";
 import { advanceOrganizationCausality } from "../app/organization-causality.ts";
 
@@ -15,6 +15,38 @@ test("five pathways expose cumulative independent sequence 9-5 ability rules", (
     assert.ok(mid.every((ability) => ability.unlockRank >= 5 && ability.contexts.length && ability.constraints.length));
     assert.equal(new Set(mid.map((ability) => ability.id)).size, mid.length);
   }
+});
+
+test("five pathways expose authored sequence 4-0 authority rules with explicit costs and consequences", () => {
+  for (const pathway of ["seer", "spectator", "apprentice", "hunter", "mystery"]) {
+    const complete = abilitiesFor(pathway, 0);
+    assert.equal(complete.length, 30, `${pathway} should expose three concrete abilities at every sequence`);
+    for (const rank of [4, 3, 2, 1, 0]) {
+      const unlockedAtRank = complete.filter((ability) => ability.unlockRank === rank);
+      assert.equal(unlockedAtRank.length, 3, `${pathway} sequence ${rank} needs three authored rules`);
+      assert.ok(unlockedAtRank.every((ability) => ability.authorityTier && ability.requirements?.length && ability.consequences?.length));
+      assert.ok(unlockedAtRank.every((ability) => ability.contexts?.length && ability.constraints?.length && ability.scope && ability.duration));
+    }
+  }
+});
+
+test("high-sequence acting remains pathway-specific instead of falling back to one line", () => {
+  for (const pathway of ["seer", "spectator", "apprentice", "hunter", "mystery"]) {
+    const mid = actingPrinciplesFor({ ...createInitialGame(pathway), currentSequence: 5 });
+    for (const rank of [4, 3, 2, 1, 0]) {
+      const principles = actingPrinciplesFor({ ...createInitialGame(pathway), currentSequence: rank });
+      assert.equal(principles.length, 3, `${pathway} sequence ${rank} should have three acting anchors`);
+      assert.equal(new Set(principles).size, 3);
+      assert.notDeepEqual(principles, mid, `${pathway} sequence ${rank} cannot reuse sequence 5 acting`);
+    }
+  }
+});
+
+test("free dream and spirit entry resolves to the actual unlocked ability", () => {
+  const dream = freeTravelAbility("spectator", 5, "dream");
+  const spirit = freeTravelAbility("apprentice", 5, "spirit");
+  assert.equal(dream.id, "dream-entry");
+  assert.equal(spirit.id, "spirit-travel");
 });
 
 test("advancement preserves a four-stage dossier instead of jumping one click", () => {

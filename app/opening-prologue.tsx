@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Anchor, ArrowLeft, ArrowRight, Check, Eye, Feather, KeyRound, Landmark, ShieldAlert, Sparkles, UsersRound } from "lucide-react";
-import { FIXED_RECRUIT_POOL, GameState, INITIAL_MEMBERS, PATHWAYS, PathwayId, PlayerOrigin } from "./game-model";
+import { FIXED_RECRUIT_POOL, GameState, INITIAL_MEMBERS, ORGANIZATION_KINDS, PATHWAYS, PathwayId, PlayerOrigin } from "./game-model";
 
 type Props = {
   game: GameState;
@@ -40,12 +40,18 @@ export default function OpeningPrologue({ game, onBegin }: Props) {
   const [experienceDetail, setExperienceDetail] = useState("");
   const [symbol, setSymbol] = useState(SYMBOLS[0]);
   const [memberIds, setMemberIds] = useState(INITIAL_MEMBERS.map((item) => item.id));
+  const [gender, setGender] = useState("");
+  const [age, setAge] = useState("");
+  const [orgName, setOrgName] = useState("鸦羽侦探事务所");
+  const [orgKind, setOrgKind] = useState("detective");
+  const [orgCharter, setOrgCharter] = useState("保护组织成员与无辜者；证据不足时不公开指控；未知高位威胁下优先撤退。");
   const identity = IDENTITIES.find((item) => item.id === identityId)!;
   const experience = EXPERIENCES.find((item) => item.id === experienceId)!;
+  const orgKindInfo = ORGANIZATION_KINDS.find((item) => item.id === orgKind)!;
   const sequence = PATHWAYS[pathwayId].sequences.find((item) => item.rank === game.currentSequence)!;
   const selectedMembers = ALL_CANDIDATES.filter((item) => memberIds.includes(item.id));
   const extraordinaryCount = selectedMembers.filter((item) => item.pathway).length;
-  const valid = name.trim().length >= 2 && address.trim().length >= 2 && memberIds.length === 4 && extraordinaryCount === 1;
+  const valid = name.trim().length >= 2 && address.trim().length >= 2 && gender.trim().length >= 1 && orgName.trim().length >= 2 && memberIds.length === 4 && extraordinaryCount === 1;
   const symbolCandidates = useMemo(() => {
     const seed = IDENTITIES.findIndex((item) => item.id === identityId) + EXPERIENCES.findIndex((item) => item.id === experienceId) + Object.keys(PATHWAYS).indexOf(pathwayId);
     return [SYMBOLS[seed % SYMBOLS.length], SYMBOLS[(seed + 2) % SYMBOLS.length], SYMBOLS[(seed + 4) % SYMBOLS.length]];
@@ -55,9 +61,15 @@ export default function OpeningPrologue({ game, onBegin }: Props) {
     setMemberIds((current) => current.includes(id) ? current.filter((item) => item !== id) : current.length < 4 ? [...current, id] : current);
   }
 
+  function selectOrgKind(id: string) {
+    const next = ORGANIZATION_KINDS.find((item) => item.id === id)!;
+    setOrgKind(id);
+    if (orgName === orgKindInfo.defaultName) setOrgName(next.defaultName);
+  }
+
   function finish() {
     if (!valid) return;
-    onBegin(name.trim(), address.trim(), pathwayId, { identityId, identityLabel: identity.label, experienceId, experienceLabel: experience.label, experienceDetail: experienceDetail.trim(), symbol, foundingMemberIds: memberIds });
+    onBegin(name.trim(), address.trim(), pathwayId, { identityId, identityLabel: identity.label, experienceId, experienceLabel: experience.label, experienceDetail: experienceDetail.trim(), symbol, foundingMemberIds: memberIds, gender: gender.trim(), age: age.trim(), organizationName: orgName.trim(), organizationKind: orgKind, organizationKindLabel: orgKindInfo.name, organizationCharter: orgCharter.trim() });
   }
 
   return <div className="prologue-backdrop">
@@ -65,7 +77,7 @@ export default function OpeningPrologue({ game, onBegin }: Props) {
       <aside className="origin-symbol-card">
         <div className="symbol-orbit"><span /><i /><b /></div>
         <small>人物象征档案</small><div className="symbol-glyph" aria-hidden="true"><Eye size={52} /><KeyRound size={34} /></div><h2>{symbol}</h2>
-        <dl><div><dt>姓名</dt><dd>{name || "尚未留下"}</dd></div><div><dt>身份</dt><dd>{identity.label}</dd></div><div><dt>经历</dt><dd>{experience.label}</dd></div><div><dt>途径</dt><dd>序列9 · {sequence.name}</dd></div></dl>
+        <dl><div><dt>姓名</dt><dd>{name || "尚未留下"}</dd></div><div><dt>身份</dt><dd>{identity.label}</dd></div><div><dt>经历</dt><dd>{experience.label}</dd></div><div><dt>途径</dt><dd>序列9 · {sequence.name}</dd></div><div><dt>性别 · 年龄</dt><dd>{gender || "未填"} · {age || "未填"}</dd></div><div><dt>组织</dt><dd>{orgName || "尚未命名"}</dd></div></dl>
         <div className="founder-marks">{selectedMembers.map((member) => <span key={member.id} title={member.name}>{member.name.slice(0, 1)}</span>)}</div>
         <p>这是捏人界面的象征构图，不是塔罗牌，也不是世界内的神秘物品。</p>
       </aside>
@@ -73,11 +85,11 @@ export default function OpeningPrologue({ game, onBegin }: Props) {
         <header><p>1349年6月30日 · 贝克兰德</p><h1 id="prologue-title">在第一场密议前，写下你是谁</h1><span>廷根的一名年轻人刚从死亡中醒来。数百里外，你的组织还不知道历史已经开始转动。</span></header>
         <nav className="origin-steps">{["身份", "经历", "途径", "班底", "入席"].map((label, index) => <button key={label} className={step === index ? "active" : step > index ? "done" : ""} onClick={() => setStep(index)}><span>{step > index ? <Check size={12} /> : index + 1}</span>{label}</button>)}</nav>
 
-        {step === 0 && <section className="origin-step"><div className="step-heading"><Landmark size={18} /><div><h2>你以什么身份生活在贝克兰德？</h2><p>身份决定掩护、接触面、责任与旧关系，不只提供数值。</p></div></div><div className="origin-choice-grid">{IDENTITIES.map((item) => <button key={item.id} className={identityId === item.id ? "selected" : ""} onClick={() => setIdentityId(item.id)}><strong>{item.label}</strong><p>{item.detail}</p><small>优势：{item.boon}</small><em>代价：{item.debt}</em></button>)}</div></section>}
+        {step === 0 && <section className="origin-step"><div className="step-heading"><Landmark size={18} /><div><h2>你以什么身份生活在贝克兰德？</h2><p>身份决定掩护、接触面、责任与旧关系；性别与年龄会影响称呼和首章细节。</p></div></div><div className="origin-choice-grid">{IDENTITIES.map((item) => <button key={item.id} className={identityId === item.id ? "selected" : ""} onClick={() => setIdentityId(item.id)}><strong>{item.label}</strong><p>{item.detail}</p><small>优势：{item.boon}</small><em>代价：{item.debt}</em></button>)}</div><div className="origin-personal-fields"><div className="gender-row"><span>性别</span>{["男", "女", "不便透露"].map((option) => <button key={option} className={gender === option ? "selected" : ""} onClick={() => setGender(option)}>{option}</button>)}</div><label className="age-field"><span>年龄</span><input value={age} onChange={(event) => setAge(event.target.value)} placeholder="例如：27" maxLength={8} /></label></div></section>}
         {step === 1 && <section className="origin-step"><div className="step-heading"><Feather size={18} /><div><h2>什么经历把你带到这里？</h2><p>系统会持续承认这段过去；强背景同时带来债务、追捕或责任。</p></div></div><div className="experience-list">{EXPERIENCES.map((item) => <button key={item.id} className={experienceId === item.id ? "selected" : ""} onClick={() => setExperienceId(item.id)}><strong>{item.label}</strong><p>{item.detail}</p></button>)}</div><label className="free-background"><span>补充你自己的具体经历</span><textarea value={experienceDetail} onChange={(event) => setExperienceDetail(event.target.value)} placeholder="例如：曾在南大陆做过三年战地医生，但隐瞒了一名幸存者的真实身份。" maxLength={320} /></label></section>}
         {step === 2 && <section className="origin-step"><div className="step-heading"><Sparkles size={18} /><div><h2>选择你的非凡途径</h2><p>你以序列9开局；所有高序列都存在，但必须经过消化、配方、材料与仪式。</p></div></div><div className="pathway-origin-grid">{Object.values(PATHWAYS).map((pathway) => <button key={pathway.id} className={pathwayId === pathway.id ? "selected" : ""} onClick={() => setPathwayId(pathway.id)}><span style={{ background: pathway.color }} /><strong>{pathway.name}</strong><small>序列9 · {pathway.sequences.find((item) => item.rank === 9)?.name}</small><p>{pathway.startingAbilities.map((item) => item.name).join(" · ")}</p></button>)}</div><div className="symbol-picker"><span>从背景组合得到的象征构图</span>{symbolCandidates.map((item) => <button key={item} className={symbol === item ? "selected" : ""} onClick={() => setSymbol(item)}>{item}</button>)}</div></section>}
-        {step === 3 && <section className="origin-step team-step"><div className="step-heading"><UsersRound size={18} /><div><h2>选择3名普通成员与1名低序列非凡者</h2><p>十二人全部可见。团队没有“最佳答案”，但必须只有一名初始非凡者。</p></div><b className={memberIds.length === 4 && extraordinaryCount === 1 ? "valid" : ""}>{memberIds.length}/4 · 非凡者 {extraordinaryCount}/1</b></div><div className="founder-grid">{ALL_CANDIDATES.map((member) => <button key={member.id} className={memberIds.includes(member.id) ? "selected" : ""} onClick={() => toggleMember(member.id)}><header><span>{member.name.slice(0, 1)}</span><div><strong>{member.name}</strong><small>{member.role}{member.pathway ? ` · 序列${member.sequence} ${member.pathway}` : " · 普通人"}</small></div>{memberIds.includes(member.id) && <Check size={14} />}</header><p>{member.specialty}</p><small>{member.core}</small></button>)}</div></section>}
-        {step === 4 && <section className="origin-step final-origin"><div className="step-heading"><ShieldAlert size={18} /><div><h2>雨夜留下了第一项压力</h2><p>陌生信使、黑玻璃挂坠和补写的工人名单已经送到据点。你可以调查、利用、移交或完全另寻方向。</p></div></div><div className="opening-story"><p>挂坠被锁在地下储藏间。那里没有第二扇门，它却连续两夜在凌晨三点传出敲门声。名单最后三行使用不同墨水，三名工人都来自东区，也都已经失踪。</p><p>你们没有教会许可，也尚未进入官方重点监控。最高议会目前只有一名初始非凡者有资格入席；三名普通创始成员将作为内部主管在外圈述职。</p></div><div className="identity-fields"><label><span>姓名或长期化名</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：亚瑟·莫里亚蒂" maxLength={32} /></label><label><span>内部正式称谓</span><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="例如：会长阁下" maxLength={24} /></label></div><div className="origin-review"><span><Anchor size={14} />{identity.label}</span><span><Feather size={14} />{experience.label}</span><span><Sparkles size={14} />{PATHWAYS[pathwayId].name}</span><span><UsersRound size={14} />{selectedMembers.map((item) => item.name).join("、")}</span></div></section>}
+        {step === 3 && <section className="origin-step team-step"><div className="step-heading"><UsersRound size={18} /><div><h2>选择3名普通成员与1名低序列非凡者</h2><p>十二人全部可见。团队没有“最佳答案”，但必须只有一名初始非凡者。</p></div><b className={memberIds.length === 4 && extraordinaryCount === 1 ? "valid" : ""}>{memberIds.length}/4 · 非凡者 {extraordinaryCount}/1</b></div><div className="founder-grid">{ALL_CANDIDATES.map((member) => <button key={member.id} className={memberIds.includes(member.id) ? "selected" : ""} onClick={() => toggleMember(member.id)}><header><span>{member.name.slice(0, 1)}</span><div><strong>{member.name}</strong><small>{member.role}{member.pathway ? ` · 序列${member.sequence} ${member.pathway}` : " · 普通人"}</small></div>{memberIds.includes(member.id) && <Check size={14} />}</header><p>{member.specialty}</p><small>{member.core}</small></button>)}</div><div className="origin-organization"><div className="step-heading"><Landmark size={18} /><div><h2>给组织一个名字与定性</h2><p>类型决定第一项压力与开局基调；名字与章程会写进世界事实。</p></div></div><label className="org-name-field"><span>组织名称</span><input value={orgName} onChange={(event) => setOrgName(event.target.value)} placeholder="例如：鸦羽侦探事务所" maxLength={24} /></label><div className="org-kind-grid">{ORGANIZATION_KINDS.map((kind) => <button key={kind.id} className={orgKind === kind.id ? "selected" : ""} onClick={() => selectOrgKind(kind.id)}><strong>{kind.name}</strong><p>{kind.description}</p><small>优势：{kind.boon}</small><em>代价：{kind.debt}</em></button>)}</div><label className="org-charter-field"><span>一句话章程（可自由改写）</span><textarea value={orgCharter} onChange={(event) => setOrgCharter(event.target.value)} placeholder="组织存在的理由与底线…" maxLength={160} /></label></div></section>}
+        {step === 4 && <section className="origin-step final-origin"><div className="step-heading"><ShieldAlert size={18} /><div><h2>入席前，书记员会宣读第一项压力</h2><p>它会根据你的身份与组织类型生成，用来带你走通第一周：下命令、确认契约、讨论、用能力、闭会。</p></div></div><div className="opening-story"><p>第一项压力不是预设的“唯一任务”，而是引导你熟悉组织运作的起点：向谁下命令、如何确认行动契约、怎样自由讨论、怎样使用能力，最后闭会进入世界推演。</p><p>组织现在只有一名初始非凡者有资格入席；三名普通创始成员将作为内部主管在外圈述职。</p></div><div className="identity-fields"><label><span>姓名或长期化名</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：亚瑟·莫里亚蒂" maxLength={32} /></label><label><span>内部正式称谓</span><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="例如：会长阁下" maxLength={24} /></label></div><div className="origin-review"><span><Anchor size={14} />{identity.label}</span><span><Feather size={14} />{experience.label}</span><span><Sparkles size={14} />{PATHWAYS[pathwayId].name}</span><span><UsersRound size={14} />{selectedMembers.map((item) => item.name).join("、")}</span><span><Landmark size={14} />{orgName} · {orgKindInfo.name}</span><span><ShieldAlert size={14} />{gender || "未填性别"} · {age || "未填年龄"}</span></div></section>}
 
         <footer className="origin-footer"><button onClick={() => setStep((value) => Math.max(0, value - 1))} disabled={step === 0}><ArrowLeft size={15} />上一步</button><span>{!valid && step === 4 ? "请填写姓名，并选择3名普通成员与1名非凡者" : "选择会改变开局关系、资源与专属剧情"}</span>{step < 4 ? <button className="primary" onClick={() => setStep((value) => Math.min(4, value + 1))}>继续 <ArrowRight size={15} /></button> : <button className="primary" onClick={finish} disabled={!valid}>推门入席 <ArrowRight size={16} /></button>}</footer>
       </div>

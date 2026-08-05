@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createFinaleCampaign } from "../app/finale-system.ts";
+import { autoDeployFinale, chooseFinaleDoctrine, createFinaleCampaign, refreshFinaleFronts, resolveFinalePhase } from "../app/finale-system.ts";
 import { createInitialGame } from "../app/game-model.ts";
 import { createSaveEnvelope, parseSaveEnvelope, savePreview } from "../app/save-system.ts";
 import { buildSpatialIntelligence, estimateRoute } from "../app/spatial-intelligence.ts";
@@ -35,4 +35,17 @@ test("the finale grows fronts from persistent world state instead of a fixed sta
   assert.ok(campaign.crises.length >= 2 && campaign.crises.length <= 4);
   assert.ok(campaign.crises.every((crisis) => crisis.sourceFactIds?.length));
   assert.equal(campaign.reports.length, 0);
+});
+
+test("a resolved finale stage exposes concrete action contracts to the AI world simulator", () => {
+  const base = createInitialGame("spectator");
+  const finale = { ...base, ending: { ...base.ending, phase: "finale", campaign: createFinaleCampaign(base) } };
+  const deployed = autoDeployFinale(chooseFinaleDoctrine(finale, "改变"));
+  const resolved = resolveFinalePhase(deployed);
+  const chapter = resolved.chronicle[0];
+  assert.equal(chapter.results.length, deployed.ending.campaign.crises.length);
+  assert.ok(chapter.results.every((result) => result.contract.rawIntent.includes("改变")));
+  assert.ok(chapter.results.every((result) => result.contract.redLines.includes("死亡")));
+  const refreshed = refreshFinaleFronts(resolved);
+  if (refreshed.ending.phase === "finale") assert.ok(refreshed.ending.campaign.crises.every((crisis) => crisis.sourceFactIds?.length));
 });
