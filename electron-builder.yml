@@ -1,0 +1,28 @@
+appId: com.gmzz.mist-chronicle
+productName: 灰雾纪事
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - electron/**
+  - package.json
+extraResources:
+  - from: node_modules/vinext
+    to: vinext
+asar: false
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+  executableName: MistChronicle
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 灰雾纪事
+  artifactName: 灰雾纪事-Setup-${version}.${ext}

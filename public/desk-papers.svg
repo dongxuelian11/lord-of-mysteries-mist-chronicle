@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="desk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#262019"/>
+      <stop offset="55%" stop-color="#1a1510"/>
+      <stop offset="100%" stop-color="#110e0a"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#desk)"/>
+
+  <!-- wood planks -->
+  <g stroke="#000" stroke-opacity=".2" stroke-width="3">
+    <line x1="0" y1="120" x2="1600" y2="120"/>
+    <line x1="0" y1="240" x2="1600" y2="240"/>
+    <line x1="0" y1="360" x2="1600" y2="360"/>
+    <line x1="0" y1="480" x2="1600" y2="480"/>
+    <line x1="0" y1="600" x2="1600" y2="600"/>
+    <line x1="0" y1="720" x2="1600" y2="720"/>
+    <line x1="0" y1="840" x2="1600" y2="840"/>
+  </g>
+  <g stroke="#3a2f20" stroke-opacity=".4" stroke-width="2">
+    <line x1="0" y1="60" x2="1600" y2="60"/>
+    <line x1="0" y1="180" x2="1600" y2="180"/>
+    <line x1="0" y1="300" x2="1600" y2="300"/>
+    <line x1="0" y1="420" x2="1600" y2="420"/>
+    <line x1="0" y1="540" x2="1600" y2="540"/>
+    <line x1="0" y1="660" x2="1600" y2="660"/>
+    <line x1="0" y1="780" x2="1600" y2="780"/>
+  </g>
+
+  <!-- faint gold trim -->
+  <rect x="14" y="14" width="1572" height="872" fill="none" stroke="#6b5636" stroke-opacity=".35" stroke-width="2"/>
+</svg>
