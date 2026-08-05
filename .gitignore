@@ -45,3 +45,10 @@ next-env.d.ts
 /output/
 /.playwright-cli/
 *.tsbuildinfo
+/release/
+
+# internal / private
+/.gstack/
+/.openai/
+/private/
+app/generated-lore-compendium.ts
