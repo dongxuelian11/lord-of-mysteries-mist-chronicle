@@ -15,6 +15,13 @@ const eslintConfig = defineConfig([
     "output/**",
     "build/**",
     "next-env.d.ts",
+    // Electron 主进程使用 CJS 入口，不参与前端 lint
+    "electron/**",
+    // 构建产物与内部/私有目录
+    "release/**",
+    ".gstack/**",
+    ".openai/**",
+    "private/**",
   ]),
 ]);
 

@@ -63,7 +63,7 @@ const proc = spawn(electronExe, appArgs, {
   cwd: root,
   env: {
     ...process.env,
-    ELECTRON_RUN_AS_NODE: serverOnly ? "1" : "0",
+    ...(serverOnly ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
     GMZZ_PORT: String(port),
     GMZZ_HOST: "127.0.0.1",
     GMZZ_NO_WINDOW: noWindow ? "1" : "0",

@@ -1,10 +1,18 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
-import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
+import fs from "node:fs";
+import path from "node:path";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
+
+// .openai/hosting.json 是内部部署配置，不随开源仓库分发；
+// 缺失时按无 D1/R2 绑定处理，保证公共代码可独立构建。
+const hostingConfigPath = path.join(process.cwd(), ".openai", "hosting.json");
+const hostingConfig = fs.existsSync(hostingConfigPath)
+  ? JSON.parse(fs.readFileSync(hostingConfigPath, "utf8"))
+  : { d1: null, r2: null };
 
 const { d1, r2 } = hostingConfig;
 
