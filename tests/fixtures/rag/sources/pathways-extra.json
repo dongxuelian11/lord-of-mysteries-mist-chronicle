@@ -1,0 +1,11 @@
+[
+  { "title": "占卜家序列8小丑", "content": "占卜家途径序列8为小丑，擅长肢体操控与情绪感染。", "topics": ["pathways", "sequences"], "aliases": ["小丑"] },
+  { "title": "占卜家序列7魔术师", "content": "占卜家途径序列7为魔术师，掌握纸牌与幻觉类非凡能力。", "topics": ["pathways", "sequences"], "aliases": ["魔术师途径序列7"] },
+  { "title": "占卜家序列6无面人", "content": "占卜家途径序列6为无面人，可以改变面容与体态。", "topics": ["pathways", "sequences"], "aliases": ["无面人"] },
+  { "title": "读心者序列8", "content": "读心者途径序列8为精神分析师，可以读取表层情绪与意图。", "topics": ["pathways", "sequences"], "aliases": ["精神分析师"] },
+  { "title": "学徒序列8戏法大师", "content": "学徒途径序列8为戏法大师，擅长制造空间幻象。", "topics": ["pathways", "sequences"], "aliases": ["戏法大师"] },
+  { "title": "序列魔药与扮演法", "content": "服用对应序列魔药并践行扮演法，是晋升的核心规则；晋升失败可能失控。", "topics": ["pathways", "advancement"], "aliases": ["晋升魔药"] },
+  { "title": "能力：纸牌魔术", "content": "纸牌魔术是魔术师途径的基础能力，用于误导与侦查。", "topics": ["abilities"], "aliases": [] }
+  ,
+  { "title": "催眠师序列9", "content": "催眠师途径序列9为催眠师，能通过暗示影响他人判断。", "topics": ["pathways", "sequences"], "aliases": ["催眠师序列"] }
+]

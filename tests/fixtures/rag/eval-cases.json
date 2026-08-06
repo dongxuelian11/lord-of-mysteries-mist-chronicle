@@ -1,0 +1,138 @@
+[
+  {
+    "id": "alias-identity",
+    "query": "周明瑞在贝克兰德用过什么身份",
+    "audience": { "kind": "player", "knownLoreIds": [], "topicGrants": [] },
+    "filters": { "maxSpoilerScope": "all" },
+    "expectTitles": ["克莱恩·莫雷蒂的多重身份"],
+    "expectSources": ["characters"],
+    "disallowedTitles": ["宇宙级秘密：源质真相", "未来：灰雾之上的结局"],
+    "limit": 8,
+    "maxChars": 4000
+  },
+  {
+    "id": "pathway-sequence",
+    "query": "占卜家途径的序列9是什么",
+    "audience": { "kind": "player", "knownLoreIds": [], "topicGrants": [] },
+    "filters": { "maxSpoilerScope": "all" },
+    "expectTitles": ["占卜家途径"],
+    "expectSources": ["pathways"],
+    "disallowedTitles": ["宇宙级秘密：源质真相"],
+    "limit": 8,
+    "maxChars": 4000
+  },
+  {
+    "id": "organization-relation",
+    "query": "塔罗会的召集者是谁，在哪里聚会",
+    "audience": { "kind": "actor", "knownLoreIds": [], "topicGrants": ["pathways"] },
+    "filters": { "maxSpoilerScope": "all" },
+    "expectTitles": ["克莱恩·莫雷蒂的多重身份", "塔罗会"],
+    "expectSources": ["characters", "organizations"],
+    "disallowedTitles": ["宇宙级秘密：源质真相"],
+    "limit": 8,
+    "maxChars": 4000
+  },
+  {
+    "id": "sealed-artifact-alias",
+    "query": "命运之笔的封印物编号是什么",
+    "audience": { "kind": "player", "knownLoreIds": [], "topicGrants": ["sealed-artifacts"] },
+    "filters": { "maxSpoilerScope": "all" },
+    "expectTitles": ["封印物0-08"],
+    "expectSources": ["artifacts"],
+    "disallowedTitles": ["封印物0-17", "宇宙级秘密：源质真相"],
+    "limit": 8,
+    "maxChars": 4000
+  },
+  {
+    "id": "location-hierarchy",
+    "query": "鲁恩王国的首都是哪里",
+    "audience": { "kind": "player", "knownLoreIds": [], "topicGrants": [] },
+    "filters": { "maxSpoilerScope": "all" },
+    "expectTitles": ["鲁恩王国", "贝克兰德"],
+    "expectSources": ["locations"],
+    "disallowedTitles": ["宇宙级秘密：源质真相"],
+    "limit": 8,
+    "maxChars": 4000
+  },
+  {
+    "id": "volume-isolation",
+    "query": "灰雾之上的结局是什么",
+    "audience": { "kind": "player", "knownLoreIds": [], "topicGrants": [] },
+    "filters": { "maxSpoilerScope": "none", "allowedVolumes": [1] },
+    "expectTitles": [],
+    "expectSources": [],
+    "disallowedTitles": ["未来：灰雾之上的结局", "宇宙级秘密：源质真相"],
+    "expectInsufficient": true,
+    "limit": 8,
+    "maxChars": 4000
+  },
+  {
+    "id": "future-blocked",
+    "query": "克莱恩最后的沉睡",
+    "audience": { "kind": "player", "knownLoreIds": [], "topicGrants": [] },
+    "filters": { "week": 1, "maxSpoilerScope": "volume1" },
+    "expectTitles": [],
+    "expectSources": [],
+    "disallowedTitles": ["未来：灰雾之上的结局"],
+    "expectInsufficient": true,
+    "limit": 8,
+    "maxChars": 4000
+  },
+  {
+    "id": "secret-granted",
+    "query": "源堡的由来",
+    "audience": { "kind": "actor", "knownLoreIds": ["秘密：源堡的由来"], "topicGrants": [] },
+    "filters": { "maxSpoilerScope": "volume1" },
+    "expectTitles": ["秘密：源堡的由来"],
+    "expectSources": ["secret"],
+    "disallowedTitles": ["宇宙级秘密：源质真相"],
+    "limit": 8,
+    "maxChars": 4000
+  },
+  {
+    "id": "cosmic-never-player",
+    "query": "所有源质的真相",
+    "audience": { "kind": "player", "knownLoreIds": [], "topicGrants": [] },
+    "filters": { "maxSpoilerScope": "all" },
+    "expectTitles": [],
+    "expectSources": [],
+    "disallowedTitles": ["宇宙级秘密：源质真相"],
+    "expectInsufficient": true,
+    "limit": 8,
+    "maxChars": 4000
+  },
+  {
+    "id": "conflict-layers",
+    "query": "关于克莱恩与灰雾的关系，原著和同人的说法分别是什么",
+    "audience": { "kind": "player", "knownLoreIds": [], "topicGrants": [] },
+    "filters": { "maxSpoilerScope": "all" },
+    "expectTitles": ["克莱恩与灰雾的关系（canon）", "克莱恩与灰雾的关系（fan-derived）"],
+    "expectSources": ["conflicts"],
+    "disallowedTitles": ["宇宙级秘密：源质真相"],
+    "limit": 8,
+    "maxChars": 4000
+  },
+  {
+    "id": "no-answer",
+    "query": "深渊魔物克苏鲁的信徒仪式",
+    "audience": { "kind": "player", "knownLoreIds": [], "topicGrants": [] },
+    "filters": { "maxSpoilerScope": "all" },
+    "expectTitles": [],
+    "expectSources": [],
+    "disallowedTitles": [],
+    "expectInsufficient": true,
+    "limit": 8,
+    "maxChars": 4000
+  },
+  {
+    "id": "nearby-chunk-context",
+    "query": "塔罗会聚会规则",
+    "audience": { "kind": "player", "knownLoreIds": [], "topicGrants": [] },
+    "filters": { "maxSpoilerScope": "all" },
+    "expectTitles": ["塔罗会", "重复章节甲"],
+    "expectSources": ["organizations", "duplicates"],
+    "disallowedTitles": ["重复章节乙", "宇宙级秘密：源质真相"],
+    "limit": 8,
+    "maxChars": 4000
+  }
+]

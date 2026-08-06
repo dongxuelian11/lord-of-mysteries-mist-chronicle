@@ -1,0 +1,18 @@
+[
+  {
+    "title": "阿蒙的常见描述（公开）",
+    "content": "阿蒙通常以单片眼镜出现，喜欢自称“阿蒙家族”，在非凡者圈子里流传着他的传闻。",
+    "visibility": "public",
+    "spoilerScope": "volume1",
+    "topics": ["characters"],
+    "aliases": ["阿蒙"]
+  },
+  {
+    "title": "阿蒙的常见描述（secret）",
+    "content": "阿蒙通常以单片眼镜出现，喜欢自称“阿蒙家族”，真实来历与“时之虫”有关，只有授权角色才能确认。",
+    "visibility": "secret",
+    "spoilerScope": "volume1",
+    "topics": ["characters"],
+    "aliases": ["阿蒙"]
+  }
+]

@@ -1,7 +1,7 @@
 // 灰雾纪事 · 公共仓库构建验证
 // 临时克隆当前仓库（不包含 private/ 与本地知识库）→ 用空壳知识库构建 → 跑全部测试。
 // 用于确保公开代码在 CI / 新贡献者环境下可以独立构建通过。
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

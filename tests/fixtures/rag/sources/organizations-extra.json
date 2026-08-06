@@ -1,0 +1,7 @@
+[
+  { "title": "机械之心", "content": "机械之心是鲁恩官方的非凡者组织，隶属蒸汽与机械之神教会。", "topics": ["organizations"], "aliases": [], "visibility": "public" },
+  { "title": "代罚者", "content": "代罚者是风暴教会的非凡者组织，作风强硬。", "topics": ["organizations"], "aliases": [], "visibility": "public" },
+  { "title": "心理炼金会", "content": "心理炼金会是研究精神与隐秘知识的组织，成员身份隐秘。", "topics": ["organizations"], "aliases": [], "visibility": "restricted" },
+  { "title": "铁血十字会", "content": "铁血十字会与战争与征服相关，行事激进。", "topics": ["organizations"], "aliases": [], "visibility": "restricted" },
+  { "title": "愚者教会", "content": "愚者教会在后期以塔罗会为雏形建立，尊愚者先生为主。", "topics": ["organizations"], "aliases": ["愚者信徒"], "visibility": "secret", "spoilerScope": "volume2" }
+]

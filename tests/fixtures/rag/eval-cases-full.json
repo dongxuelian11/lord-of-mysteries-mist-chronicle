@@ -1,0 +1,4006 @@
+[
+  {
+    "query": "阿蒙 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "adv-pair"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "阿蒙的常见描述（公开）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "阿蒙的常见描述（公开）"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "日记 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "罗塞尔日记"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "罗塞尔日记"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "时之虫 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "阿蒙"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "阿蒙"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "正义 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "奥黛丽·霍尔"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "奥黛丽·霍尔"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "倒吊人 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "阿尔杰·威尔逊"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "阿尔杰·威尔逊"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "伦纳德 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "伦纳德·米切尔"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "伦纳德·米切尔"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "罗塞尔 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "罗塞尔·古斯塔夫"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "罗塞尔·古斯塔夫"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "月亮 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "埃姆林·怀特"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "埃姆林·怀特"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "魔术师小姐 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "休·迪尔查"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "休·迪尔查"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "梅林 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "梅林·赫尔墨斯"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume2",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "梅林·赫尔墨斯"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "克莱恩·莫雷蒂的多重身份 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters"
+    ],
+    "expectedSourceTypes": [
+      "wiki"
+    ],
+    "expectedTitles": [
+      "克莱恩·莫雷蒂的多重身份"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "克莱恩·莫雷蒂的多重身份"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "阿蒙与克莱恩的关系（canon） 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "conflicts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "阿蒙与克莱恩的关系（canon）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "阿蒙与克莱恩的关系（canon）"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "阿蒙与克莱恩的关系（fan-derived） 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "conflicts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "阿蒙与克莱恩的关系（fan-derived）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "fan-derived",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "阿蒙与克莱恩的关系（fan-derived）"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "克莱恩与灰雾的关系（canon） 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "conflicts"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "克莱恩与灰雾的关系（canon）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "克莱恩与灰雾的关系（canon）"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "克莱恩与灰雾的关系（fan-derived） 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "conflicts"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "克莱恩与灰雾的关系（fan-derived）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "fan-derived",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "克莱恩与灰雾的关系（fan-derived）"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "1349年克莱恩抵达贝克兰德 是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "timeline-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "1349年克莱恩抵达贝克兰德"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "1349年克莱恩抵达贝克兰德"
+    ],
+    "topicGrants": [
+      "characters",
+      "identities"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "小丑 的序列或能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "占卜家序列8小丑"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences",
+      "abilities",
+      "advancement"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "魔术师途径序列7 的序列或能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "占卜家序列7魔术师"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences",
+      "abilities",
+      "advancement"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "无面人 的序列或能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "占卜家序列6无面人"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences",
+      "abilities",
+      "advancement"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "精神分析师 的序列或能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "读心者序列8"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences",
+      "abilities",
+      "advancement"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "戏法大师 的序列或能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "学徒序列8戏法大师"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences",
+      "abilities",
+      "advancement"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "晋升魔药 的序列或能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "序列魔药与扮演法"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences",
+      "abilities",
+      "advancement"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "能力：纸牌魔术 的序列或能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "能力：纸牌魔术"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences",
+      "abilities",
+      "advancement"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "催眠师序列 的序列或能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "催眠师序列9"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences",
+      "abilities",
+      "advancement"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "愚者途径 的序列或能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "占卜家途径"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences",
+      "abilities",
+      "advancement"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "读心者途径 的序列或能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "读心者途径"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences",
+      "abilities",
+      "advancement"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "门途径 的序列或能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "学徒途径"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences",
+      "abilities",
+      "advancement"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "序列0 的序列或能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "序列0"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences",
+      "abilities",
+      "advancement"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "塔罗会成员名单（community） 是什么组织，成员或立场如何",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "conflicts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "塔罗会成员名单（community）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "community",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "塔罗会成员名单（community）"
+    ],
+    "topicGrants": [
+      "organizations"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "organization"
+  },
+  {
+    "query": "塔罗会成员名单（canon） 是什么组织，成员或立场如何",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "conflicts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "塔罗会成员名单（canon）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "塔罗会成员名单（canon）"
+    ],
+    "topicGrants": [
+      "organizations"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "organization"
+  },
+  {
+    "query": "机械之心 是什么组织，成员或立场如何",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "organizations-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "机械之心"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "机械之心"
+    ],
+    "topicGrants": [
+      "organizations"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "organization"
+  },
+  {
+    "query": "代罚者 是什么组织，成员或立场如何",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "organizations-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "代罚者"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "代罚者"
+    ],
+    "topicGrants": [
+      "organizations"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "organization"
+  },
+  {
+    "query": "心理炼金会 是什么组织，成员或立场如何",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "organizations-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "心理炼金会"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "心理炼金会"
+    ],
+    "topicGrants": [
+      "organizations"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "organization"
+  },
+  {
+    "query": "铁血十字会 是什么组织，成员或立场如何",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "organizations-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "铁血十字会"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "铁血十字会"
+    ],
+    "topicGrants": [
+      "organizations"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "organization"
+  },
+  {
+    "query": "塔罗会 是什么组织，成员或立场如何",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "organizations"
+    ],
+    "expectedSourceTypes": [
+      "wiki"
+    ],
+    "expectedTitles": [
+      "塔罗会"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "塔罗会"
+    ],
+    "topicGrants": [
+      "organizations"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "organization"
+  },
+  {
+    "query": "值夜者 是什么组织，成员或立场如何",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "organizations"
+    ],
+    "expectedSourceTypes": [
+      "wiki"
+    ],
+    "expectedTitles": [
+      "值夜者"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "值夜者"
+    ],
+    "topicGrants": [
+      "organizations"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "organization"
+  },
+  {
+    "query": "风暴教会 是什么组织，成员或立场如何",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "organizations"
+    ],
+    "expectedSourceTypes": [
+      "wiki"
+    ],
+    "expectedTitles": [
+      "风暴教会"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "风暴教会"
+    ],
+    "topicGrants": [
+      "organizations"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "organization"
+  },
+  {
+    "query": "东区 在哪里",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "locations-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "贝克兰德东区"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "location"
+  },
+  {
+    "query": "码头区 在哪里",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "locations-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "贝克兰德码头区"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "location"
+  },
+  {
+    "query": "皇后区 在哪里",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "locations-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "皇后区"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "location"
+  },
+  {
+    "query": "希尔斯顿区 在哪里",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "locations-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "希尔斯顿区"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "location"
+  },
+  {
+    "query": "乔伍德 在哪里",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "locations-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "乔伍德区"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "location"
+  },
+  {
+    "query": "贝克兰德 在哪里",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "locations"
+    ],
+    "expectedSourceTypes": [
+      "wiki"
+    ],
+    "expectedTitles": [
+      "贝克兰德"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "location"
+  },
+  {
+    "query": "廷根市 在哪里",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "locations"
+    ],
+    "expectedSourceTypes": [
+      "wiki"
+    ],
+    "expectedTitles": [
+      "廷根市"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "location"
+  },
+  {
+    "query": "鲁恩王国 在哪里",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "locations"
+    ],
+    "expectedSourceTypes": [
+      "wiki"
+    ],
+    "expectedTitles": [
+      "鲁恩王国"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "location"
+  },
+  {
+    "query": "1349年克莱恩抵达贝克兰德 在哪里",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "timeline-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "1349年克莱恩抵达贝克兰德"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "location"
+  },
+  {
+    "query": "1349年的贝克兰德 在哪里",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "timeline"
+    ],
+    "expectedSourceTypes": [
+      "wiki"
+    ],
+    "expectedTitles": [
+      "1349年的贝克兰德"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "location"
+  },
+  {
+    "query": "0—12 是什么封印物",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "封印物0-12"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "sealed-artifacts",
+      "items"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "artifact"
+  },
+  {
+    "query": "1—42 是什么封印物",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "封印物1-42"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "sealed-artifacts",
+      "items"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "artifact"
+  },
+  {
+    "query": "2—049 是什么封印物",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "封印物2-049"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "sealed-artifacts",
+      "items"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "artifact"
+  },
+  {
+    "query": "0—08 是什么封印物",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "封印物0-08"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "sealed-artifacts",
+      "items"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "artifact"
+  },
+  {
+    "query": "日记 是什么封印物",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "罗塞尔日记"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "sealed-artifacts",
+      "items"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "artifact"
+  },
+  {
+    "query": "未来：灰雾之上的结局 发生在什么时候",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "future"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "未来：灰雾之上的结局"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume2",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "未来：灰雾之上的结局"
+    ],
+    "topicGrants": [],
+    "week": 999,
+    "allowedVolumes": [
+      2
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "timeline"
+  },
+  {
+    "query": "1349年克莱恩抵达贝克兰德 发生在什么时候",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "timeline-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "1349年克莱恩抵达贝克兰德"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "week": 1,
+    "allowedVolumes": [
+      1
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "timeline"
+  },
+  {
+    "query": "1350年塔罗会的扩张 发生在什么时候",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "timeline-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "1350年塔罗会的扩张"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "week": 52,
+    "allowedVolumes": [
+      1
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "timeline"
+  },
+  {
+    "query": "第二部：新的时代 发生在什么时候",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "timeline-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "第二部：新的时代"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume2",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "week": 200,
+    "allowedVolumes": [
+      2
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "timeline"
+  },
+  {
+    "query": "第五纪末期的动荡 发生在什么时候",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "timeline-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "第五纪末期的动荡"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume2",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "week": 300,
+    "allowedVolumes": [
+      2
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "timeline"
+  },
+  {
+    "query": "1350年贝克兰德发生了什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "timeline-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "1350年塔罗会的扩张"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "week": 52,
+    "allowedVolumes": [
+      1
+    ],
+    "disallowedTitles": [
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "timeline"
+  },
+  {
+    "query": "第二部开始后的非凡者格局",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "timeline-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "none",
+    "minRank": 5,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "week": 1,
+    "allowedVolumes": [
+      1
+    ],
+    "disallowedTitles": [
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "timeline"
+  },
+  {
+    "query": "第四纪是什么时代",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "future"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "第四纪与第五纪"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume2",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "timeline"
+  },
+  {
+    "query": "关于克莱恩与灰雾的关系，原著和社区/同人的说法有什么不同",
+    "requestScope": "player-known",
+    "requiredEntities": [
+      "克莱恩与灰雾的关系"
+    ],
+    "expectedSourceIds": [
+      "conflicts",
+      "conflicts"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "克莱恩与灰雾的关系（canon）",
+      "克莱恩与灰雾的关系（fan-derived）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "all",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "conflict"
+  },
+  {
+    "query": "关于阿蒙与克莱恩的关系，原著和社区/同人的说法有什么不同",
+    "requestScope": "player-known",
+    "requiredEntities": [
+      "阿蒙与克莱恩的关系"
+    ],
+    "expectedSourceIds": [
+      "conflicts-extra",
+      "conflicts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "阿蒙与克莱恩的关系（canon）",
+      "阿蒙与克莱恩的关系（fan-derived）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "all",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "conflict"
+  },
+  {
+    "query": "关于塔罗会成员名单，原著和社区/同人的说法有什么不同",
+    "requestScope": "player-known",
+    "requiredEntities": [
+      "塔罗会成员名单"
+    ],
+    "expectedSourceIds": [
+      "conflicts-extra",
+      "conflicts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "塔罗会成员名单（canon）",
+      "塔罗会成员名单（community）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "all",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "conflict"
+  },
+  {
+    "query": "阿蒙与克莱恩的关系（canon） 的说法属于哪一层设定",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "conflicts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "阿蒙与克莱恩的关系（canon）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "conflict"
+  },
+  {
+    "query": "阿蒙与克莱恩的关系（fan-derived） 的说法属于哪一层设定",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "conflicts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "阿蒙与克莱恩的关系（fan-derived）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "fan-derived",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "conflict"
+  },
+  {
+    "query": "塔罗会成员名单（community） 的说法属于哪一层设定",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "conflicts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "塔罗会成员名单（community）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "community",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "conflict"
+  },
+  {
+    "query": "塔罗会成员名单（canon） 的说法属于哪一层设定",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "conflicts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "塔罗会成员名单（canon）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "conflict"
+  },
+  {
+    "query": "克莱恩与灰雾的关系（canon） 的说法属于哪一层设定",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "conflicts"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "克莱恩与灰雾的关系（canon）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "conflict"
+  },
+  {
+    "query": "克莱恩与灰雾的关系（fan-derived） 的说法属于哪一层设定",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "conflicts"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "克莱恩与灰雾的关系（fan-derived）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "fan-derived",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "conflict"
+  },
+  {
+    "query": "阿蒙的常见描述（secret）",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "adv-pair"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）"
+    ],
+    "category": "permission"
+  },
+  {
+    "query": "源堡的青铜大门",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "源堡的青铜大门"
+    ],
+    "category": "permission"
+  },
+  {
+    "query": "封印物0-17",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "封印物0-17"
+    ],
+    "category": "permission"
+  },
+  {
+    "query": "帕列斯·索罗亚斯德",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "帕列斯·索罗亚斯德"
+    ],
+    "category": "permission"
+  },
+  {
+    "query": "格尔曼·斯帕罗的真实身份",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "格尔曼·斯帕罗的真实身份"
+    ],
+    "category": "permission"
+  },
+  {
+    "query": "愚者教会",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "organizations-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume2",
+    "minRank": 5,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "愚者教会"
+    ],
+    "category": "permission"
+  },
+  {
+    "query": "秘密：源堡的由来",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "secret"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "秘密：源堡的由来"
+    ],
+    "category": "permission"
+  },
+  {
+    "query": "宇宙级秘密：源质真相",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "secret"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "宇宙级秘密：源质真相"
+    ],
+    "category": "permission"
+  },
+  {
+    "query": "阿蒙 的详情",
+    "requestScope": "actor-private",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "adv-pair"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "阿蒙的常见描述（secret）"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "阿蒙的常见描述（secret）"
+    ],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "permission-granted"
+  },
+  {
+    "query": "青铜大门 的详情",
+    "requestScope": "actor-private",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "源堡的青铜大门"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "源堡的青铜大门"
+    ],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "permission-granted"
+  },
+  {
+    "query": "0—17 的详情",
+    "requestScope": "actor-private",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "封印物0-17"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "封印物0-17"
+    ],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "梅林·赫尔墨斯",
+      "未来：灰雾之上的结局",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主",
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "permission-granted"
+  },
+  {
+    "query": "深渊魔物克苏鲁的信徒仪式",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [],
+    "expectedSourceTypes": [],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "all",
+    "minRank": 0,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "no-answer"
+  },
+  {
+    "query": "克苏鲁与旧日支配者的盟约条款",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [],
+    "expectedSourceTypes": [],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "all",
+    "minRank": 0,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "no-answer"
+  },
+  {
+    "query": "以太坊上的智能合约交易所",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [],
+    "expectedSourceTypes": [],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "all",
+    "minRank": 0,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "no-answer"
+  },
+  {
+    "query": "量子计算机的纠错算法",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [],
+    "expectedSourceTypes": [],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "all",
+    "minRank": 0,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "no-answer"
+  },
+  {
+    "query": "火星殖民计划的推进时间表",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [],
+    "expectedSourceTypes": [],
+    "expectedTitles": [],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "all",
+    "minRank": 0,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "no-answer"
+  },
+  {
+    "query": "阿蒙的常见描述",
+    "requestScope": "player-known",
+    "requiredEntities": [
+      "阿蒙"
+    ],
+    "expectedSourceIds": [
+      "adv-pair"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "阿蒙的常见描述（公开）"
+    ],
+    "forbiddenLayers": [
+      "secret"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）"
+    ],
+    "category": "adversarial-similar"
+  },
+  {
+    "query": "格尔曼·斯帕罗的真实身份是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [
+      "格尔曼"
+    ],
+    "expectedSourceIds": [],
+    "expectedSourceTypes": [],
+    "expectedTitles": [],
+    "forbiddenLayers": [
+      "secret"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 0,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "格尔曼·斯帕罗的真实身份",
+      "秘密：格尔曼就是克莱恩"
+    ],
+    "category": "adversarial-alias-secret"
+  },
+  {
+    "query": "格尔曼·斯帕罗的真实身份是什么",
+    "requestScope": "actor-private",
+    "requiredEntities": [
+      "格尔曼"
+    ],
+    "expectedSourceIds": [
+      "characters-extra",
+      "secrets-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "格尔曼·斯帕罗的真实身份",
+      "秘密：格尔曼就是克莱恩"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "格尔曼·斯帕罗的真实身份",
+      "秘密：格尔曼就是克莱恩"
+    ],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "adversarial-alias-granted"
+  },
+  {
+    "query": "1350年后贝克兰德的隐秘格局",
+    "requestScope": "player-known",
+    "requiredEntities": [
+      "贝克兰德"
+    ],
+    "expectedSourceIds": [
+      "timeline-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "1350年塔罗会的扩张"
+    ],
+    "forbiddenLayers": [
+      "volume2"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "第二部：新的时代",
+      "第五纪末期的动荡"
+    ],
+    "category": "adversarial-future-similar"
+  },
+  {
+    "query": "源堡的由来",
+    "requestScope": "player-facing-narrator",
+    "requiredEntities": [
+      "源堡"
+    ],
+    "expectedSourceIds": [],
+    "expectedSourceTypes": [],
+    "expectedTitles": [],
+    "forbiddenLayers": [
+      "secret"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "none",
+    "minRank": 0,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "秘密：源堡的由来",
+      "源堡的青铜大门",
+      "宇宙级秘密：源质真相"
+    ],
+    "category": "adversarial-narrator"
+  },
+  {
+    "query": "塔罗会的成员都有谁",
+    "requestScope": "actor-private",
+    "requiredEntities": [
+      "塔罗会"
+    ],
+    "expectedSourceIds": [
+      "organizations",
+      "organizations-extra"
+    ],
+    "expectedSourceTypes": [
+      "wiki",
+      "structured"
+    ],
+    "expectedTitles": [
+      "塔罗会",
+      "奥黛丽·霍尔"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "organizations"
+    ],
+    "disallowedTitles": [
+      "愚者教会",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "adversarial-org-secret"
+  },
+  {
+    "query": "最初造物主与源质",
+    "requestScope": "world-simulation-internal",
+    "requiredEntities": [
+      "源质"
+    ],
+    "expectedSourceIds": [
+      "secrets-extra",
+      "secret"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "宇宙级秘密：最初造物主",
+      "宇宙级秘密：源质真相"
+    ],
+    "forbiddenLayers": [],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "all",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [],
+    "category": "world-simulation-only"
+  },
+  {
+    "query": "最初造物主与源质",
+    "requestScope": "player-known",
+    "requiredEntities": [
+      "源质"
+    ],
+    "expectedSourceIds": [],
+    "expectedSourceTypes": [],
+    "expectedTitles": [],
+    "forbiddenLayers": [
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "all",
+    "minRank": 0,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "宇宙级秘密：最初造物主",
+      "宇宙级秘密：源质真相"
+    ],
+    "category": "adversarial-world-to-player"
+  },
+  {
+    "query": "帕列斯·索罗亚斯德是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [
+      "帕列斯"
+    ],
+    "expectedSourceIds": [],
+    "expectedSourceTypes": [],
+    "expectedTitles": [],
+    "forbiddenLayers": [
+      "secret"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 0,
+    "expectUnknown": true,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "帕列斯·索罗亚斯德"
+    ],
+    "category": "adversarial-secret-title"
+  },
+  {
+    "query": "帕列斯·索罗亚斯德是谁",
+    "requestScope": "actor-private",
+    "requiredEntities": [
+      "帕列斯"
+    ],
+    "expectedSourceIds": [
+      "characters-extra"
+    ],
+    "expectedSourceTypes": [
+      "structured"
+    ],
+    "expectedTitles": [
+      "帕列斯·索罗亚斯德"
+    ],
+    "forbiddenLayers": [
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 5,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "帕列斯·索罗亚斯德"
+    ],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "adversarial-secret-title-granted"
+  },
+  {
+    "query": "周明瑞穿越前是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "克莱恩·莫雷蒂的多重身份"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "characters"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "格尔曼·斯帕罗是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "克莱恩·莫雷蒂的多重身份"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "characters"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "夏洛克·莫里亚蒂是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters",
+      "timeline-extra"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "克莱恩·莫雷蒂的多重身份",
+      "1349年克莱恩抵达贝克兰德"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "characters"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "道恩·唐泰斯是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "characters"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "克莱恩·莫雷蒂的多重身份"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "characters"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "愚者先生是谁",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "organizations",
+      "characters"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "塔罗会",
+      "克莱恩·莫雷蒂的多重身份"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "characters",
+      "organizations"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "alias-identity"
+  },
+  {
+    "query": "小丑是什么序列",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways-extra"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "占卜家序列8小丑"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "无面人的能力是什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways-extra"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "占卜家序列6无面人"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "戏法大师属于哪条途径",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "pathways-extra"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "学徒序列8戏法大师"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "pathways",
+      "sequences"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "pathway"
+  },
+  {
+    "query": "鲁恩王国的首都在哪里",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "locations"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "鲁恩王国",
+      "贝克兰德"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "location"
+  },
+  {
+    "query": "廷根市在哪个国家",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "locations"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "廷根市",
+      "鲁恩王国"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "location"
+  },
+  {
+    "query": "命运之笔的封印物编号",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "封印物0-08"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "sealed-artifacts"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "artifact"
+  },
+  {
+    "query": "0—12 有什么代价",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts-extra"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "封印物0-12"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "sealed-artifacts"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "artifact"
+  },
+  {
+    "query": "罗塞尔留下了什么",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "artifacts",
+      "characters-extra"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "罗塞尔日记",
+      "罗塞尔·古斯塔夫"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "artifact"
+  },
+  {
+    "query": "第五纪是什么时期",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "timeline"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "第四纪与第五纪"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "timeline"
+  },
+  {
+    "query": "1349年贝克兰德有什么变化",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "timeline",
+      "timeline-extra"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "1349年的贝克兰德",
+      "1349年克莱恩抵达贝克兰德"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "timeline"
+  },
+  {
+    "query": "机械之心与蒸汽教会有何关系",
+    "requestScope": "player-known",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "organizations-extra",
+      "organizations"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "机械之心",
+      "蒸汽与机械之神教会"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [],
+    "topicGrants": [
+      "organizations"
+    ],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "秘密：源堡的由来",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "organization"
+  },
+  {
+    "query": "源堡的由来",
+    "requestScope": "actor-private",
+    "requiredEntities": [],
+    "expectedSourceIds": [
+      "secret"
+    ],
+    "expectedSourceTypes": [],
+    "expectedTitles": [
+      "秘密：源堡的由来"
+    ],
+    "forbiddenLayers": [
+      "secret",
+      "cosmic"
+    ],
+    "expectedCanonLayer": "canon",
+    "spoilerBoundary": "volume1",
+    "minRank": 10,
+    "expectUnknown": false,
+    "knownLoreIds": [
+      "秘密：源堡的由来"
+    ],
+    "topicGrants": [],
+    "disallowedTitles": [
+      "阿蒙的常见描述（secret）",
+      "源堡的青铜大门",
+      "封印物0-17",
+      "帕列斯·索罗亚斯德",
+      "格尔曼·斯帕罗的真实身份",
+      "愚者教会",
+      "宇宙级秘密：源质真相",
+      "秘密：格尔曼就是克莱恩",
+      "宇宙级秘密：最初造物主"
+    ],
+    "category": "permission-granted"
+  }
+]

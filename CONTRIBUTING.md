@@ -19,6 +19,8 @@
 
 - **不要提交** `app/generated-lore-compendium.ts`。它是原著设定知识库，
   仅由维护者私有持有；仓库只保留空壳 `generated-lore-compendium.example.ts`。
+- **不要提交** `private/rag/` 与 `app/rag/runtime-index.ts`。它们是
+  语料、索引与生成文件，仅由维护者本地持有。
 - **不要提交** `.env`、API Key 或任何凭据。
 - **不要提交** `.gstack/`、`.openai/`、`private/` 等内部目录。
 - 不要大段复制《诡秘之主》原文进入公共仓库；可以写原创的、基于设定的

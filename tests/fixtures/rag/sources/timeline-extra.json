@@ -1,0 +1,6 @@
+[
+  { "title": "1349年克莱恩抵达贝克兰德", "content": "1349年克莱恩以夏洛克·莫里亚蒂的身份抵达贝克兰德，开始独立调查。", "topics": ["timeline"], "timeline": { "volume": 1, "week": 1 }, "spoilerScope": "volume1" },
+  { "title": "1350年塔罗会的扩张", "content": "1350年塔罗会成员增加，开始介入鲁恩与因蒂斯的隐秘事务。", "topics": ["timeline"], "timeline": { "volume": 1, "week": 52 }, "spoilerScope": "volume1" },
+  { "title": "第二部：新的时代", "content": "第二部（COI）发生在数十年后，非凡者格局与教会关系发生重大变化。", "topics": ["timeline"], "timeline": { "volume": 2, "week": 200 }, "spoilerScope": "volume2" },
+  { "title": "第五纪末期的动荡", "content": "第五纪末期，各大教会与隐秘组织之间的平衡被打破。", "topics": ["timeline"], "timeline": { "volume": 2, "week": 300 }, "spoilerScope": "volume2" }
+]

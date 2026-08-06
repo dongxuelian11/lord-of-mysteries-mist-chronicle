@@ -48,6 +48,24 @@ export function parseSaveEnvelope(raw: string) {
   if (value.format !== "mist-chronicle-save" || value.schemaVersion !== SAVE_SCHEMA_VERSION || !value.game) throw new Error("这不是当前版本的《灰雾纪事》存档文件");
   if (stableHash(JSON.stringify(value.game)) !== value.checksum) throw new Error("存档校验失败：文件不完整或被修改");
   if (!value.game.prologueComplete || !value.game.worldKernel || !Array.isArray(value.game.chronicle)) throw new Error("存档缺少世界状态或开局记录，未覆盖当前游戏");
+  // 旧存档迁移：没有知识边界时使用保守默认（第一卷边界，不自动获得全书知识）
+  const canon = value.game.worldKernel.canon;
+  if (!canon || !canon.knowledgeHorizon) {
+    value.game.worldKernel = {
+      ...value.game.worldKernel,
+      canon: {
+        ...(canon ?? { mode: "anchored" as const, deviation: 0, pivotEventIds: [] }),
+        knowledgeHorizon: {
+          work: "LOTM" as const,
+          maxVolume: 1,
+          maxAbsoluteChapter: 195,
+          allowedEventIds: [],
+          revealedIdentityIds: ["周明瑞", "夏洛克·莫里亚蒂"],
+          worldlineMode: "canon-aligned" as const,
+        },
+      },
+    };
+  }
   return value as SaveEnvelope;
 }
 

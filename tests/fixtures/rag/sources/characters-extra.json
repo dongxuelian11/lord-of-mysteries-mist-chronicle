@@ -1,0 +1,13 @@
+[
+  { "title": "阿蒙", "content": "阿蒙是愚者途径的古老存在，常以单片眼镜形象出现，与克莱恩·莫雷蒂多次交锋。", "topics": ["characters", "pathways"], "aliases": ["时之虫", "阿蒙家族"], "visibility": "restricted" },
+  { "title": "奥黛丽·霍尔", "content": "奥黛丽·霍尔是塔罗会成员，代号“正义”，出身贵族，对非凡世界充满好奇。", "topics": ["characters", "organizations"], "aliases": ["正义", "奥黛丽"], "visibility": "restricted" },
+  { "title": "阿尔杰·威尔逊", "content": "阿尔杰·威尔逊是塔罗会成员，代号“倒吊人”，常年漂泊海上。", "topics": ["characters", "organizations"], "aliases": ["倒吊人", "阿尔杰"], "visibility": "restricted" },
+  { "title": "伦纳德·米切尔", "content": "伦纳德·米切尔是克莱恩在廷根的诗人同学，后加入值夜者，体内寄宿着古老存在。", "topics": ["characters", "organizations"], "aliases": ["伦纳德"], "visibility": "restricted" },
+  { "title": "罗塞尔·古斯塔夫", "content": "罗塞尔·古斯塔夫是蒸汽时代的伟大人物，留下大量加密日记，被誉为“神秘学家”与“知识皇帝”。", "topics": ["characters", "history"], "aliases": ["罗塞尔", "知识皇帝", "神秘学家"], "visibility": "public" },
+  { "title": "埃姆林·怀特", "content": "埃姆林·怀特是塔罗会成员，代号“月亮”，是血族后裔。", "topics": ["characters", "organizations"], "aliases": ["月亮", "埃姆林"], "visibility": "restricted" },
+  { "title": "休·迪尔查", "content": "休·迪尔查是塔罗会成员，代号“魔术师”，精于格斗与潜伏。", "topics": ["characters", "organizations"], "aliases": ["魔术师小姐", "休"], "visibility": "restricted" },
+  { "title": "帕列斯·索罗亚斯德", "content": "帕列斯·索罗亚斯德是“时之虫”，寄宿在伦纳德体内，自称老爷爷。", "topics": ["characters", "pathways"], "aliases": ["老爷爷", "帕列斯"], "visibility": "secret" },
+  { "title": "格尔曼·斯帕罗的真实身份", "content": "格尔曼·斯帕罗是克莱恩·莫雷蒂使用的危险身份，属于秘密：只有极少数角色知道二者是同一人。", "topics": ["characters", "identities"], "aliases": ["格尔曼"], "visibility": "secret", "spoilerScope": "volume1" }
+  ,
+  { "title": "梅林·赫尔墨斯", "content": "梅林·赫尔墨斯是克莱恩·莫雷蒂后期使用的身份之一，以神秘占卜师形象出现。", "topics": ["characters", "identities"], "aliases": ["梅林"], "visibility": "restricted", "spoilerScope": "volume2" }
+]

@@ -1,0 +1,7 @@
+[
+  { "title": "贝克兰德东区", "content": "贝克兰德东区是工业区，工厂与贫民窟并存。", "topics": ["locations"], "aliases": ["东区"] },
+  { "title": "贝克兰德码头区", "content": "码头区是贝克兰德的港口，走私与黑帮活动频繁。", "topics": ["locations"], "aliases": ["码头区"] },
+  { "title": "皇后区", "content": "皇后区是贝克兰德的富人区，贵族宅邸林立。", "topics": ["locations"], "aliases": [] },
+  { "title": "希尔斯顿区", "content": "希尔斯顿区是中产阶级聚居的城区。", "topics": ["locations"], "aliases": [] },
+  { "title": "乔伍德区", "content": "乔伍德区位于贝克兰德南侧，商业与教会机构集中。", "topics": ["locations"], "aliases": ["乔伍德"] }
+]

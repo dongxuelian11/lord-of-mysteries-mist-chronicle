@@ -1,7 +1,7 @@
 import { AiConfig, callModel } from "./ai-client";
 import { relevantCouncilMembers } from "./council-system";
 import { CouncilTopic, CouncilTopicMessage, GameState } from "./game-model";
-import { retrieveLoreContext } from "./lore-knowledge";
+import { retrieveLoreContextAsync } from "./rag/client";
 
 function extractJson(raw: string) {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? raw;
@@ -14,12 +14,21 @@ function extractJson(raw: string) {
 export async function generateCouncilReplies(config: AiConfig, game: GameState, topicText: string): Promise<CouncilTopicMessage[]> {
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
   const members = relevantCouncilMembers(game, topicText, 3);
-  const speakerLore = Object.fromEntries(members.map((member) => {
+  const speakerLore = Object.fromEntries(await Promise.all(members.map(async (member) => {
     const knownLoreIds = [...new Set((game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes(member.id)).flatMap((node) => node.loreRecordIds ?? []))];
     const specialty = `${member.role} ${member.specialty} ${member.background ?? ""}`;
     const topicGrants = [...(member.pathway ? ["pathways", "beyonder-system"] : []), ...(/神秘|仪式|封印|灵界|梦境|非凡/.test(specialty) ? ["rituals", "spirit-world", "sealed-artifacts"] : []), ...(/情报|调查|警|外交|教会/.test(specialty) ? ["factions"] : [])];
-    return [member.id, retrieveLoreContext(LORE_RECORDS, { query: `${topicText} ${specialty}`, audience: { kind: "actor", knownLoreIds, topicGrants }, limit: 8, maxChars: 3200 }).context];
-  }));
+    const horizon = game.worldKernel?.canon?.knowledgeHorizon ?? {
+      work: "LOTM" as const,
+      maxVolume: 1,
+      maxAbsoluteChapter: 195,
+      allowedEventIds: [],
+      revealedIdentityIds: ["周明瑞", "夏洛克·莫里亚蒂"],
+      worldlineMode: "canon-aligned" as const,
+    };
+    const lore = await retrieveLoreContextAsync(LORE_RECORDS, { query: `${topicText} ${specialty}`, audience: { kind: "actor-private", knownLoreIds, topicGrants }, limit: 8, maxChars: 3200, week: game.week, gameDate: game.date, horizon });
+    return [member.id, lore.context];
+  })));
   const payload = {
     leader: { name: game.playerName, address: game.playerAddress },
     topic: topicText,

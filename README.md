@@ -42,6 +42,37 @@ npm run dev
 npm run prepare:lore   # 构建前会自动执行：private/ 优先，其次公共空壳
 ```
 
+## RAG V2（知识检索）
+
+游戏内置本地优先混合检索（BM25 + 别名/实体 + 可选向量 + 权限/剧透过滤）。
+大型语料通过可重复管线导入，详见 [docs/rag-v2.md](./docs/rag-v2.md)。
+
+```powershell
+npm run rag:ingest   # 从 private/rag/sources.manifest.json 导入并建索引
+npm run rag:status   # 查看索引与来源状态
+npm run rag:eval     # 固定夹具评测（新旧检索对比，泄漏率硬性为 0）
+npm run rag:audit    # 索引/Bundle/构建/延迟审计
+npm run rag:eval:full # 112 条完整评测（Recall@10≥0.90、MRR 目标≥0.65、泄漏=0）
+npm run rag:benchmark # 1k/5k/10k 压测
+npm run rag:longrun   # 20/50 周确定性长线
+npm run rag:export    # 导出运行索引到 Electron 用户目录（原子替换）
+npm run rag:corpus:audit # 真实语料质量审计（乱码/重复/章节/噪声抽样）
+npm run rag:coverage  # 知识覆盖矩阵（人物/途径/组织/地点/封印物/历史/规则）
+npm run rag:entities:audit # 实体/别名/身份注册表审计
+npm run rag:conflicts # 跨层级冲突与跨来源重复报告
+npm run rag:eval:blind # 150 条独立盲测（玩家式自然查询）
+npm run rag:game:verify # 真实知识库驱动的游戏内验证（对话/议会/能力/世界推进）
+npm run rag:align:chapters # 中英章节对齐（中文 1258 章 ↔ 英文 1430 章）
+npm run rag:eval:zh # 中文正文/中英混合评测（zh-only R@10≈0.91、mixed≈0.91）
+```
+
+未配置 embedding 服务时自动退化为纯词法检索；DeepSeek 不提供
+embedding 接口也不影响游玩。桌面版由 Electron RAG Worker 在本地离线检索，
+渲染端不加载完整索引。
+
+中文原著正文（《诡秘之主》精校 TXT，`third-party-mirror` 标记）只在本机
+`private/rag/` 内使用，不随开源仓库、Renderer Bundle 或安装包分发。
+
 ## 桌面版打包
 
 ```powershell

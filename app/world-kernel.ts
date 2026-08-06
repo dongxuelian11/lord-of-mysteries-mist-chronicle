@@ -96,6 +96,14 @@ export type WorldKernel = {
     mode: "anchored" | "diverging";
     deviation: number;
     pivotEventIds: string[];
+    knowledgeHorizon: {
+      work: "LOTM" | "COI";
+      maxVolume: number | null;
+      maxAbsoluteChapter: number | null;
+      allowedEventIds: string[];
+      revealedIdentityIds: string[];
+      worldlineMode: "canon-aligned" | "canon-diverged" | "post-canon" | "custom";
+    };
   };
 };
 
@@ -127,6 +135,14 @@ export type WorldTurnDelta = {
 const clamp = (value: number, minimum = 0, maximum = 100) => Math.max(minimum, Math.min(maximum, value));
 
 export function createWorldKernel(seed: WorldKernelSeed): WorldKernel {
+  const DEFAULT_HORIZON = {
+    work: "LOTM" as const,
+    maxVolume: 1,
+    maxAbsoluteChapter: 195,
+    allowedEventIds: [],
+    revealedIdentityIds: ["周明瑞", "夏洛克·莫里亚蒂"],
+    worldlineMode: "canon-aligned" as const,
+  };
   return {
     schemaVersion: 1,
     currentWeek: seed.week,
@@ -142,7 +158,12 @@ export function createWorldKernel(seed: WorldKernelSeed): WorldKernel {
     events: [],
     observations: [],
     knowledge: [],
-    canon: { mode: "anchored", deviation: 0, pivotEventIds: [] },
+    canon: {
+      mode: "anchored",
+      deviation: 0,
+      pivotEventIds: [],
+      knowledgeHorizon: { ...DEFAULT_HORIZON },
+    },
   };
 }
 

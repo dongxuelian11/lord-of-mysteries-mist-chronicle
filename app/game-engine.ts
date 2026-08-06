@@ -18,7 +18,9 @@ import {
 } from "./game-model";
 import { createFinaleCampaign } from "./finale-system";
 import { callModel as invokeModel, type AiConfig } from "./ai-client";
-import { retrieveLoreContext, type LoreRecord } from "./lore-knowledge";
+import { type LegacyLoreRecord } from "./rag";
+import { listRuntimeChunkIds, retrieveLoreContextAsync } from "./rag/client";
+export type LoreRecord = LegacyLoreRecord;
 import { applyWorldTurn, type WorldTurnDelta } from "./world-kernel";
 import { abilitiesFor, abilityRuleSummary } from "./pathway-abilities";
 import { advanceAdvancementStage, createAdvancementProcess, evaluateActing } from "./progression-system";
@@ -152,36 +154,65 @@ function knownLoreIds(game: GameState, holderId: string) {
   return [...new Set((game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes(holderId)).flatMap((node) => node.loreRecordIds ?? []))];
 }
 
-function loreForPlayer(records: LoreRecord[], game: GameState, query: string, maxChars = 5_000) {
-  return retrieveLoreContext(records, {
+function knowledgeHorizon(game: GameState, wider = false) {
+  const canon = game.worldKernel?.canon;
+  const base = canon?.knowledgeHorizon ?? {
+    work: "LOTM" as const,
+    maxVolume: 1,
+    maxAbsoluteChapter: 195,
+    allowedEventIds: [],
+    revealedIdentityIds: ["周明瑞", "夏洛克·莫里亚蒂"],
+    worldlineMode: "canon-aligned" as const,
+  };
+  if (!wider) return base;
+  return {
+    ...base,
+    maxVolume: 7,
+    maxAbsoluteChapter: 1258,
+    worldlineMode:
+      canon?.mode === "diverging" ? ("canon-diverged" as const) : ("canon-aligned" as const),
+  };
+}
+
+async function loreForPlayer(records: LoreRecord[], game: GameState, query: string, maxChars = 5_000) {
+  return retrieveLoreContextAsync(records, {
     query,
-    audience: { kind: "player", knownLoreIds: knownLoreIds(game, "player"), topicGrants: [] },
+    audience: { kind: "player-facing-narrator", knownLoreIds: knownLoreIds(game, "player"), topicGrants: [] },
     limit: 12,
     maxChars,
+    week: game.week,
+    gameDate: game.date,
+    horizon: knowledgeHorizon(game, false),
   });
 }
 
-function loreForActor(records: LoreRecord[], game: GameState, member: GameState["members"][number], query: string, maxChars = 5_000) {
+async function loreForActor(records: LoreRecord[], game: GameState, member: GameState["members"][number], query: string, maxChars = 5_000) {
   const specialty = `${member.role} ${member.specialty} ${member.background ?? ""}`;
   const topicGrants = [
     ...(member.pathway ? ["pathways", "beyonder-system"] : []),
     ...(/神秘|仪式|封印|灵界|梦境|非凡/.test(specialty) ? ["rituals", "spirit-world", "sealed-artifacts"] : []),
     ...(/情报|调查|警|外交|教会/.test(specialty) ? ["factions"] : []),
   ];
-  return retrieveLoreContext(records, {
+  return retrieveLoreContextAsync(records, {
     query,
-    audience: { kind: "actor", knownLoreIds: knownLoreIds(game, member.id), topicGrants },
+    audience: { kind: "actor-private", knownLoreIds: knownLoreIds(game, member.id), topicGrants },
     limit: 12,
     maxChars,
+    week: game.week,
+    gameDate: game.date,
+    horizon: knowledgeHorizon(game, false),
   });
 }
 
-function loreForWorld(records: LoreRecord[], game: GameState, query: string, maxChars = 12_000) {
-  return retrieveLoreContext(records, {
+async function loreForWorld(records: LoreRecord[], game: GameState, query: string, maxChars = 12_000) {
+  return retrieveLoreContextAsync(records, {
     query,
-    audience: { kind: "world", knownLoreIds: [], topicGrants: [] },
+    audience: { kind: "world-simulation-internal", knownLoreIds: [], topicGrants: [] },
     limit: 24,
     maxChars,
+    week: game.week,
+    gameDate: game.date,
+    horizon: knowledgeHorizon(game, true),
   });
 }
 
@@ -1113,7 +1144,7 @@ export type SituationBrief = {
 
 export async function generateSituationBrief(config: AiConfig, game: GameState): Promise<SituationBrief> {
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
-  const lore = loreForPlayer(LORE_RECORDS, game, `${game.date} 贝克兰德 ${game.missions.filter((item) => item.state === "active").map((item) => item.title).join(" ")} ${game.worldSignals.slice(0, 5).map((item) => item.headline).join(" ")}`);
+  const lore = await loreForPlayer(LORE_RECORDS, game, `${game.date} 贝克兰德 ${game.missions.filter((item) => item.state === "active").map((item) => item.title).join(" ")} ${game.worldSignals.slice(0, 5).map((item) => item.headline).join(" ")}`);
   const payload = {
     week: game.week,
     date: game.date,
@@ -1139,7 +1170,7 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
   const member = game.members.find((item) => item.id === memberId);
   if (!member) throw new Error("没有找到这名成员");
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
-  const lore = loreForActor(LORE_RECORDS, game, member, `${playerText} ${member.role} ${member.specialty} ${game.date}`);
+  const lore = await loreForActor(LORE_RECORDS, game, member, `${playerText} ${member.role} ${member.specialty} ${game.date}`);
   const thread = game.dialogueThreads.find((item) => item.memberId === memberId);
   const currentPressure = game.missions.find((item) => item.state === "active");
   const system = `你正在扮演原创人物${member.name}，参加维多利亚神秘组织的${context === "council" ? "每周密议" : "私下谈话"}。组织领导人是${game.playerName || "尚未登记姓名的负责人"}，正式场合应自然地称其为“${game.playerAddress || "会长阁下"}”，但不要每一段都重复称呼。你不是菜单、助手或任务发布器，而是一个有局限、有利益、有情绪、有当下注意力的人。
@@ -1193,7 +1224,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   onStage(chapter.results.length ? "世界推演器正在结算城市对本周行动的回应" : "世界推演器正在推进没有玩家干预的这一周");
   const worldConfig = { ...config, model: config.worldModel?.trim() || config.model };
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
-  const lore = loreForWorld(LORE_RECORDS, game, `${game.date} ${chapter.results.map((item) => item.contract.rawIntent).join(" ")} ${game.worldKernel.projects.filter((item) => item.status === "active").map((item) => item.title).join(" ")} ${game.worldKernel.actors.map((item) => `${item.name} ${item.agenda}`).join(" ")}`);
+  const lore = await loreForWorld(LORE_RECORDS, game, `${game.date} ${chapter.results.map((item) => item.contract.rawIntent).join(" ")} ${game.worldKernel.projects.filter((item) => item.status === "active").map((item) => item.title).join(" ")} ${game.worldKernel.actors.map((item) => `${item.name} ${item.agenda}`).join(" ")}`);
   const payload = {
     resolvingWeek: chapter.week,
     currentWeek: game.week,
@@ -1264,7 +1295,8 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   const list = (value: unknown, limit: number) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, limit).map((item) => item.slice(0, 260)) : [];
   const atmosphere = typeof summaryValue.atmosphere === "string" ? summaryValue.atmosphere.trim().slice(0, 420) : "";
   if (!atmosphere) throw new Error("世界模型没有返回本周城市气氛；本周拒绝结算，不使用本地替代文本");
-  const worldKernel = { ...applyWorldTurn(game.worldKernel, parseWorldKernelDelta(raw, game, chapter, publicSignals, worldMoves, new Set(LORE_RECORDS.map((record) => record.id)))), currentWeek: game.week, currentDate: game.date };
+  const allowedLoreIds = new Set([...LORE_RECORDS.map((record) => record.id), ...(await listRuntimeChunkIds())]);
+  const worldKernel = { ...applyWorldTurn(game.worldKernel, parseWorldKernelDelta(raw, game, chapter, publicSignals, worldMoves, allowedLoreIds)), currentWeek: game.week, currentDate: game.date };
   const worldSnapshot: WorldSnapshot = {
     week: chapter.week,
     date: chapter.date,

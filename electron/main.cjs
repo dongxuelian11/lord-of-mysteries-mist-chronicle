@@ -3,7 +3,7 @@
 //   1. 启动内置生产服务器（ELECTRON_RUN_AS_NODE 子进程）
 //   2. 打开游戏窗口
 //   3. 关闭窗口时杀掉整个进程树，确保无后台残留
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, utilityProcess } = require("electron");
 const { spawn, execFileSync } = require("node:child_process");
 const http = require("node:http");
 const net = require("node:net");
@@ -19,8 +19,11 @@ const vinextDir = app.isPackaged
 
 let mainWindow = null;
 let serverProc = null;
+let ragWorker = null;
 let serverPort = 0;
 let stopping = false;
+let ragPending = new Map();
+let ragSequence = 0;
 
 const log = (...args) => console.log("[gmzz]", ...args);
 
@@ -86,6 +89,89 @@ function stopServer() {
     killTree(serverProc.pid);
     serverProc = null;
   }
+}
+
+function resolveRagIndexDir() {
+  if (process.env.RAG_INDEX_DIR) return process.env.RAG_INDEX_DIR;
+  const devIndex = path.join(appRoot, "private", "rag", "index");
+  if (!app.isPackaged && fs.existsSync(path.join(devIndex, "index.meta.json"))) {
+    return devIndex;
+  }
+  return path.join(app.getPath("userData"), "rag", "index");
+}
+
+function startRagWorker() {
+  if (ragWorker) return;
+  const workerPath = path.join(__dirname, "rag-worker.mjs");
+  ragWorker = utilityProcess.fork(workerPath, [], {
+    env: {
+      ...process.env,
+      RAG_INDEX_DIR: resolveRagIndexDir(),
+    },
+    stdio: "pipe",
+  });
+  ragWorker.on("message", (message) => {
+    if (!message || typeof message !== "object" || message.id === undefined) return;
+    const pending = ragPending.get(message.id);
+    if (!pending) return;
+    ragPending.delete(message.id);
+    if (message.ok) pending.resolve(message.payload);
+    else pending.reject(new Error(message.payload?.error ?? "rag worker error"));
+  });
+  ragWorker.on("exit", () => {
+    ragWorker = null;
+    for (const pending of ragPending.values()) {
+      pending.reject(new Error("rag worker exited"));
+    }
+    ragPending.clear();
+  });
+}
+
+function callRag(type, payload) {
+  if (!ragWorker) return Promise.reject(new Error("rag worker unavailable"));
+  const id = `rag-${Date.now()}-${ragSequence++}`;
+  return new Promise((resolve, reject) => {
+    ragPending.set(id, { resolve, reject });
+    ragWorker.postMessage({ type, id, payload });
+  });
+}
+
+function registerRagIpc() {
+  const allowedKinds = new Set([
+    "world",
+    "player",
+    "actor",
+    "world-simulation-internal",
+    "player-facing-narrator",
+    "player-known",
+    "actor-private",
+  ]);
+  ipcMain.handle("rag:search", (_event, payload) => {
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      typeof payload.query !== "string" ||
+      !payload.audience ||
+      typeof payload.audience !== "object" ||
+      !allowedKinds.has(payload.audience.kind) ||
+      !Array.isArray(payload.audience.knownLoreIds) ||
+      !Array.isArray(payload.audience.topicGrants)
+    ) {
+      return { available: false, records: [], context: "", error: "invalid-request" };
+    }
+    return callRag("search", payload).catch((error) => ({
+      available: false,
+      records: [],
+      context: "",
+      error: String(error?.message ?? error),
+    }));
+  });
+  ipcMain.handle("rag:listChunkIds", () =>
+    callRag("listChunkIds", null).catch(() => [])
+  );
+  ipcMain.handle("rag:status", () =>
+    callRag("status", null).catch(() => ({ available: false, chunks: 0 }))
+  );
 }
 
 function openLogStream() {
@@ -168,6 +254,7 @@ function createWindow(url) {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
+      preload: path.join(__dirname, "preload.cjs"),
     },
   });
 
@@ -207,6 +294,14 @@ if (!gotLock) {
 
   app.on("before-quit", () => {
     stopServer();
+    if (ragWorker) {
+      try {
+        ragWorker.kill();
+      } catch {
+        // 已退出
+      }
+      ragWorker = null;
+    }
   });
 
   app.on("quit", () => {
@@ -214,6 +309,8 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    startRagWorker();
+    registerRagIpc();
     const url = await startServer();
     if (!url) return;
 

@@ -1,0 +1,2728 @@
+[
+  {
+    "id": "b1",
+    "query": "那个假装成疯狂冒险家的克莱恩身份叫什么？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "克莱恩·莫雷蒂",
+      "格尔曼·斯帕罗"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [
+      "宇宙级秘密"
+    ],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b2",
+    "query": "周明瑞穿越到异世界之后改叫什么名字？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "克莱恩·莫雷蒂",
+      "周明瑞"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b3",
+    "query": "值夜者知道格尔曼和愚者的关系吗？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "值夜者",
+      "格尔曼·斯帕罗",
+      "愚者"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b4",
+    "query": "塔罗会里代号正义的贵族小姐是谁？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "奥黛丽·霍尔",
+      "塔罗会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b5",
+    "query": "倒吊人这个代号属于哪个角色？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "阿尔杰·威尔逊"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b6",
+    "query": "克莱恩在廷根的同学后来加入了什么组织？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "伦纳德·米切尔",
+      "值夜者"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b7",
+    "query": "罗塞尔大帝留下的加密日记有什么用途？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "罗塞尔·古斯塔夫",
+      "罗塞尔日记"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b8",
+    "query": "总是戴着单片眼镜、自称阿蒙家族的存在是谁？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "阿蒙"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b9",
+    "query": "寄宿在伦纳德体内的老爷爷真实身份是什么？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "帕列斯·索罗亚斯德",
+      "伦纳德·米切尔"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b10",
+    "query": "血族后裔埃姆林在塔罗会的代号是什么？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "埃姆林·怀特",
+      "塔罗会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b11",
+    "query": "魔术师小姐的真实名字是什么？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "休·迪尔查"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b12",
+    "query": "道恩·唐泰斯和夏洛克·莫里亚蒂是同一个人吗？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "克莱恩·莫雷蒂",
+      "道恩·唐泰斯",
+      "夏洛克·莫里亚蒂"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b13",
+    "query": "愚者先生在世界上的身份之一是什么？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "克莱恩·莫雷蒂",
+      "愚者"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b14",
+    "query": "梅林·赫尔墨斯是克莱恩后期使用的身份吗？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "梅林·赫尔墨斯",
+      "克莱恩·莫雷蒂"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume2",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b15",
+    "query": "克莱恩刚抵达贝克兰德时使用什么身份调查案件？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "夏洛克·莫里亚蒂",
+      "贝克兰德"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b16",
+    "query": "格尔曼·斯帕罗这个身份的危险名声从哪来？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "格尔曼·斯帕罗"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b17",
+    "query": "穿越大雾之前，周明瑞是什么出身？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "周明瑞"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b18",
+    "query": "克莱恩在廷根的身份是什么？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "克莱恩·莫雷蒂",
+      "廷根市"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b19",
+    "query": "塔罗会成员里谁是风暴教会的信徒？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "阿尔杰·威尔逊",
+      "风暴教会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b20",
+    "query": "谁在塔罗会里被称为月亮？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "埃姆林·怀特"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b21",
+    "query": "克莱恩是否曾经用世界这个代号参与塔罗会？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "克莱恩·莫雷蒂",
+      "塔罗会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b22",
+    "query": "正义小姐和倒吊人谁更早加入塔罗会？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "奥黛丽·霍尔",
+      "阿尔杰·威尔逊"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b23",
+    "query": "罗塞尔·古斯塔夫被后世称为什么？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "罗塞尔·古斯塔夫",
+      "知识皇帝"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b24",
+    "query": "时之虫与愚者途径有什么关系？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "阿蒙",
+      "占卜家途径"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b25",
+    "query": "伦纳德体内的老爷爷平时怎么称呼自己？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "帕列斯·索罗亚斯德"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b26",
+    "query": "休·迪尔查擅长什么？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "休·迪尔查"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b27",
+    "query": "奥黛丽·霍尔对非凡世界最初的态度是什么？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "奥黛丽·霍尔"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b28",
+    "query": "格尔曼·斯帕罗的形象有什么标志性特征？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "格尔曼·斯帕罗"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "b29",
+    "query": "克莱恩的妹妹叫什么？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "克莱恩·莫雷蒂"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "b30",
+    "query": "梅林·赫尔墨斯是官方注册的非凡者吗？",
+    "category": "identity",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "梅林·赫尔墨斯"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume2",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p1",
+    "query": "占卜家途径的低序列最常见的战斗短板是什么？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "占卜家途径"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p2",
+    "query": "愚者途径的序列9叫什么？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "占卜家途径",
+      "序列9"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p3",
+    "query": "占卜家序列7的非凡者叫什么？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "占卜家途径",
+      "魔术师"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p4",
+    "query": "无面人属于哪条途径的第几个序列？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "占卜家途径",
+      "无面人"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p5",
+    "query": "扮演法的核心原则是什么？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "扮演法"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p6",
+    "query": "服用魔药晋升时最怕发生什么？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "魔药",
+      "序列"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p7",
+    "query": "学徒途径的另一名称是什么？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "学徒途径",
+      "门途径"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p8",
+    "query": "读心者途径序列8叫什么？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "读心者途径",
+      "精神分析师"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p9",
+    "query": "催眠师途径的序列9是什么？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "催眠师途径",
+      "催眠师"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p10",
+    "query": "小丑序列有什么特点？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "占卜家途径",
+      "小丑"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p11",
+    "query": "序列0意味着什么？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "序列",
+      "序列0"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p12",
+    "query": "扮演法要求非凡者如何对待自己的序列身份？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "扮演法"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p13",
+    "query": "仪式魔法在晋升里起什么作用？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "仪式",
+      "魔药"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p14",
+    "query": "纸牌魔术属于哪条途径的能力？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "魔术师途径"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p15",
+    "query": "源堡与占卜家途径的关系是什么？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "灰雾",
+      "占卜家途径"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p16",
+    "query": "非凡者失控前通常有什么征兆？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "非凡者"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p17",
+    "query": "灵性在占卜中起什么作用？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "占卜家途径"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p18",
+    "query": "反占卜的手段存在吗？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "占卜家途径"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p19",
+    "query": "尊名对于祈祷有什么意义？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "仪式"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "p20",
+    "query": "高序列非凡者有什么特殊规则？",
+    "category": "pathway",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "序列"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o1",
+    "query": "值夜者是哪个国家的官方组织？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "值夜者",
+      "鲁恩王国"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o2",
+    "query": "机械之心隶属哪座教会？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "机械之心",
+      "蒸汽与机械之神教会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o3",
+    "query": "代罚者是谁的下属组织？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "代罚者",
+      "风暴教会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o4",
+    "query": "塔罗会在哪里聚会？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "塔罗会",
+      "灰雾"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o5",
+    "query": "心理炼金会研究什么？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "心理炼金会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o6",
+    "query": "铁血十字会与什么相关？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "铁血十字会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o7",
+    "query": "愚者教会以什么为雏形建立？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "愚者教会",
+      "塔罗会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume2",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o8",
+    "query": "生命学派属于教会体系吗？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "生命学派"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o9",
+    "query": "摩斯苦修会有什么特点？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "摩斯苦修会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o10",
+    "query": "黑夜教会的官方非凡者组织叫什么？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "黑夜教会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o11",
+    "query": "塔罗会成员以什么为代号？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "塔罗会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o12",
+    "query": "永恒烈阳教会主要分布在哪里？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "永恒烈阳教会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o13",
+    "query": "知识教会的别名是什么？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "知识教会",
+      "知识与智慧之神教会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o14",
+    "query": "大地母神教会的信众通常做什么？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "大地母神教会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "o15",
+    "query": "塔罗会与值夜者之间是什么关系？",
+    "category": "organization",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "塔罗会",
+      "值夜者"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l1",
+    "query": "贝克兰德属于哪个王国？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "贝克兰德",
+      "鲁恩王国"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l2",
+    "query": "廷根市在哪个国家？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "廷根市",
+      "鲁恩王国"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l3",
+    "query": "贝克兰德的富人区叫什么？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "皇后区"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l4",
+    "query": "东区在贝克兰德是什么样？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "贝克兰德东区"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l5",
+    "query": "码头区有什么特点？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "贝克兰德码头区"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l6",
+    "query": "因蒂斯是什么性质的国家？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "因蒂斯"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l7",
+    "query": "北大陆和南大陆哪个是故事主舞台？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "北大陆"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l8",
+    "query": "弗萨克帝国在哪里？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "弗萨克"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l9",
+    "query": "拜朗王国位于哪片大陆？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "拜朗",
+      "南大陆"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l10",
+    "query": "希尔斯顿区是什么样？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "希尔斯顿区"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l11",
+    "query": "乔伍德区在哪一侧？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "乔伍德区"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l12",
+    "query": "源堡是什么空间？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "灰雾"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l13",
+    "query": "贝克兰德的贫民区主要在哪？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "贝克兰德东区"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l14",
+    "query": "塔罗会成员的据点会设在贝克兰德哪里？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "贝克兰德",
+      "塔罗会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "l15",
+    "query": "蒸汽与机械之神教会在贝克兰德有公开教堂吗？",
+    "category": "location",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "蒸汽与机械之神教会",
+      "贝克兰德"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a1",
+    "query": "封印物0-08是什么？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "0-08"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a2",
+    "query": "能书写命运的封印物编号是多少？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "0-08"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a3",
+    "query": "封印物0-17有什么危险？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "0-17"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a4",
+    "query": "罗塞尔日记为什么重要？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "罗塞尔日记",
+      "罗塞尔·古斯塔夫"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a5",
+    "query": "封印物2-049与什么有关？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "2-049"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a6",
+    "query": "源堡的青铜大门通向哪里？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "灰雾"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a7",
+    "query": "封印物1-42有什么效果？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "1-42"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a8",
+    "query": "0—12 与占卜有关吗？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "0-12"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a9",
+    "query": "官方组织如何收容封印物？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "值夜者"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a10",
+    "query": "封印物编号越大越危险吗？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a11",
+    "query": "罗塞尔日记的语言能直接读懂吗？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "罗塞尔日记"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a12",
+    "query": "命运之笔属于哪个编号？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "0-08"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a13",
+    "query": "封印物能否被普通人使用？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a14",
+    "query": "神秘日记里的知识可信吗？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "罗塞尔日记"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "a15",
+    "query": "封印物使用后通常有什么代价？",
+    "category": "artifact",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h1",
+    "query": "第四纪是什么时代？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "第四纪"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h2",
+    "query": "第五纪有哪些特点？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "第五纪"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h3",
+    "query": "1349年克莱恩做了什么？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "克莱恩·莫雷蒂"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h4",
+    "query": "贝克兰德大雾霾发生前，这个角色有可能知道幕后真相吗？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "贝克兰德"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "h5",
+    "query": "廷根之夜指的是什么？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "廷根之夜"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h6",
+    "query": "塔罗会是什么时候开始扩张的？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "塔罗会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h7",
+    "query": "第二部（COI）发生在什么时候？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume2",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "h8",
+    "query": "第一部与第二部的时间边界在哪里？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume2",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h9",
+    "query": "第五纪末期各大教会之间发生了什么？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume2",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h10",
+    "query": "第四纪留下了什么？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "第四纪"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h11",
+    "query": "1349年克莱恩以什么身份抵达贝克兰德？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "夏洛克·莫里亚蒂",
+      "贝克兰德"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h12",
+    "query": "蒸汽时代对非凡者社会有什么影响？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "第一次工业革命时期"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h13",
+    "query": "灰雾纪事的当前游戏世界线算第几部？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h14",
+    "query": "官方正史与游戏世界线是否完全一致？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "h15",
+    "query": "第二部开始后贝克兰德有什么变化？",
+    "category": "history",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume2",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "m1",
+    "query": "非凡特性守恒是什么意思？",
+    "category": "mysticism",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "序列"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "m2",
+    "query": "晋升必须满足什么条件？",
+    "category": "mysticism",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "魔药",
+      "扮演法"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "m3",
+    "query": "失控可以预防吗？",
+    "category": "mysticism",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "扮演法"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "m4",
+    "query": "占卜和反占卜是什么关系？",
+    "category": "mysticism",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "占卜家途径"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "m5",
+    "query": "尊名在仪式里有什么用？",
+    "category": "mysticism",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "仪式"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "m6",
+    "query": "封印为什么能压制非凡物品？",
+    "category": "mysticism",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "封印"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "m7",
+    "query": "神降是什么？",
+    "category": "mysticism",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "m8",
+    "query": "隐秘和污染如何影响非凡者？",
+    "category": "mysticism",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "m9",
+    "query": "灵性耗尽会怎样？",
+    "category": "mysticism",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "m10",
+    "query": "扮演法失控风险和晋升进度如何权衡？",
+    "category": "mysticism",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "扮演法"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "w1",
+    "query": "克莱恩的妹妹在塔罗会担任什么职务？",
+    "category": "wrong-premise",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "w2",
+    "query": "值夜者的总部设在因蒂斯吗？",
+    "category": "wrong-premise",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "值夜者",
+      "因蒂斯"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "w3",
+    "query": "占卜家途径序列1叫小丑吗？",
+    "category": "wrong-premise",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "占卜家途径"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "w4",
+    "query": "塔罗会的召集者是黑夜女神吗？",
+    "category": "wrong-premise",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "塔罗会",
+      "黑夜教会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "w5",
+    "query": "罗塞尔日记是用简体中文写的吗？",
+    "category": "wrong-premise",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "罗塞尔日记"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "w6",
+    "query": "贝克兰德是弗萨克的首都吗？",
+    "category": "wrong-premise",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "贝克兰德",
+      "弗萨克"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "w7",
+    "query": "封印物0-08是一件防身武器吗？",
+    "category": "wrong-premise",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "0-08"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "w8",
+    "query": "阿蒙是塔罗会最早的成员吗？",
+    "category": "wrong-premise",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "阿蒙",
+      "塔罗会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "w9",
+    "query": "扮演法要求非凡者完全隐藏自己的序列身份吗？",
+    "category": "wrong-premise",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "扮演法"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "w10",
+    "query": "第四纪发生在工业革命之后吗？",
+    "category": "wrong-premise",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "第四纪"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "v1",
+    "query": "那个总戴眼镜的家伙到底什么来头？",
+    "category": "vague",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "阿蒙"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "v2",
+    "query": "灰雾上面开会的是谁？",
+    "category": "vague",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "塔罗会",
+      "灰雾"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "v3",
+    "query": "克莱恩一开始挺穷的对吧？",
+    "category": "vague",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "克莱恩·莫雷蒂"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "v4",
+    "query": "官方的人管不管封印物？",
+    "category": "vague",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "值夜者",
+      "封印物"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "v5",
+    "query": "教会和隐秘组织谁说了算？",
+    "category": "vague",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "风暴教会",
+      "塔罗会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "v6",
+    "query": "贝克兰德适合新手调查员混吗？",
+    "category": "vague",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "贝克兰德"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "v7",
+    "query": "魔药是不是喝得越多越强？",
+    "category": "vague",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "魔药"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "v8",
+    "query": "那个日记本到底藏了啥？",
+    "category": "vague",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "罗塞尔日记"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "v9",
+    "query": "廷根那边后来怎么样了？",
+    "category": "vague",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "廷根市"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "v10",
+    "query": "塔罗会的人都靠谱吗？",
+    "category": "vague",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [
+      "塔罗会"
+    ],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "s1",
+    "query": "格尔曼·斯帕罗的真实身份是什么？",
+    "category": "spoil-attack",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [
+      "格尔曼·斯帕罗",
+      "克莱恩·莫雷蒂"
+    ],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "s2",
+    "query": "克莱恩最后的结局是什么？",
+    "category": "spoil-attack",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [
+      "克莱恩·莫雷蒂"
+    ],
+    "spoilerBoundary": "none",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "s3",
+    "query": "源质真相是什么？",
+    "category": "spoil-attack",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [
+      "源质"
+    ],
+    "spoilerBoundary": "none",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "s4",
+    "query": "第二部里谁成了愚者教会的领袖？",
+    "category": "spoil-attack",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "none",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "s5",
+    "query": "帕列斯·索罗亚斯德是谁？",
+    "category": "spoil-attack",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [
+      "帕列斯·索罗亚斯德"
+    ],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "s6",
+    "query": "阿蒙最后夺取愚者途径了吗？",
+    "category": "spoil-attack",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [
+      "阿蒙"
+    ],
+    "spoilerBoundary": "none",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "s7",
+    "query": "最初的造物主是谁？",
+    "category": "spoil-attack",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [
+      "源质"
+    ],
+    "spoilerBoundary": "none",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": false,
+    "expectUnknown": true,
+    "minRank": 10
+  },
+  {
+    "id": "s8",
+    "query": "值夜者知道克莱恩就是格尔曼吗？",
+    "category": "spoil-attack",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [
+      "格尔曼·斯帕罗"
+    ],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "s9",
+    "query": "塔罗会成员知道愚者先生的真实身份吗？",
+    "category": "spoil-attack",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [
+      "愚者"
+    ],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  },
+  {
+    "id": "s10",
+    "query": "某同人 Mod 新增的能力是原著设定吗？",
+    "category": "spoil-attack",
+    "requestScope": "player-known",
+    "expectedAnswerType": "entity",
+    "requiredEntities": [],
+    "requiredEvidence": [],
+    "forbiddenEvidence": [],
+    "spoilerBoundary": "volume1",
+    "actorKnowledge": [],
+    "topicGrants": [],
+    "acceptableUncertainty": true,
+    "expectUnknown": false,
+    "minRank": 10
+  }
+]

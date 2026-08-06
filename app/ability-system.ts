@@ -2,7 +2,7 @@ import { AiConfig, callModel } from "./ai-client";
 import {
   Ability, AbilityContext, AbilityScene, AbilityUseRecord, GameState, HiddenWorldFact, PATHWAYS,
 } from "./game-model";
-import { retrieveLoreContext } from "./lore-knowledge";
+import { retrieveLoreContextAsync } from "./rag/client";
 import { abilitiesFor, abilityRuleSummary, freeTravelAbility } from "./pathway-abilities";
 import { evaluateImmediateActing } from "./progression-system";
 
@@ -108,7 +108,15 @@ export async function generateAbilityDraft(config: AiConfig, game: GameState, ab
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
   const relevantHidden = game.hiddenWorldFacts.filter((item) => item.subjectKey === context.targetId || item.subjectKey === context.label).slice(-3);
   const knownLoreIds = [...new Set((game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes("player")).flatMap((node) => node.loreRecordIds ?? []))];
-  const lore = retrieveLoreContext(LORE_RECORDS, { query: `${intent} ${context.label} ${ability.name}`, audience: { kind: "player", knownLoreIds, topicGrants: ["pathways", "beyonder-system"] }, limit: 10, maxChars: 4200 });
+  const horizon = game.worldKernel?.canon?.knowledgeHorizon ?? {
+    work: "LOTM" as const,
+    maxVolume: 1,
+    maxAbsoluteChapter: 195,
+    allowedEventIds: [],
+    revealedIdentityIds: ["周明瑞", "夏洛克·莫里亚蒂"],
+    worldlineMode: "canon-aligned" as const,
+  };
+  const lore = await retrieveLoreContextAsync(LORE_RECORDS, { query: `${intent} ${context.label} ${ability.name}`, audience: { kind: "player-known", knownLoreIds, topicGrants: ["pathways", "beyonder-system"] }, limit: 10, maxChars: 4200, week: game.week, gameDate: game.date, horizon });
   const payload = {
     pathway: PATHWAYS[game.pathwayId].name,
     sequence: game.currentSequence,

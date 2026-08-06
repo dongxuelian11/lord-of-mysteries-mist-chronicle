@@ -1,0 +1,7 @@
+[
+  { "title": "封印物0-12", "content": "0-12是一件与占卜有关的封印物，使用代价高昂。", "topics": ["sealed-artifacts"], "aliases": ["0—12"], "visibility": "restricted" },
+  { "title": "封印物1-42", "content": "1-42是一面能映照隐秘的镜子，靠近者会看到幻象。", "topics": ["sealed-artifacts"], "aliases": ["1—42"], "visibility": "restricted" },
+  { "title": "源堡的青铜大门", "content": "源堡中的青铜大门通向灰雾之上的隐秘空间，只有持有者能开启。", "topics": ["items", "cosmology"], "aliases": ["青铜大门"], "visibility": "secret", "spoilerScope": "volume1" }
+  ,
+  { "title": "封印物2-049", "content": "2-049是一件与记忆有关的封印物，接触者可能遗忘近期经历。", "topics": ["sealed-artifacts"], "aliases": ["2—049"], "visibility": "restricted" }
+]

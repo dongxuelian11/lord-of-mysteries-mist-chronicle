@@ -1,0 +1,6 @@
+[
+  { "title": "占卜家途径", "content": "占卜家途径又称愚者途径，序列9为占卜家，序列8为小丑，序列7为魔术师。扮演法是这条途径的核心原则。", "topics": ["pathways", "sequences"], "aliases": ["愚者途径"] },
+  { "title": "读心者途径", "content": "读心者途径的序列9是读心者，擅长察觉情绪与意图。", "topics": ["pathways"], "aliases": [] },
+  { "title": "学徒途径", "content": "学徒途径又称门途径，序列9为学徒，掌握与空间相关的非凡能力。", "topics": ["pathways"], "aliases": ["门途径"] },
+  { "title": "序列0", "content": "序列0是途径顶端，象征该途径对应的源质与权柄，只有一位存在能占据。", "topics": ["sequences"], "aliases": [] }
+]

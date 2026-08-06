@@ -1,0 +1,202 @@
+[
+  {
+    "id": "s01-volume-boundary",
+    "category": "volume-boundary",
+    "query": "贝克兰德大雾霾发生时城市如何",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 1, "maxAbsoluteChapter": 195, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": ["大雾霾"],
+    "forbiddenTitles": [],
+    "note": "第一卷场景不得召回第二至第七卷关键事件"
+  },
+  {
+    "id": "s02-volume-boundary-identity",
+    "category": "volume-boundary",
+    "query": "格尔曼·斯帕罗是谁",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 1, "maxAbsoluteChapter": 195, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": ["格尔曼"],
+    "forbiddenTitles": [],
+    "note": "第一卷边界不得返回第三卷身份内容"
+  },
+  {
+    "id": "s03-exact-title-future",
+    "category": "exact-title",
+    "query": "新的旅程",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 1, "maxAbsoluteChapter": 195, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": ["新的旅程"],
+    "note": "精确标题命中禁止章节必须被过滤"
+  },
+  {
+    "id": "s04-volume7-backward-history",
+    "category": "volume-backward",
+    "query": "罗塞尔大帝的日记有什么内容",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 7, "maxAbsoluteChapter": 1258, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": [],
+    "note": "第七卷允许召回前卷历史，应至少命中一条"
+  },
+  {
+    "id": "s05-cross-work-lotm",
+    "category": "cross-work",
+    "query": "奥萝尔·李的哥哥是谁",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 7, "maxAbsoluteChapter": 1258, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": [],
+    "note": "只允许LOTM的请求不得返回COI正文"
+  },
+  {
+    "id": "s06-cross-work-coi",
+    "category": "cross-work",
+    "query": "愚者教会",
+    "kind": "player-known",
+    "horizon": { "work": "COI", "maxVolume": 7, "maxAbsoluteChapter": 1258, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": [],
+    "note": "只允许COI的请求不得返回LOTM正文"
+  },
+  {
+    "id": "s07-identity-sherlock",
+    "category": "identity",
+    "query": "调查报告里的夏洛克·莫里亚蒂是谁",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 3, "maxAbsoluteChapter": 446, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": ["调查报告里的夏洛克·莫里亚蒂"],
+    "note": "未揭晓身份前不得返回身份章（正文提及夏洛克属正常剧情，不按整卷封禁）"
+  },
+  {
+    "id": "s08-identity-gehrman",
+    "category": "identity",
+    "query": "格尔曼·斯帕罗的身份",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 3, "maxAbsoluteChapter": 446, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": ["格尔曼"],
+    "forbiddenTitles": [],
+    "note": "未揭晓格尔曼前不得返回相关内容"
+  },
+  {
+    "id": "s09-identity-gehrman-revealed",
+    "category": "identity-revealed",
+    "query": "格尔曼·斯帕罗是谁",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 7, "maxAbsoluteChapter": 1258, "allowedEventIds": [], "revealedIdentityIds": ["格尔曼·斯帕罗"], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": [],
+    "note": "已揭晓身份后允许召回"
+  },
+  {
+    "id": "s10-identity-zhoumingrui",
+    "category": "identity",
+    "query": "周明瑞穿越前的身份",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 7, "maxAbsoluteChapter": 1258, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": ["周明瑞"],
+    "forbiddenTitles": [],
+    "note": "周明瑞身份未揭晓前不得泄露"
+  },
+  {
+    "id": "s11-identity-dwayne",
+    "category": "identity",
+    "query": "道恩·唐泰斯",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 5, "maxAbsoluteChapter": 872, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": ["道恩"],
+    "forbiddenTitles": [],
+    "note": "道恩身份未揭晓前不得泄露"
+  },
+  {
+    "id": "s12-identity-merlin",
+    "category": "identity",
+    "query": "梅林·赫尔墨斯",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 6, "maxAbsoluteChapter": 1064, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": ["梅林"],
+    "forbiddenTitles": [],
+    "note": "梅林身份未揭晓前不得泄露"
+  },
+  {
+    "id": "s13-identity-fool-early",
+    "category": "identity-early-fool",
+    "query": "赞美愚者先生",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 1, "maxAbsoluteChapter": 195, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": [],
+    "note": "第一卷塔罗会代称内容可正常召回，但不得出现身份揭示章"
+  },
+  {
+    "id": "s14-neighbor-boundary",
+    "category": "neighbor",
+    "query": "绯红",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 1, "maxAbsoluteChapter": 195, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": [],
+    "note": "邻居扩展不得跨出允许卷章"
+  },
+  {
+    "id": "s15-neighbor-ritual",
+    "category": "neighbor",
+    "query": "仪式",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 1, "maxAbsoluteChapter": 195, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": [],
+    "note": "邻居扩展不得跨出允许卷章"
+  },
+  {
+    "id": "s16-exact-title-melissa",
+    "category": "exact-title",
+    "query": "梅丽莎",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 1, "maxAbsoluteChapter": 195, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": [],
+    "note": "第一卷标题命中应正常召回"
+  },
+  {
+    "id": "s17-alias-expansion",
+    "category": "alias-expansion",
+    "query": "格尔曼",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 1, "maxAbsoluteChapter": 195, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": ["格尔曼"],
+    "forbiddenTitles": [],
+    "note": "别名展开不得命中未来身份"
+  },
+  {
+    "id": "s18-cross-volume",
+    "category": "cross-volume",
+    "query": "血之上将",
+    "kind": "player-known",
+    "horizon": { "work": "LOTM", "maxVolume": 2, "maxAbsoluteChapter": 446, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": ["血之上将"],
+    "note": "第二卷边界不得召回第三卷同名章节（卷内传言属正常剧情）"
+  },
+  {
+    "id": "s19-world-sim-wider",
+    "category": "world-simulation",
+    "query": "格尔曼·斯帕罗",
+    "kind": "world-simulation-internal",
+    "horizon": { "work": "LOTM", "maxVolume": 7, "maxAbsoluteChapter": 1258, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": [],
+    "note": "世界模拟可检索更广背景，但仍受作品边界约束"
+  },
+  {
+    "id": "s20-world-sim-cross-work",
+    "category": "world-simulation",
+    "query": "奥萝尔·李",
+    "kind": "world-simulation-internal",
+    "horizon": { "work": "LOTM", "maxVolume": 7, "maxAbsoluteChapter": 1258, "allowedEventIds": [], "revealedIdentityIds": [], "worldlineMode": "canon-aligned" },
+    "forbiddenContent": [],
+    "forbiddenTitles": [],
+    "note": "世界模拟同样不得跨作品返回COI"
+  }
+]

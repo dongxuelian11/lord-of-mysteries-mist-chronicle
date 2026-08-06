@@ -1,0 +1,5 @@
+[
+  { "title": "封印物0-08", "content": "0-08是一支能书写命运的羽毛笔，被官方组织严格收容。", "topics": ["sealed-artifacts"], "aliases": ["0—08", "命运之笔"], "visibility": "restricted" },
+  { "title": "封印物0-17", "content": "0-17与一位古老存在相关，接触者会听见低语。", "topics": ["sealed-artifacts"], "aliases": ["0—17"], "visibility": "secret" },
+  { "title": "罗塞尔日记", "content": "罗塞尔日记是记录了隐秘知识的加密日记，克莱恩曾长期解读。", "topics": ["items"], "aliases": ["日记"], "visibility": "public" }
+]

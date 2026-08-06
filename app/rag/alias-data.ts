@@ -1,0 +1,79 @@
+// 灰雾纪事 · 领域别名与实体关系基线（含英文名，用于中英双语召回）
+import type { EntityType } from "./types";
+
+export type DomainEntity = {
+  canonical: string;
+  type: EntityType;
+  aliases: string[];
+  englishNames?: string[];
+  related?: string[];
+};
+
+export const DOMAIN_ENTITIES: DomainEntity[] = [
+  { canonical: "克莱恩·莫雷蒂", type: "character", aliases: ["克莱恩", "周明瑞", "夏洛克·莫里亚蒂", "格尔曼·斯帕罗", "道恩·唐泰斯", "梅林·赫尔墨斯", "愚者先生", "世界"], englishNames: ["Klein Moretti", "Zhou Mingrui", "Sherlock Moriarty", "Gehrman Sparrow", "Dwayne Dantes", "Merlin Hermes", "The Fool", "The World"], related: ["塔罗会", "占卜家", "愚者", "格尔曼·斯帕罗", "夏洛克·莫里亚蒂", "道恩·唐泰斯", "梅林·赫尔墨斯", "周明瑞"] },
+  { canonical: "阿蒙", type: "character", aliases: ["时之虫", "阿蒙家族"], englishNames: ["Amon", "Worm of Time"], related: ["克莱恩·莫雷蒂", "占卜家途径"] },
+  { canonical: "奥黛丽·霍尔", type: "character", aliases: ["正义", "奥黛丽"], englishNames: ["Audrey Hall", "Justice"] },
+  { canonical: "阿尔杰·威尔逊", type: "character", aliases: ["倒吊人", "阿尔杰"], englishNames: ["Alger Wilson", "The Hanged Man"] },
+  { canonical: "伦纳德·米切尔", type: "character", aliases: ["伦纳德"], englishNames: ["Leonard Mitchell"] },
+  { canonical: "罗塞尔·古斯塔夫", type: "character", aliases: ["罗塞尔", "知识皇帝", "神秘学家"], englishNames: ["Roselle Gustav", "Emperor of Knowledge"] },
+  { canonical: "埃姆林·怀特", type: "character", aliases: ["月亮", "埃姆林"], englishNames: ["Emlyn White", "The Moon"] },
+  { canonical: "休·迪尔查", type: "character", aliases: ["魔术师小姐", "休"], englishNames: ["Xio Derecha", "The Magician"] },
+  { canonical: "帕列斯·索罗亚斯德", type: "character", aliases: ["老爷爷", "帕列斯"], englishNames: ["Pallez Zoroast", "Old Man"] },
+  { canonical: "占卜家途径", type: "pathway", aliases: ["占卜家", "愚者途径"], englishNames: ["Seer Pathway", "Pathway of the Fool"], related: ["序列9", "序列0", "灰雾之上"] },
+  { canonical: "读心者途径", type: "pathway", aliases: ["读心者"], englishNames: ["Reader Pathway"] },
+  { canonical: "催眠师途径", type: "pathway", aliases: ["催眠师"], englishNames: ["Hypnotist Pathway"] },
+  { canonical: "学徒途径", type: "pathway", aliases: ["学徒", "门途径"], englishNames: ["Apprentice Pathway", "Pathway of the Door"] },
+  { canonical: "魔术师途径", type: "pathway", aliases: ["魔术师"], englishNames: ["Magician Pathway"] },
+  { canonical: "序列9占卜家", type: "sequence", aliases: ["序列9", "占卜家序列"], englishNames: ["Sequence 9: Seer"], related: ["占卜家途径"] },
+  { canonical: "塔罗会", type: "organization", aliases: ["灰雾之上", "愚者先生的聚会"], englishNames: ["Tarot Club", "Tarot Gathering"], related: ["克莱恩·莫雷蒂"] },
+  { canonical: "值夜者", type: "organization", aliases: ["官方非凡者组织"], englishNames: ["Nighthawks"] },
+  { canonical: "风暴教会", type: "organization", aliases: ["风暴之主教会"], englishNames: ["Church of Storms", "Church of the Lord of Storms"] },
+  { canonical: "蒸汽与机械之神教会", type: "organization", aliases: ["蒸汽教会"], englishNames: ["Church of Steam and Machinery"] },
+  { canonical: "黑夜教会", type: "organization", aliases: ["黑夜女神教会"], englishNames: ["Church of Evernight", "Church of the Goddess of Night"] },
+  { canonical: "大地母神教会", type: "organization", aliases: ["母神教会"], englishNames: ["Church of Earth Mother"] },
+  { canonical: "永恒烈阳教会", type: "organization", aliases: ["烈阳教会"], englishNames: ["Church of the Eternal Blazing Sun"] },
+  { canonical: "知识教会", type: "organization", aliases: ["知识与智慧之神教会"], englishNames: ["Church of Knowledge", "Knowledge Church"] },
+  { canonical: "生命学派", type: "organization", aliases: ["生命学派的学者"], englishNames: ["School of Life", "Rose School of Thought"] },
+  { canonical: "摩斯苦修会", type: "organization", aliases: ["苦修会"], englishNames: ["Moss Ascetic Order"] },
+  { canonical: "机械之心", type: "organization", aliases: [], englishNames: ["Mechanical Heart", "Machinery Hounds", "Machinery Hivemind"] },
+  { canonical: "代罚者", type: "organization", aliases: [], englishNames: ["Punishers", "Punisher"] },
+  { canonical: "心理炼金会", type: "organization", aliases: [], englishNames: ["Psychology Alchemists"] },
+  { canonical: "铁血十字会", type: "organization", aliases: [], englishNames: ["Iron Blood Cross Order", "Iron Blood Cross"] },
+  { canonical: "贝克兰德", type: "location", aliases: ["贝克兰德大都会"], englishNames: ["Backlund"] },
+  { canonical: "廷根市", type: "location", aliases: ["廷根"], englishNames: ["Tingen"] },
+  { canonical: "鲁恩王国", type: "location", aliases: ["鲁恩"], englishNames: ["Loen Kingdom", "Loen"] },
+  { canonical: "因蒂斯", type: "location", aliases: ["因蒂斯共和国"], englishNames: ["Intis", "Intis Republic"] },
+  { canonical: "拜朗", type: "location", aliases: ["拜朗王国"], englishNames: ["Balam"] },
+  { canonical: "弗萨克", type: "location", aliases: ["弗萨克帝国"], englishNames: ["Feynapotter", "Fezac"] },
+  { canonical: "北大陆", type: "location", aliases: [], englishNames: ["Northern Continent"] },
+  { canonical: "南大陆", type: "location", aliases: [], englishNames: ["Southern Continent"] },
+  { canonical: "贝克兰德东区", type: "location", aliases: ["东区"], englishNames: ["East Borough", "East District"] },
+  { canonical: "贝克兰德码头区", type: "location", aliases: ["码头区"], englishNames: ["Docks", "Dock District"] },
+  { canonical: "皇后区", type: "location", aliases: [], englishNames: ["Queens", "Queen's District"] },
+  { canonical: "希尔斯顿区", type: "location", aliases: [], englishNames: ["Hillston"] },
+  { canonical: "乔伍德区", type: "location", aliases: ["乔伍德"], englishNames: ["Cherwood"] },
+  { canonical: "0-08", type: "sealed-artifact", aliases: ["序列0封印物", "0—08"], englishNames: ["Sealed Artifact 0-08"] },
+  { canonical: "0-17", type: "sealed-artifact", aliases: ["0—17"], englishNames: ["Sealed Artifact 0-17"] },
+  { canonical: "2-049", type: "sealed-artifact", aliases: ["2—049"], englishNames: ["Sealed Artifact 2-049"] },
+  { canonical: "罗塞尔日记", type: "item", aliases: ["日记", "神秘日记"], englishNames: ["Roselle's Diary"] },
+  { canonical: "灰雾", type: "concept", aliases: ["灰雾之上", "源堡"], englishNames: ["Gray Fog", "Sefirah Castle"], related: ["塔罗会", "占卜家途径"] },
+  { canonical: "第四纪", type: "era", aliases: ["第四纪元"], englishNames: ["Fourth Epoch"] },
+  { canonical: "第五纪", type: "era", aliases: ["第五纪元", "当前纪元"], englishNames: ["Fifth Epoch"] },
+  { canonical: "第一次工业革命时期", type: "era", aliases: ["蒸汽时代", "工业革命时期"], englishNames: ["Steam Era"] },
+  { canonical: "廷根之夜", type: "event", aliases: ["廷根事件"], englishNames: ["Tingen Incident"] },
+  { canonical: "非凡者", type: "concept", aliases: ["非凡能力者", "超凡者"], englishNames: ["Beyonder"] },
+  { canonical: "序列", type: "concept", aliases: ["序列等级"], englishNames: ["Sequence"] },
+  { canonical: "扮演法", type: "concept", aliases: ["扮演原则"], englishNames: ["Acting Method"] },
+  { canonical: "魔药", type: "concept", aliases: ["序列魔药"], englishNames: ["Potion"] },
+  { canonical: "源质", type: "concept", aliases: ["源质概念"], englishNames: ["Sefirot", "Original Creator"] },
+];
+
+export const VOLUME_KEYWORDS: { pattern: RegExp; volume: number }[] = [
+  { pattern: /第一部|卷一|第一卷|第一部卷/i, volume: 1 },
+  { pattern: /第二部|卷二|第二卷|第二部卷/i, volume: 2 },
+];
+
+export const ERA_KEYWORDS: { pattern: RegExp; era: string }[] = [
+  { pattern: /第四纪|第四纪元/i, era: "第四纪" },
+  { pattern: /第五纪|第五纪元|当前纪元/i, era: "第五纪" },
+];
