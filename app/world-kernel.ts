@@ -217,6 +217,7 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
     observations,
     knowledge,
     canon: {
+      ...kernel.canon,
       mode: delta.canon?.mode ?? kernel.canon.mode,
       deviation: clamp(kernel.canon.deviation + (delta.canon?.deviationDelta ?? 0)),
       pivotEventIds: [...new Set([...kernel.canon.pivotEventIds, ...(delta.canon?.pivotEventIds ?? [])])],

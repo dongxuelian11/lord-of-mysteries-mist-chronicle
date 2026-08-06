@@ -232,6 +232,26 @@ npm run rag:export
 - 干净安装四场景（无索引/有效包/损坏包/升级回滚）由
   `npm run rag:clean:install` 验证。
 
+## 安装包内置知识库（seed）
+
+- `npm run rag:seed:manifest` 生成 `seed-manifest.json`
+  （formatVersion、indexSchemaVersion、corpusVersion、buildId、createdAt、
+  sourceManifestDigest、seedVersion、minAppVersion、逐文件 SHA-256）；
+- `electron-builder.yml` 把正式运行索引（meta/chunks/documents/inverted/
+  alias-map + seed-manifest）打包到 `resources/knowledge/seed`；
+- 主进程首次启动调用 `electron/knowledge-seed.cjs`：校验 manifest/schema/
+  hash → 原子部署到用户数据目录 → 失败安全回退且下次可重试；
+- 版本优先级：较新的用户 `.mcrag` 知识包 > 较新的安装包 seed > 较旧的
+  用户索引；同版本跳过，seed 升级原子执行并可回滚；
+- `npm run rag:seed:scenarios` 覆盖 A–F 六个隔离场景（首次安装/同版本/
+  用户更新/seed 升级/损坏 seed/知识包升级）。
+
+## 存档兼容范围
+
+- 支持当前 schema（v15）下缺少 `knowledgeHorizon` 的早期存档：读取时
+  补保守默认（第一卷边界，已揭晓周明瑞/夏洛克），不覆盖原文件；
+- 不承诺迁移其他历史 schema；不兼容存档明确报错。
+
 ## Alpha 玩家式路线与窗口 QA
 
 - `npm run rag:alpha:routes`：三条新存档 × 20 周（保守调查/激进行动/

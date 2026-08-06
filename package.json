@@ -40,6 +40,8 @@
     "rag:pack:install": "node scripts/rag/pack.mjs install",
     "rag:pack:status": "node scripts/rag/pack.mjs status",
     "rag:clean:install": "node scripts/rag/clean-install-test.mjs",
+    "rag:seed:manifest": "node scripts/rag/build-seed-manifest.mjs",
+    "rag:seed:scenarios": "node scripts/rag/seed-scenarios.mjs",
     "rag:alpha:routes": "node scripts/rag/alpha-routes.mjs",
     "electron:build": "electron-builder --win nsis",
     "predev": "node scripts/prepare-lore.mjs",

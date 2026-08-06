@@ -19,6 +19,7 @@ extraResources:
       - documents.json
       - inverted.json
       - alias-map.json
+      - seed-manifest.json
 asar: false
 win:
   icon: build/icon.png

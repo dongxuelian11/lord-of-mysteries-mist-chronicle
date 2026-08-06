@@ -21,6 +21,31 @@ export type RecoveryCheckpoint = {
   game: GameState;
 };
 
+const DEFAULT_HORIZON = {
+  work: "LOTM" as const,
+  maxVolume: 1,
+  maxAbsoluteChapter: 195,
+  allowedEventIds: [],
+  revealedIdentityIds: ["周明瑞", "夏洛克·莫里亚蒂"],
+  worldlineMode: "canon-aligned" as const,
+};
+
+// 旧存档迁移：没有知识边界时补上保守默认（第一卷边界，不自动获得全书知识）。
+export function ensureKnowledgeHorizon(game: {
+  worldKernel?: { canon?: Record<string, unknown> | null };
+}): void {
+  const canon = game.worldKernel?.canon;
+  if (!canon || !canon.knowledgeHorizon) {
+    const nextCanon = {
+      ...(canon ?? { mode: "anchored", deviation: 0, pivotEventIds: [] }),
+      knowledgeHorizon: { ...DEFAULT_HORIZON },
+    };
+    if (game.worldKernel) {
+      (game.worldKernel as { canon: unknown }).canon = nextCanon;
+    }
+  }
+}
+
 function stableHash(text: string) {
   let hash = 2166136261;
   for (let index = 0; index < text.length; index += 1) {
@@ -48,24 +73,7 @@ export function parseSaveEnvelope(raw: string) {
   if (value.format !== "mist-chronicle-save" || value.schemaVersion !== SAVE_SCHEMA_VERSION || !value.game) throw new Error("这不是当前版本的《灰雾纪事》存档文件");
   if (stableHash(JSON.stringify(value.game)) !== value.checksum) throw new Error("存档校验失败：文件不完整或被修改");
   if (!value.game.prologueComplete || !value.game.worldKernel || !Array.isArray(value.game.chronicle)) throw new Error("存档缺少世界状态或开局记录，未覆盖当前游戏");
-  // 旧存档迁移：没有知识边界时使用保守默认（第一卷边界，不自动获得全书知识）
-  const canon = value.game.worldKernel.canon;
-  if (!canon || !canon.knowledgeHorizon) {
-    value.game.worldKernel = {
-      ...value.game.worldKernel,
-      canon: {
-        ...(canon ?? { mode: "anchored" as const, deviation: 0, pivotEventIds: [] }),
-        knowledgeHorizon: {
-          work: "LOTM" as const,
-          maxVolume: 1,
-          maxAbsoluteChapter: 195,
-          allowedEventIds: [],
-          revealedIdentityIds: ["周明瑞", "夏洛克·莫里亚蒂"],
-          worldlineMode: "canon-aligned" as const,
-        },
-      },
-    };
-  }
+  ensureKnowledgeHorizon(value.game);
   return value as SaveEnvelope;
 }
 

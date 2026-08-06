@@ -84,6 +84,25 @@ export function buildContextPackage(
   };
 }
 
+// 由最终授权记录重新生成上下文：保证 records 与 context 严格一致。
+export function buildEvidenceContext(
+  records: { sourceId: string; sourceGrade: string; canonLayer: string; title: string; content: string }[],
+  maxChars = 12_000
+): string {
+  const lines: string[] = [];
+  let used = 0;
+  for (const record of records) {
+    const citation = record.sourceId?.length
+      ? `${record.sourceId}·${record.sourceGrade ?? "?"}`
+      : `资料库·${record.sourceGrade ?? "?"}`;
+    const line = `[${citation}] ${record.title}：${record.content.trim()}`;
+    if (used + line.length > maxChars && lines.length) break;
+    lines.push(line.slice(0, Math.max(0, maxChars - used)));
+    used += line.length + 1;
+  }
+  return lines.join("\n");
+}
+
 export function renderContextPackage(
   pkg: ContextPackage,
   roleLabel?: string

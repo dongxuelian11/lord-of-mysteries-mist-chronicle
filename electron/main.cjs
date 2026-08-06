@@ -9,6 +9,8 @@ const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
 const fs = require("node:fs");
+const { createRagIpc } = require("./rag-ipc.cjs");
+const { deploySeed } = require("./knowledge-seed.cjs");
 
 const isWindows = process.platform === "win32";
 const appRoot = path.join(__dirname, "..");
@@ -32,8 +34,9 @@ let serverProc = null;
 let ragWorker = null;
 let serverPort = 0;
 let stopping = false;
-let ragPending = new Map();
-let ragSequence = 0;
+const ragIpc = createRagIpc({
+  timeoutMs: Number(process.env.RAG_IPC_TIMEOUT_MS ?? 15000),
+});
 
 const log = (...args) => console.log("[gmzz]", ...args);
 
@@ -122,54 +125,13 @@ function resolveRagIndexDir() {
 function ensureBundledKnowledge() {
   if (process.env.RAG_INDEX_DIR) return;
   const seed = path.join(process.resourcesPath, "knowledge", "seed");
-  if (!fs.existsSync(path.join(seed, "index.meta.json"))) return;
+  if (!fs.existsSync(path.join(seed, "seed-manifest.json"))) return;
   const target = path.join(app.getPath("userData"), "rag", "index");
-  const metaPath = path.join(target, "index.meta.json");
-  let valid = false;
-  try {
-    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
-    valid =
-      meta &&
-      meta.version === 2 &&
-      meta.chunks > 0 &&
-      fs.existsSync(path.join(target, "chunks.json"));
-  } catch {
-    valid = false;
-  }
-  if (valid) return;
-  const staging = `${target}.seed`;
-  fs.rmSync(staging, { recursive: true, force: true });
-  fs.mkdirSync(staging, { recursive: true });
-  for (const name of [
-    "index.meta.json",
-    "chunks.json",
-    "documents.json",
-    "inverted.json",
-    "alias-map.json",
-  ]) {
-    const source = path.join(seed, name);
-    if (fs.existsSync(source)) fs.copyFileSync(source, path.join(staging, name));
-  }
-  if (!fs.existsSync(path.join(staging, "chunks.json"))) {
-    fs.rmSync(staging, { recursive: true, force: true });
-    return;
-  }
-  if (fs.existsSync(target)) {
-    fs.rmSync(`${target}.old`, { recursive: true, force: true });
-    fs.renameSync(target, `${target}.old`);
-  }
-  try {
-    fs.renameSync(staging, target);
-    if (fs.existsSync(`${target}.old`)) {
-      fs.rmSync(`${target}.old`, { recursive: true, force: true });
-    }
-    log(`已从安装包内置知识库初始化用户索引 -> ${target}`);
-  } catch (error) {
-    if (fs.existsSync(`${target}.old`) && !fs.existsSync(target)) {
-      fs.renameSync(`${target}.old`, target);
-    }
-    fs.rmSync(staging, { recursive: true, force: true });
-    log(`内置知识库初始化失败，保留原状态: ${String(error?.message ?? error)}`);
+  const result = deploySeed(seed, target);
+  if (result.deployed) {
+    log(`内置知识库已部署/升级 -> ${target} (${result.seedVersion ?? "?"})`);
+  } else if (result.decision?.action === "failed") {
+    log(`内置知识库部署失败（安全回退，不崩溃）: ${result.decision.reason}`);
   }
 }
 
@@ -184,29 +146,17 @@ function startRagWorker() {
     stdio: "pipe",
   });
   ragWorker.on("message", (message) => {
-    if (!message || typeof message !== "object" || message.id === undefined) return;
-    const pending = ragPending.get(message.id);
-    if (!pending) return;
-    ragPending.delete(message.id);
-    if (message.ok) pending.resolve(message.payload);
-    else pending.reject(new Error(message.payload?.error ?? "rag worker error"));
+    ragIpc.handleResponse(message);
   });
   ragWorker.on("exit", () => {
     ragWorker = null;
-    for (const pending of ragPending.values()) {
-      pending.reject(new Error("rag worker exited"));
-    }
-    ragPending.clear();
+    ragIpc.abortAll("rag worker exited");
   });
 }
 
 function callRag(type, payload) {
   if (!ragWorker) return Promise.reject(new Error("rag worker unavailable"));
-  const id = `rag-${Date.now()}-${ragSequence++}`;
-  return new Promise((resolve, reject) => {
-    ragPending.set(id, { resolve, reject });
-    ragWorker.postMessage({ type, id, payload });
-  });
+  return ragIpc.request((message) => ragWorker.postMessage(message), type, payload);
 }
 
 function registerRagIpc() {
@@ -367,6 +317,7 @@ if (!gotLock) {
 
   app.on("before-quit", () => {
     stopServer();
+    ragIpc.abortAll("app quitting");
     if (ragWorker) {
       try {
         ragWorker.kill();

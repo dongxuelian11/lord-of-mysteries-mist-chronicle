@@ -73,6 +73,23 @@ embedding 接口也不影响游玩。桌面版由 Electron RAG Worker 在本地�
 中文原著正文（《诡秘之主》精校 TXT，`third-party-mirror` 标记）只在本机
 `private/rag/` 内使用，不随开源仓库、Renderer Bundle 或安装包分发。
 
+### 安装包内置知识库（正式产品策略）
+
+- 正式安装包**内置完整知识索引**（`resources/knowledge/seed`），用户安装后
+  开箱即用，无需手动运行任何开发命令；
+- 首次启动会把 seed 校验后原子部署到用户数据目录；已存在有效索引时不会
+  重复复制，较新的用户 `.mcrag` 知识包不会被较旧 seed 覆盖；
+- `.mcrag` 继续用于知识库热修、升级、替换与回滚；
+- 数据边界：GitHub 源码仓库不包含小说正文与完整索引；Renderer Bundle 不
+  包含完整知识库；安装包只包含运行索引，不包含原始 TXT/EPUB/Git 缓存；
+  完整知识库由本地 Worker 读取，Renderer 只能取得权限过滤后的检索结果。
+
+### 存档兼容范围
+
+支持当前 schema（v15）下缺少 `knowledgeHorizon` 字段的早期存档自动补
+保守默认（第一卷边界）。不承诺自动迁移其他历史 schema 的存档；读取不
+兼容 schema 的存档会明确报错而不是静默改写。
+
 ## 桌面版打包
 
 ```powershell

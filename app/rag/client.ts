@@ -2,6 +2,7 @@
 // 无桥时回退到旧版同步检索。返回结果在渲染端再次应用可见性边界。
 import { retrieveLoreContext as legacyRetrieve } from "../lore-knowledge";
 import { filterChunk } from "./permissions";
+import { buildEvidenceContext } from "./context-builder";
 import type { CanonKnowledgeHorizon } from "./types";
 import type { LegacyLoreRecord } from "./index";
 
@@ -64,7 +65,7 @@ function bridge(): RagBridge | undefined {
   return typeof window !== "undefined" ? window.mistRag : undefined;
 }
 
-function toLegacy(records: RagBridgeChunk[]): LegacyLoreRecord[] {
+export function toLegacy(records: RagBridgeChunk[]): LegacyLoreRecord[] {
   return records.map((record) => ({
     id: record.id,
     title: record.title,
@@ -102,7 +103,7 @@ function legacyHorizonOk(record: { title: string; content: string }, horizon: Ca
   return true;
 }
 
-function reFilter(
+export function reFilter(
   records: RagBridgeChunk[],
   request: RagBridgeSearchRequest
 ): RagBridgeChunk[] {
@@ -196,9 +197,12 @@ export async function retrieveLoreContextAsync(
           limit: request.limit,
           maxChars: request.maxChars,
         });
+        // records 与 context 一致性：始终基于最终授权记录重建上下文，
+        // 绝不沿用 Worker 生成的旧 context（其中可能含二次过滤剔除的切片）。
+        const context = buildEvidenceContext(filtered, request.maxChars ?? 12_000);
         return {
           records: toLegacy(filtered),
-          context: response.context,
+          context,
         };
       }
     } catch {
