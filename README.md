@@ -74,8 +74,9 @@ npm run rag:eval:zh # 中文正文/中英混合评测（zh-only R@10≈0.91、mi
 embedding 接口也不影响游玩。桌面版由 Electron RAG Worker 在本地离线检索，
 渲染端不加载完整索引。
 
-中文原著正文（《诡秘之主》精校 TXT，`third-party-mirror` 标记）只在本机
-`private/rag/` 内使用，不随开源仓库、Renderer Bundle 或安装包分发。
+原始中文与英文小说文件、TXT、EPUB 及开发语料仅保存在本机私有目录中，
+不进入 GitHub 源码仓库或正式安装包。正式安装包会包含由这些语料构建
+生成的完整运行索引 seed，因此用户安装后即可直接使用本地知识库。
 
 ### 安装包内置知识库（正式产品策略）
 
