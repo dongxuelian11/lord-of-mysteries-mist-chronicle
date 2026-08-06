@@ -24,7 +24,7 @@
       "language": "zh-CN",
       "canonLayer": "game-original",
       "sourceGrade": "C",
-      "repo": "dongxuelian11/mist-chronicle"
+      "repo": "dongxuelian11/lord-of-mysteries-mist-chronicle"
     },
     {
       "id": "lotm-reader",
@@ -134,13 +134,13 @@
       "id": "mist-chronicle-repo",
       "enabled": false,
       "kind": "git",
-      "url": "https://github.com/dongxuelian11/mist-chronicle.git",
+      "url": "https://github.com/dongxuelian11/lord-of-mysteries-mist-chronicle.git",
       "include": ["docs/**", "README.md", "NOTICE"],
       "type": "reference",
       "language": "zh-CN",
       "canonLayer": "game-original",
       "sourceGrade": "C",
-      "repo": "dongxuelian11/mist-chronicle",
+      "repo": "dongxuelian11/lord-of-mysteries-mist-chronicle",
       "shallow": true
     }
   ]

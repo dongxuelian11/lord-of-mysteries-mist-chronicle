@@ -1,7 +1,27 @@
 {
-  "name": "mist-chronicle-prototype",
+  "name": "lord-of-mysteries-mist-chronicle",
   "version": "0.1.0",
   "private": true,
+  "description": "AI-driven Lord of Mysteries / LOTM fan organization management, world simulation and RAG narrative game",
+  "keywords": [
+    "lord-of-mysteries",
+    "lotm",
+    "诡秘之主",
+    "mist-chronicle",
+    "ai-game",
+    "rag",
+    "interactive-fiction",
+    "world-simulation",
+    "electron"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dongxuelian11/lord-of-mysteries-mist-chronicle.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dongxuelian11/lord-of-mysteries-mist-chronicle/issues"
+  },
+  "homepage": "https://github.com/dongxuelian11/lord-of-mysteries-mist-chronicle#readme",
   "main": "electron/main.cjs",
   "engines": {
     "node": ">=22.13.0"

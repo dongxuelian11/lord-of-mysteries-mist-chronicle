@@ -23,6 +23,13 @@ if (process.env.GMZZ_USER_DATA) {
   } catch {
     // 保持默认
   }
+} else {
+  // 仓库改名后保持运行身份：用户数据目录固定为历史路径，避免生成第二个目录
+  try {
+    app.setPath("userData", path.join(app.getPath("appData"), "mist-chronicle-prototype"));
+  } catch {
+    // 保持默认
+  }
 }
 
 const vinextDir = app.isPackaged
