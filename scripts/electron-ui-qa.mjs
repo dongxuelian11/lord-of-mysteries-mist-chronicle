@@ -33,7 +33,7 @@ function residualCount(exeName = "MistChronicle.exe") {
   }
 }
 
-async function launch(appDataDir, port, ragIndexDir) {
+async function launch(appDataDir, port, ragIndexDir, extraEnv = {}) {
   const app = await _electron.launch({
     executablePath: exePath,
     args: [],
@@ -44,6 +44,7 @@ async function launch(appDataDir, port, ragIndexDir) {
       GMZZ_PORT: String(port),
       GMZZ_HOST: "127.0.0.1",
       RAG_INDEX_DIR: ragIndexDir,
+      ...extraEnv,
     },
   });
   const window = await app.firstWindow();
@@ -63,7 +64,7 @@ async function closeAndCheck(app, exeName = "MistChronicle.exe") {
   return residualCount(exeName);
 }
 
-const results = { A: null, B: null, D: null, E: null };
+const results = { A: null, B: null, C: null, D: null, E: null };
 const appData = fs.mkdtempSync(path.join(os.tmpdir(), "mist-alpha-qa-"));
 const qaKey = process.env.QA_KEY || "";
 
@@ -90,6 +91,33 @@ const qaKey = process.env.QA_KEY || "";
   };
   const leftover = await closeAndCheck(app);
   results.A.leftover = leftover;
+}
+
+// C：全新 APPDATA、无 RAG_INDEX_DIR——安装包内置知识库应自动初始化
+{
+  const freshAppData = fs.mkdtempSync(path.join(os.tmpdir(), "mist-alpha-fresh-"));
+  const { app, window, errors } = await launch(freshAppData, 3625, undefined, {
+    GMZZ_USER_DATA: freshAppData,
+  });
+  const rag = await window.evaluate(async () => {
+    const rag = window.mistRag;
+    if (!rag) return { bridge: false };
+    const status = await rag.status();
+    return { bridge: true, status };
+  });
+  const seeded = fs.existsSync(path.join(freshAppData, "rag", "index", "chunks.json"));
+  await window.screenshot({ path: path.join(freshAppData, "qa-c-bundled.png") });
+  results.C = {
+    bridge: rag.bridge,
+    ragAvailable: rag.status?.available ?? null,
+    chunks: rag.status?.chunks ?? 0,
+    indexDir: rag.status?.indexDir ?? null,
+    userDataPrefix: freshAppData,
+    seededOnDisk: seeded,
+    consoleErrors: errors.slice(0, 6),
+  };
+  const leftover = await closeAndCheck(app);
+  results.C.leftover = leftover;
 }
 
 // B：安装知识包后重启
@@ -264,6 +292,7 @@ if (qaKey) {
 
 console.log("[electron-ui-qa]");
 console.log(`  A 无索引: ${JSON.stringify(results.A)}`);
+console.log(`  C 内置知识库自举: ${JSON.stringify(results.C)}`);
 console.log(`  B 知识包: ${JSON.stringify(results.B)}`);
 console.log(`  D 存档: ${JSON.stringify(results.D)}`);
 console.log(`  E 真实模型: ${JSON.stringify(results.E)}`);
@@ -272,6 +301,11 @@ const pass =
   results.A.bridge &&
   results.A.ragAvailable === false &&
   results.A.leftover === 0 &&
+  results.C.ragAvailable === true &&
+  results.C.chunks > 0 &&
+  String(results.C.indexDir ?? "").startsWith(results.C.userDataPrefix) &&
+  results.C.seededOnDisk === true &&
+  results.C.leftover === 0 &&
   results.B.installed >= 1 &&
   results.B.ragAvailable === true &&
   results.B.search?.zhHit === true &&

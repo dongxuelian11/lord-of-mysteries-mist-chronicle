@@ -8,7 +8,7 @@ const indexDir = process.env.RAG_INDEX_DIR || "";
 const port = process.parentPort ?? null;
 
 let retriever = null;
-let status = { available: false, chunks: 0, reason: "no-index" };
+let status = { available: false, chunks: 0, reason: "no-index", indexDir };
 let activeRequests = 0;
 
 function readJson(file) {
@@ -21,7 +21,7 @@ function readJson(file) {
 
 function loadIndex() {
   retriever = null;
-  status = { available: false, chunks: 0, reason: "no-index" };
+  status = { available: false, chunks: 0, reason: "no-index", indexDir };
   if (!indexDir) {
     status.reason = "RAG_INDEX_DIR-not-set";
     return;
@@ -36,7 +36,7 @@ function loadIndex() {
   const aliasMap = readJson(path.join(indexDir, "alias-map.json")) ?? {};
   const vectors = readJson(path.join(indexDir, "vectors.json")) ?? undefined;
   retriever = new JsHybridRetriever({ chunks, inverted, aliasMap, vectors });
-  status = { available: true, chunks: chunks.length };
+  status = { available: true, chunks: chunks.length, indexDir };
 }
 
 loadIndex();

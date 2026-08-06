@@ -1,7 +1,6 @@
 // 私有知识包：把完整索引打包为 .mcrag（zip + 完整性 manifest），
 // 安装时校验后原子写入用户数据目录。包不进入 Git / Renderer / 公共安装包。
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import JSZip from "jszip";

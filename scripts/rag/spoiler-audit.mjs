@@ -20,7 +20,6 @@ export function runSpoilerAudit() {
   }
   const coiAll = enCOI.filter((chunk) => chunk.spoilerScope === "all").length;
   const lotmAligned = enLOTM.filter((chunk) => chunk.volumeNumber !== undefined).length;
-  const lotmUnaligned = enLOTM.length - lotmAligned;
   const nonNovel = en.filter((chunk) => !chunk.work);
   const identityTagged = zh.filter((chunk) => (chunk.identityIds ?? []).length).length;
 

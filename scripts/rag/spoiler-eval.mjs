@@ -61,7 +61,6 @@ export function runSpoilerEval() {
   const chunks = loadChunks();
   const inverted = buildInverted(chunks);
   const retriever = new JsHybridRetriever({ chunks, inverted });
-  const byId = new Map(chunks.map((chunk) => [chunk.id, chunk]));
   const leaks = {
     unauthorized: 0,
     futureChapter: 0,

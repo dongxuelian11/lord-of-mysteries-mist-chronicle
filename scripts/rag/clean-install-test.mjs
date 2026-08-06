@@ -3,9 +3,8 @@ import { fork } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import crypto from "node:crypto";
 import JSZip from "jszip";
-import { buildPack, verifyPack, installPack } from "./pack.mjs";
+import { buildPack, installPack } from "./pack.mjs";
 
 const WORKER = path.join("electron", "rag-worker.mjs");
 
@@ -47,10 +46,6 @@ async function withWorker(indexPath, fn) {
       child.once("exit", resolve);
     });
   }
-}
-
-function sha256(buffer) {
-  return crypto.createHash("sha256").update(buffer).digest("hex");
 }
 
 async function buildTamperedPack(kind, validBuffer) {

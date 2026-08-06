@@ -11,6 +11,14 @@ files:
 extraResources:
   - from: node_modules/vinext
     to: vinext
+  - from: private/rag/index
+    to: knowledge/seed
+    filter:
+      - index.meta.json
+      - chunks.json
+      - documents.json
+      - inverted.json
+      - alias-map.json
 asar: false
 win:
   icon: build/icon.png

@@ -13,6 +13,16 @@ const fs = require("node:fs");
 const isWindows = process.platform === "win32";
 const appRoot = path.join(__dirname, "..");
 const serverScript = path.join(__dirname, "server.mjs");
+
+// 允许通过环境变量指定用户数据目录（便携/隔离测试用）
+if (process.env.GMZZ_USER_DATA) {
+  try {
+    app.setPath("userData", path.resolve(process.env.GMZZ_USER_DATA));
+  } catch {
+    // 保持默认
+  }
+}
+
 const vinextDir = app.isPackaged
   ? path.join(process.resourcesPath, "vinext")
   : path.join(appRoot, "node_modules", "vinext");
@@ -94,10 +104,73 @@ function stopServer() {
 function resolveRagIndexDir() {
   if (process.env.RAG_INDEX_DIR) return process.env.RAG_INDEX_DIR;
   const devIndex = path.join(appRoot, "private", "rag", "index");
-  if (!app.isPackaged && fs.existsSync(path.join(devIndex, "index.meta.json"))) {
+  const hasBundledSeed = fs.existsSync(
+    path.join(process.resourcesPath, "knowledge", "seed", "index.meta.json")
+  );
+  if (
+    !app.isPackaged &&
+    !hasBundledSeed &&
+    fs.existsSync(path.join(devIndex, "index.meta.json"))
+  ) {
     return devIndex;
   }
   return path.join(app.getPath("userData"), "rag", "index");
+}
+
+// 首次启动：若用户数据目录没有有效索引，则从安装包内置知识库种子初始化。
+// 已存在索引（例如用户安装的知识包）优先，不会被覆盖。
+function ensureBundledKnowledge() {
+  if (process.env.RAG_INDEX_DIR) return;
+  const seed = path.join(process.resourcesPath, "knowledge", "seed");
+  if (!fs.existsSync(path.join(seed, "index.meta.json"))) return;
+  const target = path.join(app.getPath("userData"), "rag", "index");
+  const metaPath = path.join(target, "index.meta.json");
+  let valid = false;
+  try {
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+    valid =
+      meta &&
+      meta.version === 2 &&
+      meta.chunks > 0 &&
+      fs.existsSync(path.join(target, "chunks.json"));
+  } catch {
+    valid = false;
+  }
+  if (valid) return;
+  const staging = `${target}.seed`;
+  fs.rmSync(staging, { recursive: true, force: true });
+  fs.mkdirSync(staging, { recursive: true });
+  for (const name of [
+    "index.meta.json",
+    "chunks.json",
+    "documents.json",
+    "inverted.json",
+    "alias-map.json",
+  ]) {
+    const source = path.join(seed, name);
+    if (fs.existsSync(source)) fs.copyFileSync(source, path.join(staging, name));
+  }
+  if (!fs.existsSync(path.join(staging, "chunks.json"))) {
+    fs.rmSync(staging, { recursive: true, force: true });
+    return;
+  }
+  if (fs.existsSync(target)) {
+    fs.rmSync(`${target}.old`, { recursive: true, force: true });
+    fs.renameSync(target, `${target}.old`);
+  }
+  try {
+    fs.renameSync(staging, target);
+    if (fs.existsSync(`${target}.old`)) {
+      fs.rmSync(`${target}.old`, { recursive: true, force: true });
+    }
+    log(`已从安装包内置知识库初始化用户索引 -> ${target}`);
+  } catch (error) {
+    if (fs.existsSync(`${target}.old`) && !fs.existsSync(target)) {
+      fs.renameSync(`${target}.old`, target);
+    }
+    fs.rmSync(staging, { recursive: true, force: true });
+    log(`内置知识库初始化失败，保留原状态: ${String(error?.message ?? error)}`);
+  }
 }
 
 function startRagWorker() {
@@ -309,6 +382,7 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    ensureBundledKnowledge();
     startRagWorker();
     registerRagIpc();
     const url = await startServer();
