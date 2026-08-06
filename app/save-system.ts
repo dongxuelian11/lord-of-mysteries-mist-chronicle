@@ -1,4 +1,5 @@
 import type { GameState } from "./game-model.ts";
+import { emptyMemoryState, ensureAudienceStates } from "./memory/index.ts";
 
 export const ACTIVE_SAVE_KEY = "mist-chronicle-complete-v15";
 export const RECOVERY_KEY = "mist-chronicle-recovery-v15";
@@ -46,6 +47,26 @@ export function ensureKnowledgeHorizon(game: {
   }
 }
 
+// 旧存档迁移：没有动态记忆时补空安全默认。
+export function ensureDynamicMemory(game: { memory?: unknown }): void {
+  if (!game.memory || typeof game.memory !== "object") {
+    (game as { memory: unknown }).memory = emptyMemoryState();
+    return;
+  }
+  const memory = game.memory as {
+    audienceStates?: unknown;
+    receiptLedger?: { recalledByAudience?: unknown; recalledWeeks?: unknown };
+  };
+  if (!Array.isArray(memory.audienceStates)) memory.audienceStates = [];
+  if (!memory.receiptLedger || typeof memory.receiptLedger !== "object" || !memory.receiptLedger.recalledByAudience) {
+    memory.receiptLedger = {
+      recalledByAudience: {},
+      recalledWeeks: memory.receiptLedger?.recalledWeeks ?? {},
+    };
+  }
+  (game as { memory: unknown }).memory = ensureAudienceStates(game.memory as never);
+}
+
 function stableHash(text: string) {
   let hash = 2166136261;
   for (let index = 0; index < text.length; index += 1) {
@@ -74,6 +95,7 @@ export function parseSaveEnvelope(raw: string) {
   if (stableHash(JSON.stringify(value.game)) !== value.checksum) throw new Error("存档校验失败：文件不完整或被修改");
   if (!value.game.prologueComplete || !value.game.worldKernel || !Array.isArray(value.game.chronicle)) throw new Error("存档缺少世界状态或开局记录，未覆盖当前游戏");
   ensureKnowledgeHorizon(value.game);
+  ensureDynamicMemory(value.game);
   return value as SaveEnvelope;
 }
 

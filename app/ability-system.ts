@@ -3,6 +3,11 @@ import {
   Ability, AbilityContext, AbilityScene, AbilityUseRecord, GameState, HiddenWorldFact, PATHWAYS,
 } from "./game-model";
 import { retrieveLoreContextAsync } from "./rag/client";
+import {
+  memoryPromptBlockWithIds,
+  submitMemoryDelivery,
+  playerAudience,
+} from "./memory/index";
 import { abilitiesFor, abilityRuleSummary, freeTravelAbility } from "./pathway-abilities";
 import { evaluateImmediateActing } from "./progression-system";
 
@@ -117,6 +122,12 @@ export async function generateAbilityDraft(config: AiConfig, game: GameState, ab
     worldlineMode: "canon-aligned" as const,
   };
   const lore = await retrieveLoreContextAsync(LORE_RECORDS, { query: `${intent} ${context.label} ${ability.name}`, audience: { kind: "player-known", knownLoreIds, topicGrants: ["pathways", "beyonder-system"] }, limit: 10, maxChars: 4200, week: game.week, gameDate: game.date, horizon });
+  const abilityMemoryView = memoryPromptBlockWithIds(
+    game.memory,
+    /调查|查证|线索|勘察|追踪/.test(intent) ? "investigation" : "action",
+    "player",
+    game.week
+  );
   const payload = {
     pathway: PATHWAYS[game.pathwayId].name,
     sequence: game.currentSequence,
@@ -126,12 +137,21 @@ export async function generateAbilityDraft(config: AiConfig, game: GameState, ab
     context,
     knownFacts: game.facts.slice(-14),
     authorizedLore: lore.context,
+    dynamicMemory: abilityMemoryView.text,
     authorizedWorldKnowledge: (game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes("player")).slice(-12),
     lockedHiddenFacts: relevantHidden,
     recentUses: game.abilityJournal.slice(-6),
   };
   const raw = extractJson(await callModel(config, `你是非凡能力即时结算器。最高优先级是严格服从玩家写明的目的、手段、排除条件与停止条件。绝不把“主动进入灵界”改写成触碰吊坠、占卜或调查某个事件；绝不擅自添加玩家未选择的封印物、仪式、协助者或媒介。若规则允许直接进入梦境或灵界，就必须进入连续场景；若不允许，应由规则层拒绝而不是替换手段。能力必须立刻产生具体、可追问的信息，但不能直接泄露核心幕后真相，不能把心理推断冒充事实，不能替玩家行动，也不能宣布玩家死亡。已锁定隐藏事实不可改写。只返回JSON。`, `玩家原始意图是不可改写的行动契约：${intent}\n选定手段：${ability.name}（${ability.verb}）\n结算这一次使用。直接观察必须是感官可得的具体细节；专业判断要说明可信度；未知项要说明遮蔽来自哪里；察觉反馈必须明确。返回{"observation":"100至220字的即时小说式感知","interpretation":"专业判断","confidence":"较低|中等|较高|确认","unknown":"仍无法确认的部分","detection":"对方或环境是否察觉","mentalLoad":1到6,"deepLayer":"dream|spirit|null","lockedFact":"可选，只允许局部原创事实"}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 1500, temperature: .62 }));
   if (typeof raw.observation !== "string" || typeof raw.interpretation !== "string" || typeof raw.unknown !== "string" || typeof raw.detection !== "string" || !["较低", "中等", "较高", "确认"].includes(String(raw.confidence)) || !Number.isFinite(Number(raw.mentalLoad))) throw new Error("模型没有返回完整的能力结算；本次使用未扣除灵性，也没有写入替代反馈");
+  game.memory = submitMemoryDelivery(game.memory, {
+    actionId: `ability:${game.week}`,
+    modelCallId: `ability:${game.week}:${ability.id}:${intent.slice(0, 40)}`,
+    stage: "ability",
+    audience: playerAudience(false),
+    memoryIds: abilityMemoryView.ids,
+    week: game.week,
+  });
   const requestedLayer = ability.sceneLayer ?? (/进入.{0,6}梦境|梦境.{0,6}进入/.test(intent) ? "dream" as const : /进入.{0,6}灵界|灵界.{0,6}进入/.test(intent) ? "spirit" as const : undefined);
   return {
     observation: raw.observation.slice(0, 800),
@@ -202,7 +222,21 @@ export function resolveImmediateAbility(game: GameState, ability: Ability, inten
 export async function generateSceneResponse(config: AiConfig, game: GameState, intent: string) {
   const scene = game.activeAbilityScene;
   if (!scene) throw new Error("当前没有可以继续的深层场景");
+  const sceneMemoryView = memoryPromptBlockWithIds(
+    game.memory,
+    /调查|查证|线索|勘察|追踪/.test(intent) ? "investigation" : "action",
+    "player",
+    game.week
+  );
   const response = await callModel(config, `你是${scene.layer === "dream" ? "梦境" : "灵界"}短篇自由探索场景的即时叙事器。玩家每次自由描述动作，你必须返回具体环境变化、可观察信息和风险迹象。不能替玩家选择，不能宣布玩家死亡，不能泄露未被能力触及的核心真相。已发生内容和锁定隐藏事实不可改写。`, `场景：${JSON.stringify(scene)}\n锁定事实：${JSON.stringify(game.hiddenWorldFacts.slice(-12))}\n玩家继续：${intent}\n用120至260字回应，只写当前场景反馈。`, { maxTokens: 900, temperature: .74 });
+  game.memory = submitMemoryDelivery(game.memory, {
+    actionId: `scene:${game.week}`,
+    modelCallId: `scene:${game.week}:${scene.id}:${intent.slice(0, 40)}`,
+    stage: "scene",
+    audience: playerAudience(false),
+    memoryIds: sceneMemoryView.ids,
+    week: game.week,
+  });
   return response.slice(0, 1200);
 }
 

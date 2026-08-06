@@ -20,6 +20,17 @@ import { createFinaleCampaign } from "./finale-system";
 import { callModel as invokeModel, type AiConfig } from "./ai-client";
 import { type LegacyLoreRecord } from "./rag";
 import { listRuntimeChunkIds, retrieveLoreContextAsync } from "./rag/client";
+import {
+  deriveLocalMemory,
+  deriveMemoryFromWorldState,
+  emptyMemoryState,
+  memoryPromptBlockWithIds,
+  submitMemoryDelivery,
+  markMemoryPresented,
+  actorAudience,
+  narratorAudience,
+  worldSystemAudience,
+} from "./memory/index";
 export type LoreRecord = LegacyLoreRecord;
 import { applyWorldTurn, type WorldTurnDelta } from "./world-kernel";
 import { abilitiesFor, abilityRuleSummary } from "./pathway-abilities";
@@ -1011,6 +1022,16 @@ export function resolveWeek(game: GameState) {
     ending,
   };
   if (shouldEnterFinale) nextState = { ...nextState, ending: { ...nextState.ending, phase: "finale", campaign: createFinaleCampaign(nextState) } };
+  nextState = {
+    ...nextState,
+    memory: deriveLocalMemory(
+      nextState.memory ?? emptyMemoryState(),
+      game.members,
+      nextState.members,
+      results,
+      game.week
+    ),
+  };
   return { state: nextState, chapter };
 }
 
@@ -1090,6 +1111,7 @@ async function enforceLiteraryAgency(config: AiConfig, system: string, factPack:
 }
 
 export async function generateLiteraryChapter(config: AiConfig, game: GameState, local: ChronicleChapter, onStage: (value: string) => void, onToken?: (text: string) => void): Promise<ChronicleChapter> {
+  const literaryMemoryView = memoryPromptBlockWithIds(game.memory, "player", "player", local.week);
   const factPack = {
     week: local.week,
     date: local.date,
@@ -1102,6 +1124,7 @@ export async function generateLiteraryChapter(config: AiConfig, game: GameState,
     worldState: (() => { const snapshot = game.worldSnapshots?.find((item) => item.week === local.week); return snapshot ? { week: snapshot.week, date: snapshot.date, publicAtmosphere: snapshot.atmosphere } : null; })(),
     publicSignals: game.worldSignals?.filter((signal) => signal.week === local.week).slice(0, 8).map((signal) => ({ ...signal, relatedFactionId: undefined })) ?? [],
     playerWorldKnowledge: game.worldKernel.knowledge.filter((node) => node.visibility === "public" || node.holderIds.includes("player")).slice(-16),
+    dynamicMemory: literaryMemoryView.text,
     finale: game.ending.campaign ? { stage: game.ending.campaign.stage, doctrine: game.ending.campaign.doctrine, reports: game.ending.campaign.reports.slice(0, 2), aftermath: game.ending.campaign.aftermath } : null,
     localReference: local.sections,
     agencyBoundary: game.ending.campaign && local.title.startsWith("终局")
@@ -1111,19 +1134,33 @@ export async function generateLiteraryChapter(config: AiConfig, game: GameState,
       : "本周没有任何玩家决议。玩家与组织成员不得离开据点、调查、接触、追踪、取证、获得新文件或自行决定下一步；只能阅读publicSignals、维持据点日常与观察城市公开变化。",
     forbidden: ["改变行动成败", "新增未经结算的线索", "泄露幕后真相", "替玩家决定内心信念", "擅自判定玩家死亡", "让无决议玩家或成员自行外出调查"],
   };
+  const submitLiterary = (stage: string) => {
+    game.memory = submitMemoryDelivery(game.memory, {
+      actionId: `literary:${local.week}`,
+      modelCallId: `literary:${local.week}:${stage}`,
+      stage,
+      audience: narratorAudience(),
+      memoryIds: literaryMemoryView.ids,
+      week: local.week,
+    });
+  };
   const system = "你为原创维多利亚神秘主义互动小说《灰雾纪事》工作。使用严格的第三人称有限视角和克制的神秘悬疑文风，不复制任何现有小说句子。不要套用固定的周报结构、固定开场、固定收尾、信息分类标题或‘首先/其次/最后’式模板；根据这一周真正发生的事情自行决定场景、节奏、详略和分节数量。即使玩家没有发布命令，也要以事实包里的报纸、街谈、来信、亲历场景和可感知异常写出世界继续运行的实感。事实包故意排除了全知世界层：不得补写任何未被玩家观察到的势力行动、幕后身份、秘密工程目的或原著真相；publicAtmosphere只能用于天气与公共气氛，不能从中推导幕后主体。只能表达事实包，不能新增事实。只返回JSON。";
   if ((config.quality ?? "balanced") === "balanced") {
     onStage("小说引擎正在把规则结果写成章节");
     const written = extractJson(await callModel(config, system, `根据事实包写成600至1400字的完整章节。分节数量由内容决定，允许一段连续场景，也允许多地点交错；不要为了凑结构重复信息。正文必须自然分段，每段控制在180字以内，段落之间用空行节奏区分。返回JSON：{"title":"章名","sections":[{"heading":"自然分节名","paragraphs":["完整段落"]}]}。不得改变成败或新增线索。\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6200, temperature: .86, stream: true, onToken }));
+    submitLiterary("writer");
     const chapter = await enforceLiteraryAgency(config, system, factPack, game, local, validateChapter(written), onStage, onToken);
     return splitLongParagraphs({ ...local, ...chapter, source: "ai" as const });
   }
   onStage("叙事导演正在安排重点场景");
   const director = extractJson(await callModel(config, `${system}\n你是叙事导演。`, `根据事实的戏剧重量制定600至1500字章节提纲，自行决定视角锚点、场景数量和结尾位置，不使用固定周报结构。返回JSON。\n${JSON.stringify(factPack)}`, { json: true, maxTokens: 2600, temperature: .62, stream: true, onToken }));
+  submitLiterary("director");
   onStage("正文作者正在写作");
   const writer = extractJson(await callModel(config, `${system}\n你是正文作者。`, `按提纲完成正文，分节数量服从故事而不是模板。正文必须自然分段，每段控制在180字以内，避免整页无断落的长块文字。返回{"title":"章名","sections":[{"heading":"分节","paragraphs":["完整段落"]}]}。\n提纲：${JSON.stringify(director)}\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6800, temperature: .9, stream: true, onToken }));
+  submitLiterary("writer");
   onStage("连续性编辑正在校对世界事实");
   const edited = extractJson(await callModel(config, `${system}\n你是连续性编辑，只能压缩、校正视角和人物语气。`, `校订并返回同样JSON。不得改变以下初稿所引用的事实。\n事实：${JSON.stringify(factPack)}\n初稿：${JSON.stringify(writer)}`, { json: true, maxTokens: 6200, temperature: .35, stream: true, onToken }));
+  submitLiterary("editor");
   const chapter = await enforceLiteraryAgency(config, system, factPack, game, local, validateChapter(edited), onStage, onToken);
   return splitLongParagraphs({ ...local, ...chapter, source: "ai" as const });
 }
@@ -1145,6 +1182,7 @@ export type SituationBrief = {
 export async function generateSituationBrief(config: AiConfig, game: GameState): Promise<SituationBrief> {
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
   const lore = await loreForPlayer(LORE_RECORDS, game, `${game.date} 贝克兰德 ${game.missions.filter((item) => item.state === "active").map((item) => item.title).join(" ")} ${game.worldSignals.slice(0, 5).map((item) => item.headline).join(" ")}`);
+  const situationMemoryView = memoryPromptBlockWithIds(game.memory, "player", "player", game.week);
   const payload = {
     week: game.week,
     date: game.date,
@@ -1157,12 +1195,21 @@ export async function generateSituationBrief(config: AiConfig, game: GameState):
     knownFacts: game.facts.slice(-16),
     authorizedLore: lore.context || null,
     loreRecordIds: lore.records.map((item) => item.id),
+    dynamicMemory: situationMemoryView.text,
   };
   const raw = extractJson(await callModel(config, "你为原创维多利亚神秘主义互动小说《灰雾纪事》写玩家进入存档时看到的当前现状。它必须像小说真正开始的一页，不是教程、任务清单、系统摘要或模板化周报。使用有限视角、具体物件、声音、天气、人物动作与消息来源，让玩家理解此刻身在何处、世界刚发生了什么、什么压力正在逼近以及自己可以自由行动。不要替玩家决定情绪或选择，不泄露角色未知的幕后真相，不复制任何现成小说句子。只返回JSON。", `写一个标题、日期行和3至6个自然段。段落可以长短不一，不要使用“当前状况/你的目标/建议行动”之类标签。返回{"title":"小说式标题","dateline":"日期与地点","paragraphs":["完整段落"]}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 3200, temperature: .92 }));
   const title = typeof raw.title === "string" && raw.title.trim() ? raw.title.trim().slice(0, 80) : "";
   const dateline = typeof raw.dateline === "string" && raw.dateline.trim() ? raw.dateline.trim().slice(0, 120) : "";
   const paragraphs = Array.isArray(raw.paragraphs) ? raw.paragraphs.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim().slice(0, 1200)).slice(0, 6) : [];
   if (!title || !dateline || paragraphs.length < 3) throw new Error("模型没有返回完整的开局现状页；游戏仍停留在标题页，不会显示模板替代内容");
+  game.memory = submitMemoryDelivery(game.memory, {
+    actionId: `situation:${game.week}`,
+    modelCallId: `situation:${game.week}`,
+    stage: "situation",
+    audience: narratorAudience(),
+    memoryIds: situationMemoryView.ids,
+    week: game.week,
+  });
   return { title, dateline, paragraphs };
 }
 
@@ -1173,6 +1220,7 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
   const lore = await loreForActor(LORE_RECORDS, game, member, `${playerText} ${member.role} ${member.specialty} ${game.date}`);
   const thread = game.dialogueThreads.find((item) => item.memberId === memberId);
   const currentPressure = game.missions.find((item) => item.state === "active");
+  const dialogueMemoryView = memoryPromptBlockWithIds(game.memory, "dialogue", memberId, game.week);
   const system = `你正在扮演原创人物${member.name}，参加维多利亚神秘组织的${context === "council" ? "每周密议" : "私下谈话"}。组织领导人是${game.playerName || "尚未登记姓名的负责人"}，正式场合应自然地称其为“${game.playerAddress || "会长阁下"}”，但不要每一段都重复称呼。你不是菜单、助手或任务发布器，而是一个有局限、有利益、有情绪、有当下注意力的人。
 固定背景：${member.background ?? "未登记"}
 性格核心：${member.core ?? "谨慎"}
@@ -1197,6 +1245,7 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
     recentSignals: game.worldSignals?.slice(0, 8) ?? [],
     authorizedLore: lore.context || null,
     loreRecordIds: lore.records.map((item) => item.id),
+    dynamicMemory: dialogueMemoryView.text,
     scheduledOrders: game.schedule.map((item) => ({ title: item.title, leaderId: item.leaderId, risk: item.risk })),
     relationship: {
       trust: member.trust ?? member.loyalty,
@@ -1217,6 +1266,22 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
   const mood = typeof raw.mood === "string" ? raw.mood.trim().slice(0, 16) : "克制";
   const memory = typeof raw.memory === "string" && raw.memory.trim() ? raw.memory.trim().slice(0, 180) : null;
   const trustDelta = Math.max(-2, Math.min(2, Number(raw.trustDelta) || 0));
+  game.memory = submitMemoryDelivery(game.memory, {
+    actionId: `dialogue:${memberId}:${game.week}`,
+    modelCallId: `dialogue:${memberId}:${game.week}:${playerText.slice(0, 40)}`,
+    stage: "dialogue",
+    audience: actorAudience(memberId, true),
+    memoryIds: dialogueMemoryView.ids,
+    week: game.week,
+  });
+  game.memory = markMemoryPresented(game.memory, {
+    actionId: `dialogue:${memberId}:${game.week}`,
+    modelCallId: `dialogue:${memberId}:${game.week}:${playerText.slice(0, 40)}`,
+    stage: "dialogue",
+    audience: actorAudience(memberId, true),
+    memoryIds: dialogueMemoryView.ids,
+    week: game.week,
+  });
   return { reply, mood, memory, trustDelta, proposal: null };
 }
 
@@ -1225,6 +1290,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   const worldConfig = { ...config, model: config.worldModel?.trim() || config.model };
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
   const lore = await loreForWorld(LORE_RECORDS, game, `${game.date} ${chapter.results.map((item) => item.contract.rawIntent).join(" ")} ${game.worldKernel.projects.filter((item) => item.status === "active").map((item) => item.title).join(" ")} ${game.worldKernel.actors.map((item) => `${item.name} ${item.agenda}`).join(" ")}`);
+  const worldMemoryView = memoryPromptBlockWithIds(game.memory, "world", undefined, chapter.week);
   const payload = {
     resolvingWeek: chapter.week,
     currentWeek: game.week,
@@ -1244,6 +1310,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
       unresolvedIssues: game.organizationIssues.filter((item) => item.state === "待裁决" || item.state === "已逾期"),
     },
     persistentWorld: { ...game.worldKernel, events: game.worldKernel.events.slice(-80), observations: game.worldKernel.observations.slice(-80), knowledge: game.worldKernel.knowledge.slice(-100) },
+    dynamicMemory: worldMemoryView.text,
     authorizedLore: lore.context,
     loreRecordIds: lore.records.map((item) => item.id),
     designerSupplement: config.worldBible?.trim().slice(0, 12000) || null,
@@ -1454,6 +1521,21 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     worldSignals: [...publicSignals, ...(game.worldSignals ?? []).filter((signal) => signal.week !== chapter.week || !publicSignals.length)].slice(0, 120),
     worldSnapshots: [worldSnapshot, ...(game.worldSnapshots ?? []).filter((snapshot) => snapshot.week !== chapter.week)].slice(0, 60),
     worldKernel,
+    memory: deriveMemoryFromWorldState(
+      submitMemoryDelivery(
+        game.memory ?? emptyMemoryState(),
+        {
+          actionId: `world:${chapter.week}`,
+          modelCallId: `world:${chapter.week}`,
+          stage: "world",
+          audience: worldSystemAudience(),
+          memoryIds: worldMemoryView.ids,
+          week: chapter.week,
+        }
+      ),
+      worldKernel,
+      chapter.week
+    ),
     chronicle,
     departments,
     departmentReports,

@@ -1,4 +1,5 @@
 import { createWorldKernel, type WorldKernel } from "./world-kernel.ts";
+import { emptyMemoryState, type DynamicMemoryState } from "./memory/index.ts";
 
 export type PathwayId = "seer" | "spectator" | "apprentice" | "hunter" | "mystery";
 export type ViewId = "intent" | "investigation" | "city" | "organization" | "progression" | "archive" | "ending";
@@ -740,6 +741,7 @@ export type GameState = {
   worldSignals: WorldSignal[];
   worldSnapshots: WorldSnapshot[];
   worldKernel: WorldKernel;
+  memory: DynamicMemoryState;
   economyHistory: EconomyLedger[];
   organizationConditions: string[];
   cases: CaseFile[];
@@ -1376,6 +1378,7 @@ export function createInitialGame(pathwayId: PathwayId = "seer", origin?: Pick<P
     worldSignals: [],
     worldSnapshots: [],
     worldKernel,
+    memory: emptyMemoryState(),
     economyHistory: [],
     organizationConditions: ["未获许可", "掩护业务稳定", "成员仍在观察负责人"],
     cases: [
