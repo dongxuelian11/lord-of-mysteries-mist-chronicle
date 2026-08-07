@@ -62,6 +62,7 @@ const CLARIFICATION_PATTERNS: RegExp[] = [
 
 const PREPARATION_MISSING_PATTERNS: RegExp[] = [
   /没带|没有(媒介|材料|纸人|物品)|忘记准备|现场没有|缺少材料|缺少媒介/,
+  /还没准备|尚未准备|未准备/,
 ];
 
 const RISK_PATTERNS: RegExp[] = [
@@ -144,6 +145,17 @@ export function evaluateAbilityPlan(plan: ProposedAbilityPlan, context: AbilityP
   }
   for (const family of familiesForText(joined)) coveredFamilies.add(family);
 
+  // 跨领域暴力：若方案明显要“杀死/重伤”而覆盖领域没有任何暴力/诅咒/束缚家族，直接拒绝。
+  const violentFamilies = new Set(["physical", "curse", "control", "binding"]);
+  const hasViolentFamily = [...coveredFamilies].some((family) => violentFamilies.has(family));
+  if (/杀死|杀人|致残|重伤/.test(joined) && !hasViolentFamily) {
+    return buildEnvelope({
+      verdict: "REJECT_OUTSIDE_ABILITY_DOMAIN",
+      reasons: ["方案要求直接杀伤，但已覆盖的能力领域不包含暴力/诅咒/束缚手段"],
+      limits: ["可以改用控制、束缚或间接手段，但不能让占卜/感知类能力直接杀人。"],
+    });
+  }
+
   const missingPrep = PREPARATION_MISSING_PATTERNS.some((pattern) => pattern.test(joined));
   const needsMaterial = context.ownedAbilities.some(
     (ability) => requested.includes(ability.id) && ability.gameParameters?.materialRequired
@@ -189,7 +201,8 @@ export function evaluateAbilityPlan(plan: ProposedAbilityPlan, context: AbilityP
     for (const primitive of primitivesForText(effect)) effectPrimitivesOnly.add(primitive);
   }
   const inDomain = effectPrimitivesOnly.size > 0 && [...effectPrimitivesOnly].every((primitive) => canonicalPrimitives.has(primitive));
-  const forced = RISK_PATTERNS.some((pattern) => pattern.test(joined));
+  const declaredRisky = (plan.risks ?? []).some((risk) => /反噬|失控|强行|污染|暴露|代价|不惜/.test(risk));
+  const forced = RISK_PATTERNS.some((pattern) => pattern.test(joined)) || declaredRisky;
   const risky = forced || context.spirituality <= 25 || context.occupiedConcentrationSlots >= context.concentrationSlots;
   const novel = plan.proposedEffects.some((effect) => {
     const primitives = primitivesForText(effect);

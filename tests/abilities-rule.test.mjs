@@ -242,3 +242,109 @@ test("natural language equivalents parse to the same ability", async () => {
   assert.ok(c.requestedAbilityIds.includes("divination"));
   assert.equal(module.abilityIntentNeedsClarification({ ...a, requestedAbilityIds: [] }), true);
 });
+
+test("ordinary backlash writes real pollution instead of dropping it", async () => {
+  const { abilities: module, gameModule: game, memoryModule: memory } = await modules();
+  const actor = {
+    ...module.DEFAULT_EXTRAORDINARY_STATE,
+    pathwayId: "seer",
+    sequence: 5,
+    internalRank: 5,
+    spirituality: 18,
+  };
+  const definition = module.abilityDefinitions().find((item) => item.id === "marionette-touch");
+  let contract;
+  for (let resistance = 16; resistance <= 32 && !contract; resistance += 1) {
+    const candidate = module.resolveAbility({
+      definition,
+      actorState: actor,
+      targetStates: [
+        {
+          id: "t",
+          ...actor,
+          internalRank: 1,
+          resistances: Object.fromEntries(Object.keys(actor.resistances).map((key) => [key, resistance])),
+        },
+      ],
+      intent: baseIntent({ preparationRefs: ["knowledge:confirmed", "sight-confirmed"] }),
+      seed: `backlash-pollution-${resistance}`,
+      environmentRefs: [],
+      activeCounterIds: [],
+      environmentProtection: 0,
+      targetInjured: false,
+      mastery: 1,
+    });
+    if (candidate.result === "backlash") contract = candidate;
+  }
+  assert.ok(contract, "backlash contract found");
+  const base = game.createInitialGame("seer");
+  const state = {
+    ...base,
+    prologueComplete: true,
+    playerName: "会长",
+    playerAddress: "会长阁下",
+    spirituality: 18,
+    mentalLoad: 0,
+    stability: 71,
+    abilityResolutions: [],
+    memory: memory.emptyMemoryState(),
+    facts: [],
+    abilityJournal: [],
+    actingMarks: [],
+    hiddenWorldFacts: [],
+    worldKernel: { ...base.worldKernel },
+  };
+  const before = state.playerCondition.pollution;
+  const applied = module.applyAbilityResolution(state, contract, "隐秘操控");
+  assert.ok(applied.game.playerCondition.pollution > before);
+});
+
+test("save-before-resolve determinism: same world state yields the same contract", async () => {
+  const { abilities: module, gameModule: game, memoryModule: memory } = await modules();
+  const base = game.createInitialGame("seer");
+  const state = {
+    ...base,
+    prologueComplete: true,
+    playerName: "会长",
+    playerAddress: "会长阁下",
+    spirituality: 18,
+    mentalLoad: 0,
+    stability: 71,
+    abilityResolutions: [],
+    memory: memory.emptyMemoryState(),
+    facts: [],
+    abilityJournal: [],
+    actingMarks: [],
+    hiddenWorldFacts: [],
+    worldKernel: { ...base.worldKernel },
+  };
+  const definition = module.abilityDefinitions().find((item) => item.id === "spirit-vision");
+  const actor = {
+    ...module.DEFAULT_EXTRAORDINARY_STATE,
+    pathwayId: "seer",
+    sequence: 9,
+    internalRank: 1,
+    spirituality: 18,
+  };
+  const intent = baseIntent();
+  const options = {
+    definition,
+    actorState: actor,
+    targetStates: [{ id: "t", ...actor }],
+    intent,
+    seed: "save-before-resolve",
+    environmentRefs: [],
+    activeCounterIds: [],
+    environmentProtection: 0,
+    targetInjured: false,
+    mastery: 1,
+  };
+  const before = module.resolveAbility(options);
+  const loaded = JSON.parse(JSON.stringify(state));
+  const after = module.resolveAbility({ ...options, actorState: { ...actor } });
+  assert.equal(after.margin, before.margin);
+  assert.equal(after.result, before.result);
+  assert.equal(after.resolutionId, before.resolutionId);
+  assert.deepEqual(after.committedCosts, before.committedCosts);
+  assert.ok(loaded.abilityResolutions.length === 0);
+});

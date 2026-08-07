@@ -82,6 +82,7 @@
     "fate:longrun": "node scripts/fate/longrun.mjs",
     "fate:benchmark": "node --expose-gc --max-old-space-size=8192 scripts/fate/benchmark.mjs",
     "ability:generative:eval": "node scripts/ability-generation/eval.mjs",
+    "ability:baseline:probes": "node scripts/ability-generation/baseline-probes.mjs",
     "fate:frequency:eval": "node scripts/fate/frequency-eval.mjs",
     "control:eval": "node scripts/control/eval.mjs",
     "control:longrun": "node scripts/control/longrun.mjs",

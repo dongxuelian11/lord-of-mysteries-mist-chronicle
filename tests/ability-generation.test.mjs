@@ -85,3 +85,36 @@ test("plan evaluation is deterministic and envelopes validate", async () => {
   assert.deepEqual(g.validateEnvelope(first), []);
   assert.deepEqual(g.validateAbilityPlan(plan), []);
 });
+
+test("declared risks push borderline plans into ACCEPT_WITH_LIMITS", async () => {
+  const { generation: g } = await modules();
+  const context = await makeContext();
+  const plan = {
+    objective: "打开门锁",
+    abilityIds: ["fire-shaping"],
+    method: "用火焰塑形加热门锁",
+    proposedEffects: ["加热门锁"],
+    usedItems: [],
+    usedKnowledge: [],
+    risks: ["反噬"],
+  };
+  const risky = g.evaluateAbilityPlan(plan, context);
+  assert.equal(risky.verdict, "ACCEPT_WITH_LIMITS");
+  const calm = g.evaluateAbilityPlan({ ...plan, risks: [] }, context);
+  assert.equal(calm.verdict, "ACCEPT");
+});
+
+test("cross-domain violence is rejected while combat-domain violence is not", async () => {
+  const { generation: g } = await modules();
+  const context = await makeContext();
+  const perceptionKill = g.evaluateAbilityPlan(
+    { objective: "杀死远处的敌人", abilityIds: ["spirit-vision"], method: "用灵视直接杀死远处的敌人", proposedEffects: ["直接杀死"], usedItems: [], usedKnowledge: [], risks: [] },
+    context
+  );
+  assert.equal(perceptionKill.verdict, "REJECT_OUTSIDE_ABILITY_DOMAIN");
+  const combatKill = g.evaluateAbilityPlan(
+    { objective: "杀死眼前的敌人", abilityIds: ["fire-shaping"], method: "用火焰塑形攻击敌人", proposedEffects: ["焚烧敌人"], usedItems: [], usedKnowledge: [], risks: [] },
+    context
+  );
+  assert.notEqual(combatKill.verdict, "REJECT_OUTSIDE_ABILITY_DOMAIN");
+});

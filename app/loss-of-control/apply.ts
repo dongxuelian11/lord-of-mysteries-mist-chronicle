@@ -75,7 +75,8 @@ export function applyControlBundle(
       actorIds: [abilityContract.actorId],
       factionIds: [],
       causeIds: [fateContract.fateId],
-      visibility: "actors" as const,
+      // 玩家自己的失控事件必须对玩家投影可见。
+      visibility: "player" as const,
     };
     const seeds: MemorySeed[] = [
       {

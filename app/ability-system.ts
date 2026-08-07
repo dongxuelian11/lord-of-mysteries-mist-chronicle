@@ -206,8 +206,11 @@ export function resolveImmediateAbility(game: GameState, ability: Ability, inten
   }
   const focusCost = ability.passive ? 1 : ability.cost;
   const overdraw = Math.max(0, focusCost - game.spirituality);
+  // 遗留回退路径也必须是确定性的：ID 由周次/能力/意图/台账位置派生，而非时钟。
+  const journalCount = game.abilityJournal?.length ?? 0;
+  const stableSuffix = `${game.week}-${ability.id}-${journalCount}-${hash(intent)}`;
   const record: AbilityUseRecord = {
-    id: `ability-use-${Date.now()}`,
+    id: `ability-use-${stableSuffix}`,
     week: game.week,
     abilityId: ability.id,
     abilityName: ability.name,
@@ -223,19 +226,19 @@ export function resolveImmediateAbility(game: GameState, ability: Ability, inten
     deepLayer: result.deepLayer,
   };
   const hiddenFact: HiddenWorldFact | null = result.lockedFact && !game.hiddenWorldFacts.some((item) => item.subjectKey === (context.targetId ?? context.label) && item.statement === result.lockedFact) ? {
-    id: `hidden-ai-${Date.now()}`,
+    id: `hidden-ai-${stableSuffix}`,
     subjectKey: context.targetId ?? context.label,
     statement: result.lockedFact,
     origin: "ai-locked",
     createdWeek: game.week,
   } : null;
   const scene: AbilityScene | null = result.deepLayer ? {
-    id: `ability-scene-${Date.now()}`,
+    id: `ability-scene-${stableSuffix}`,
     layer: result.deepLayer,
     title: result.deepLayer === "dream" ? `梦境行走 · ${intent.slice(0, 24)}` : `灵界穿梭 · ${intent.slice(0, 24)}`,
     context: { ...context, kind: result.deepLayer },
     stability: Math.max(35, 88 - result.mentalLoad * 5),
-    turns: [{ id: `scene-turn-${Date.now()}`, playerIntent: intent, response: result.observation, stabilityChange: -result.mentalLoad * 2 }],
+    turns: [{ id: `scene-turn-${stableSuffix}-0`, playerIntent: intent, response: result.observation, stabilityChange: -result.mentalLoad * 2 }],
   } : null;
   const actingMark = evaluateImmediateActing(game, ability, intent, record);
   return {
@@ -317,45 +320,43 @@ function resolveImmediateAbilityWithEngine(
   const fateErrors = validateFateContract(fateContract);
   if (fateErrors.length) throw new Error(`命运合同校验失败：${fateErrors.join("; ")}`);
   const modelText = `${result.observation ?? ""} ${result.interpretation ?? ""}`;
+  // 原子性：失控合同先于任何变更生成并校验；全部校验通过后才应用三合同。
+  const controlContract = evaluateControlContract({
+    resolutionId: contract.resolutionId,
+    actorId: "player",
+    saveId: game.saveId ?? "default-save",
+    riskInput: {
+      pollution: game.playerCondition?.pollution ?? 0,
+      mentalLoad: game.mentalLoad,
+      spirituality: game.spirituality,
+      consecutiveBacklashes: consecutiveBacklashes(game.abilityJournal ?? []),
+      forcedCast:
+        parsed.acceptableRisks.includes("forced") ||
+        contract.legality.reasons.includes("INSUFFICIENT_SPIRITUALITY"),
+      overreach: contract.legality.reasons.includes("RANK_GATE_BLOCKED"),
+      ritualFailure:
+        (definition.family === "ritual" || definition.activation.action === "ritual") &&
+        (contract.result === "failure" || contract.result === "fail-with-progress"),
+      backlash: contract.result === "backlash",
+      fateSeverity: fateContract.severity,
+      restRelief: 0,
+      companionRelief: 0,
+      protectionRelief: 0,
+    },
+    controlState: game.control ?? createInitialControlState(),
+    eligibleIndex: (game.abilityJournal?.length ?? 0) + 1,
+  });
+  const controlErrors = validateControlContract(controlContract);
+  if (controlErrors.length) throw new Error(`失控合同校验失败：${controlErrors.join("; ")}`);
   const bundle = applyFateBundle(game, contract, fateContract, ability.name);
   const nextGame = bundle.game;
   const applied = bundle;
-  const controlApplied =
-    applied.applied && nextGame.control
-      ? (() => {
-          const controlContract = evaluateControlContract({
-            resolutionId: contract.resolutionId,
-            actorId: "player",
-            saveId: game.saveId ?? "default-save",
-            riskInput: {
-              pollution: nextGame.playerCondition?.pollution ?? 0,
-              mentalLoad: nextGame.mentalLoad,
-              spirituality: nextGame.spirituality,
-              consecutiveBacklashes: consecutiveBacklashes(nextGame.abilityJournal ?? []),
-              forcedCast:
-                parsed.acceptableRisks.includes("forced") ||
-                contract.legality.reasons.includes("INSUFFICIENT_SPIRITUALITY"),
-              overreach: contract.legality.reasons.includes("RANK_GATE_BLOCKED"),
-              ritualFailure:
-                (definition.family === "ritual" || definition.activation.action === "ritual") &&
-                (contract.result === "failure" || contract.result === "fail-with-progress"),
-              backlash: contract.result === "backlash",
-              fateSeverity: fateContract.severity,
-              restRelief: 0,
-              companionRelief: 0,
-              protectionRelief: 0,
-            },
-            controlState: nextGame.control ?? createInitialControlState(),
-            eligibleIndex: (nextGame.abilityJournal?.length ?? 0) + 1,
-          });
-          const controlErrors = validateControlContract(controlContract);
-          if (controlErrors.length) throw new Error(`失控合同校验失败：${controlErrors.join("; ")}`);
-          return {
-            contract: controlContract,
-            ...applyControlBundle(nextGame, contract, fateContract, controlContract, ability.name),
-          };
-        })()
-      : undefined;
+  const controlApplied = applied.applied
+    ? {
+        contract: controlContract,
+        ...applyControlBundle(nextGame, contract, fateContract, controlContract, ability.name),
+      }
+    : undefined;
   const finalGame = controlApplied?.game ?? nextGame;
   const narrativeCheck = validateNarrative(contract, modelText);
   const fateNarrativeCheck = validateFateNarrative(contract, fateContract, modelText);
@@ -507,7 +508,7 @@ export function continueAbilityScene(game: GameState, intent: string, generatedR
   const response = generatedResponse ?? (scene.layer === "dream"
     ? `梦境没有按照字面回答。你写下的意图让远处一扇门改变了颜色，门后的脚步声却停在第三步；这说明梦境主人正在回避一个已经意识到的记忆节点。`
     : `灵界中的颜色沿你的意图重新排列。一条原本与现实街道重合的航路向侧方弯折，并在远处被灰白雾气截断；那不是自然地形，而像持续存在的遮蔽。`);
-  const turn = { id: `scene-turn-${Date.now()}`, playerIntent: intent, response, stabilityChange: -loss };
+  const turn = { id: `scene-turn-${scene.id}-${scene.turns.length}`, playerIntent: intent, response, stabilityChange: -loss };
   return {
     ...game,
     spirituality: Math.max(0, game.spirituality - 2),

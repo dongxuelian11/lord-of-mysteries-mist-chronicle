@@ -68,13 +68,55 @@ export async function runGenerativeAbilityEval() {
   if (accepted === cases.length) failures.push("all-accepted");
   if (rejected === cases.length) failures.push("all-rejected");
 
-  return { failures, count: cases.length, verdictCounts };
+  // 自由方案专项：15 类“开发者未预注册”用法，确认合理方案可进入规则裁剪、明显越界才拒绝。
+  const freeformCases = [
+    { category: "单能力创造性应用", reject: false, plan: { objective: "把铁栏杆弯曲出缺口", abilityIds: ["fire-shaping"], method: "用火焰塑形把铁栏杆加热到能弯曲，不直接攻击", proposedEffects: ["弯曲铁栏杆"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "多能力组合", reject: false, plan: { objective: "确认目标方位后接近", abilityIds: ["divination", "short-teleport"], method: "先用占卜确认方位，再传送过去", proposedEffects: ["确认方位并移动"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "环境利用", reject: false, plan: { objective: "混入人群离开现场", abilityIds: ["paper-substitute"], method: "用隐匿借雨声掩盖脚步", proposedEffects: ["隐藏自己"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "道具+能力", reject: false, plan: { objective: "锁定目标位置", abilityIds: ["divination"], method: "用随身怀表作锚点配合占卜", proposedEffects: ["锁定位置"], usedItems: ["怀表"], usedKnowledge: [], risks: [] } },
+    { category: "信息能力", reject: false, plan: { objective: "判断谁来过这间房", abilityIds: ["spirit-vision"], method: "查看残留情绪", proposedEffects: ["判断来者"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "隐蔽", reject: false, plan: { objective: "不被守卫发现", abilityIds: ["paper-substitute"], method: "隐藏声音和注意力", proposedEffects: ["隐藏声音与注意力"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "移动", reject: false, plan: { objective: "翻过围墙", abilityIds: ["flame-jump"], method: "用移动能力翻墙，不惊动守卫", proposedEffects: ["移动翻墙"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "战斗", reject: false, plan: { objective: "封住走廊阻止追兵", abilityIds: ["fire-shaping"], method: "制造火墙", proposedEffects: ["制造火墙"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "非战斗", reject: false, plan: { objective: "让受惊的证人开口", abilityIds: ["deep-hypnosis"], method: "安抚情绪并引导说话", proposedEffects: ["安抚并引导"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "间接作用", reject: false, plan: { objective: "之后能找到这个人", abilityIds: ["track"], method: "在目标物品上留记号，之后沿记号找人", proposedEffects: ["留下记号并追踪"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "需要准备", expected: "REQUIRES_PREPARATION", plan: { objective: "召唤灵体", abilityIds: ["ritual-design"], method: "布置仪式，但没带材料", proposedEffects: ["召唤灵体"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "缺失媒介", expected: "REQUIRES_PREPARATION", plan: { objective: "替自己挡一刀", abilityIds: ["paper-substitute"], method: "用纸人替身，但没有纸人", proposedEffects: ["替身挡刀"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "模糊指令", expected: "REQUIRES_CLARIFICATION", plan: { objective: "处理一下现场", abilityIds: ["spirit-vision"], method: "随便看看，你决定", proposedEffects: ["处理现场"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "明确越界", expected: "REJECT_OUTSIDE_ABILITY_DOMAIN", plan: { objective: "杀死远处的敌人", abilityIds: ["spirit-vision"], method: "用灵视直接杀死远处的敌人", proposedEffects: ["直接杀死"], usedItems: [], usedKnowledge: [], risks: [] } },
+    { category: "世界规则重写", expected: "REJECT_OUTSIDE_ABILITY_DOMAIN", plan: { objective: "让白天和黑夜颠倒", abilityIds: ["divination"], method: "用占卜重写世界规则", proposedEffects: ["重写世界规则"], usedItems: [], usedKnowledge: [], risks: [] } },
+  ];
+  const expectedForCategory = Object.fromEntries(freeformCases.map((item) => [item.category, item.expected ?? "NOT_REJECT"]));
+  let freeformAccepted = 0;
+  let freeformRejected = 0;
+  const freeformResults = {};
+  for (const item of freeformCases) {
+    const envelope = generation.evaluateAbilityPlan(item.plan, context);
+    freeformResults[item.category] = envelope.verdict;
+    const expected = expectedForCategory[item.category];
+    if (expected === "REJECT_OUTSIDE_ABILITY_DOMAIN") {
+      if (envelope.verdict !== "REJECT_OUTSIDE_ABILITY_DOMAIN") failures.push(`freeform:${item.category}:expected-reject:${envelope.verdict}`);
+      freeformRejected += 1;
+    } else if (expected === "REQUIRES_PREPARATION" || expected === "REQUIRES_CLARIFICATION") {
+      if (envelope.verdict !== expected) failures.push(`freeform:${item.category}:expected-${expected}:${envelope.verdict}`);
+      freeformAccepted += 1;
+    } else {
+      if (envelope.verdict === "REJECT_OUTSIDE_ABILITY_DOMAIN") failures.push(`freeform:${item.category}:unexpected-reject`);
+      freeformAccepted += 1;
+    }
+  }
+  if (freeformAccepted === freeformCases.length) failures.push("freeform-all-accepted");
+  if (freeformRejected === freeformCases.length) failures.push("freeform-all-rejected");
+
+  return { failures, count: cases.length, verdictCounts, freeformCount: freeformCases.length, freeformAccepted, freeformRejected, freeformResults };
 }
 
 if (import.meta.url === `file:///${process.argv[1]?.replace(/\\/g, "/")}`) {
   const result = await runGenerativeAbilityEval();
   console.log("[ability:generative]");
   console.log(`  用例=${result.count} 判定分布=${JSON.stringify(result.verdictCounts)}`);
+  console.log(`  自由方案专项=${result.freeformCount} 类：接受=${result.freeformAccepted} 拒绝=${result.freeformRejected}`);
+  console.log(`  ${JSON.stringify(result.freeformResults)}`);
   if (result.failures.length) {
     console.log(`  失败 ${result.failures.length} 项：${result.failures.slice(0, 12).join("; ")}`);
   } else {

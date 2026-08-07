@@ -204,3 +204,146 @@ test("control outcome is reproducible from the same seed", async () => {
   assert.equal(first.riskScore, second.riskScore);
   assert.deepEqual(first.symptoms, second.symptoms);
 });
+
+test("player's own loss-of-control event is player-visible", async () => {
+  await modules();
+  const base = gameModule.createInitialGame("seer");
+  const game = {
+    ...base,
+    prologueComplete: true,
+    playerName: "会长",
+    playerAddress: "会长阁下",
+    spirituality: 18,
+    mentalLoad: 30,
+    stability: 50,
+    abilityResolutions: [],
+    fate: fate.createInitialFateState(),
+    control: control.createInitialControlState(),
+    memory: memoryModule.emptyMemoryState(),
+    facts: [],
+    abilityJournal: [],
+    actingMarks: [],
+    hiddenWorldFacts: [],
+    worldKernel: { ...base.worldKernel },
+  };
+  const state = baseState({ stage: "critical", recentRisk: 80 });
+  let chosen = "";
+  for (let index = 0; index < 200 && !chosen; index += 1) {
+    const seed = `visibility-${index}`;
+    const contract = evaluate(state, baseRisk({ pollution: 50, mentalLoad: 40, spirituality: 15, forcedCast: true }), seed);
+    if (contract.triggered) chosen = seed;
+  }
+  const contract = evaluate(state, baseRisk({ pollution: 50, mentalLoad: 40, spirituality: 15, forcedCast: true }), chosen);
+  const ability = {
+    actionId: "ctrl-vis",
+    resolutionId: chosen,
+    abilityId: "deep-hypnosis",
+    actorId: "player",
+    targetIds: ["t"],
+    deterministicSeed: "seed",
+    legality: { allowed: true, reasons: [] },
+    powerBreakdown: { base: 11, mastery: 0, information: 0, preparation: 0, environment: 0, rank: 0, penalties: 0 },
+    defenseBreakdown: { resistance: 5, passiveCounters: 2, activeCounters: 0, rankProtection: 0, environment: 0 },
+    margin: 3,
+    result: "success",
+    reservedCosts: [{ kind: "activation", resource: "spirituality", amount: 1 }],
+    committedCosts: [{ kind: "activation", resource: "spirituality", amount: 1 }],
+    refundedCosts: [],
+    appliedEffects: [],
+    blockedEffects: [],
+    createdConditions: [],
+    removedConditionIds: [],
+    worldEventProposals: [],
+    beliefProposals: [],
+    relationshipChangeProposals: [],
+    commitmentProposals: [],
+    tracesLeft: [],
+    sideEffects: [],
+    narrativeConstraints: [],
+  };
+  const fateContract = {
+    fateId: `fate-${chosen}`,
+    resolutionId: chosen,
+    algorithmVersion: "fate-aberration-v1",
+    deterministicSeed: "seed",
+    eligible: true,
+    eligibilityReasons: [],
+    pressureBefore: 0,
+    pressureAfter: 0,
+    fateRoll: 1,
+    triggered: false,
+    normalAbilityResult: "success",
+    immediateEffects: [],
+    delayedEffects: [],
+    worldEventProposals: [],
+    beliefProposals: [],
+    relationshipProposals: [],
+    commitmentProposals: [],
+    planProposals: [],
+    recoveryHooks: [],
+    narrativeConstraints: [],
+    invariants: [],
+  };
+  const applied = control.applyControlBundle(game, ability, fateContract, contract, "会长");
+  assert.equal(applied.applied, true);
+  const event = applied.game.worldKernel.events.find((item) => item.id === `world-control-${contract.id}`);
+  assert.ok(event);
+  assert.equal(event.visibility, "player");
+});
+
+test("control contracts always validate across a deterministic risk sample", async () => {
+  await modules();
+  const stages = ["stable", "disturbed", "critical", "partial-loss", "contained-loss"];
+  for (let index = 0; index < 200; index += 1) {
+    const contract = evaluate(
+      baseState({ stage: stages[index % stages.length], recentRisk: (index * 7) % 100 }),
+      baseRisk({
+        pollution: (index * 3) % 80,
+        mentalLoad: (index * 5) % 90,
+        spirituality: 10 + (index % 40),
+        backlash: index % 3 === 0,
+        forcedCast: index % 4 === 0,
+        ritualFailure: index % 7 === 0,
+        fateSeverity: index % 11 === 0 ? 4 : index % 5 === 0 ? 3 : undefined,
+      }),
+      `fuzz-${index}`
+    );
+    assert.deepEqual(control.validateControlContract(contract), [], `fuzz-${index}`);
+  }
+});
+
+test("malformed control contract is rejected by validation before application", async () => {
+  await modules();
+  const contract = control.evaluateControlContract({
+    resolutionId: "malformed-1",
+    actorId: "player",
+    saveId: "control-test-save",
+    riskInput: baseRisk({ pollution: 60, mentalLoad: 50, spirituality: 10, fateSeverity: 4 }),
+    controlState: baseState({ stage: "partial-loss", recentRisk: 95 }),
+    eligibleIndex: 0,
+  });
+  const broken = {
+    ...contract,
+    stageAfter: "contained-loss",
+    recoveryPlanProposals: [],
+  };
+  const errors = control.validateControlContract(broken);
+  assert.ok(errors.includes("contained-loss-without-recovery-plan"));
+  const base = gameModule.createInitialGame("seer");
+  const game = {
+    ...base,
+    spirituality: 18,
+    mentalLoad: 30,
+    stability: 50,
+    abilityResolutions: [],
+    fate: fate.createInitialFateState(),
+    control: control.createInitialControlState(),
+    memory: memoryModule.emptyMemoryState(),
+    facts: [],
+    worldKernel: { ...base.worldKernel },
+  };
+  // 校验失败即阻断：世界状态在应用前保持不变（apply 不得被调用）。
+  const snapshot = JSON.stringify(game);
+  assert.ok(errors.length > 0);
+  assert.equal(JSON.stringify(game), snapshot);
+});

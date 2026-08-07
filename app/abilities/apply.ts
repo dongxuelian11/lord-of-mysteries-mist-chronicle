@@ -31,16 +31,10 @@ export function applyAbilityResolution(
         .reduce((sum, cost) => sum + cost.amount, 0)
   );
   const backlash = contract.result === "backlash";
-  const corruption = Math.min(
-    100,
-    game.worldKernel?.canon?.deviation === undefined
-      ? (game as GameState & { corruption?: number }).corruption ?? 0
-      : (game as GameState & { corruption?: number }).corruption ?? 0
-  );
-  const nextCorruption = Math.min(
-    100,
-    corruption + (backlash ? Math.min(8, contract.sideEffects.reduce((sum, effect) => sum + effect.severity, 0)) : 0)
-  );
+  // 反噬的污染后果必须真正写入玩家污染状态，而不是只写叙事故意。
+  const pollutionAdd = backlash
+    ? Math.min(8, contract.sideEffects.reduce((sum, effect) => sum + effect.severity, 0))
+    : 0;
   const stability = Math.max(0, game.stability - (backlash ? 4 : 0));
   const mentalLoad = Math.min(100, game.mentalLoad + (contract.committedCosts.length ? 3 : 0));
   const worldEventId = `world-ability-${contract.resolutionId}`;
@@ -111,6 +105,12 @@ export function applyAbilityResolution(
     mentalLoad,
     memory,
     abilityResolutions: ledger,
+    playerCondition: game.playerCondition
+      ? {
+          ...game.playerCondition,
+          pollution: Math.min(100, (game.playerCondition?.pollution ?? 0) + pollutionAdd),
+        }
+      : game.playerCondition,
     worldKernel: {
       ...game.worldKernel,
       events: [...game.worldKernel.events, worldEvent].slice(-240),
@@ -127,9 +127,5 @@ export function applyAbilityResolution(
       },
     ].slice(-100),
   };
-  // 反噬侧写：写入 corruption（若 GameState 没有该字段则跳过）
-  if (backlash && "corruption" in next) {
-    (next as GameState & { corruption: number }).corruption = nextCorruption;
-  }
   return { game: next, applied: true, worldEventId };
 }

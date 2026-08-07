@@ -37,3 +37,34 @@ test("perception purpose words prefer the perception-mode ability", async () => 
   const game = model.createInitialGame("seer");
   assert.equal(ability.abilityForFreeIntent(game, "查看这间屋子的情绪颜色").id, "spirit-vision");
 });
+
+test("legacy unregistered ability path produces deterministic record ids", async () => {
+  const { ability, model } = await loadModules();
+  const game = model.createInitialGame("seer");
+  const custom = {
+    id: "custom-probe",
+    name: "自定义探测",
+    verb: "探测",
+    description: "测试用自定义能力",
+    cost: 1,
+    risk: "低",
+    ruleTags: ["reveal"],
+    mode: "感知",
+    scope: "近距离",
+    duration: "瞬时",
+    contexts: ["self"],
+    unlockRank: 9,
+  };
+  const draft = {
+    observation: "看见了残留痕迹",
+    interpretation: "推测有人来过",
+    confidence: "中等",
+    unknown: "无",
+    detection: "未察觉",
+    mentalLoad: 1,
+  };
+  const first = ability.resolveImmediateAbility(game, custom, "用自定义探测查看房间", { kind: "self", label: "房间" }, draft);
+  const second = ability.resolveImmediateAbility(game, custom, "用自定义探测查看房间", { kind: "self", label: "房间" }, draft);
+  assert.equal(first.record.id, second.record.id);
+  assert.ok(!/Date|NaN/.test(first.record.id), "record id must not depend on clock");
+});
