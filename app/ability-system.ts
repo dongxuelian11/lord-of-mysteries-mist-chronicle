@@ -8,6 +8,31 @@ import {
   submitMemoryDelivery,
   playerAudience,
 } from "./memory/index";
+import {
+  abilityDefinitionById,
+  parseAbilityIntent,
+  resolveAbility,
+  validateContract,
+  deterministicNarrative,
+  validateNarrative,
+  DEFAULT_EXTRAORDINARY_STATE,
+  type ExtraordinaryState,
+} from "./abilities/index";
+import {
+  applyFateBundle,
+  deterministicFateNarrative,
+  resolveFateAberration,
+  validateFateContract,
+  validateFateNarrative,
+} from "./fate/index";
+import {
+  applyControlBundle,
+  createInitialControlState,
+  deterministicControlNarrative,
+  evaluateControlContract,
+  validateControlContract,
+  validateControlNarrative,
+} from "./loss-of-control/index";
 import { abilitiesFor, abilityRuleSummary, freeTravelAbility } from "./pathway-abilities";
 import { evaluateImmediateActing } from "./progression-system";
 
@@ -19,6 +44,15 @@ function hash(value: string) {
   let result = 2166136261;
   for (let index = 0; index < value.length; index += 1) result = Math.imul(result ^ value.charCodeAt(index), 16777619);
   return Math.abs(result);
+}
+
+function consecutiveBacklashes(journal: AbilityUseRecord[]): number {
+  let count = 0;
+  for (const record of journal) {
+    if (record.interpretation === "backlash") count += 1;
+    else break;
+  }
+  return count;
 }
 
 const COMMON_ABILITY_TOKENS = new Set(["感知", "观察", "影响", "防护", "移动", "战斗", "仪式", "伪装", "制作", "攻击", "防御", "追踪", "调查", "进入", "使用", "能力", "手段", "自身", "目标", "区域", "现场"]);
@@ -166,6 +200,10 @@ export async function generateAbilityDraft(config: AiConfig, game: GameState, ab
 }
 
 export function resolveImmediateAbility(game: GameState, ability: Ability, intent: string, context: AbilityContext, result: AbilityDraft) {
+  const definition = abilityDefinitionById(ability.id);
+  if (definition) {
+    return resolveImmediateAbilityWithEngine(game, ability, intent, context, result, definition);
+  }
   const focusCost = ability.passive ? 1 : ability.cost;
   const overdraw = Math.max(0, focusCost - game.spirituality);
   const record: AbilityUseRecord = {
@@ -215,6 +253,228 @@ export function resolveImmediateAbility(game: GameState, ability: Ability, inten
       activeAbilityScene: scene,
       worldKernel: { ...game.worldKernel, knowledge: [...game.worldKernel.knowledge, { id: `knowledge-${record.id}`, subject: context.label, statement: record.interpretation, truth: result.confidence === "确认" ? "confirmed" as const : "likely" as const, visibility: "player" as const, holderIds: ["player"], loreRecordIds: [], acquiredWeek: game.week }].slice(-400) },
       facts: [...game.facts, { id: `fact-${record.id}`, subject: context.label, statement: `${ability.name}得到的个人判断：${record.interpretation}`, certainty: "线索" as const, source: `${PATHWAYS[game.pathwayId].name}·${ability.name}`, week: game.week }].slice(-100),
+    },
+  };
+}
+
+function extraordinaryStateFromGame(game: GameState): ExtraordinaryState {
+  return {
+    ...DEFAULT_EXTRAORDINARY_STATE,
+    pathwayId: game.pathwayId,
+    sequence: game.currentSequence,
+    internalRank: 10 - game.currentSequence,
+    spirituality: game.spirituality,
+    maxSpirituality: game.spiritualityMax,
+    stability: game.stability,
+    physicalCondition: game.playerCondition?.health ?? 100,
+    mentalCondition: Math.max(0, 100 - game.mentalLoad),
+  };
+}
+
+function resolveImmediateAbilityWithEngine(
+  game: GameState,
+  ability: Ability,
+  intent: string,
+  context: AbilityContext,
+  result: AbilityDraft,
+  definition: import("./abilities/index.ts").AbilityDefinition
+) {
+  const parsed = parseAbilityIntent(
+    intent,
+    [definition],
+    "player",
+    `ability-${game.week}-${hash(intent)}`
+  );
+  const actorState = extraordinaryStateFromGame(game);
+  const seed = `${game.week}|${parsed.actionId}|${definition.id}|player`;
+  const contract = resolveAbility({
+    definition,
+    actorState,
+    targetStates: [{ id: context.targetId ?? "self", ...actorState }],
+    intent: parsed,
+    seed,
+    environmentRefs: [],
+    activeCounterIds: [],
+    environmentProtection: 0,
+    targetInjured: false,
+    mastery: 1,
+  });
+  const contractErrors = validateContract(contract);
+  if (contractErrors.length) throw new Error(`能力合同校验失败：${contractErrors.join("; ")}`);
+  const fateContract = resolveFateAberration({
+    definition,
+    actorState,
+    targetStates: [{ id: context.targetId ?? "self", ...actorState }],
+    intent: parsed,
+    abilityContract: contract,
+    game: {
+      week: game.week,
+      saveId: game.saveId,
+      worldKernel: game.worldKernel,
+      fate: game.fate,
+    },
+  });
+  const fateErrors = validateFateContract(fateContract);
+  if (fateErrors.length) throw new Error(`命运合同校验失败：${fateErrors.join("; ")}`);
+  const modelText = `${result.observation ?? ""} ${result.interpretation ?? ""}`;
+  const bundle = applyFateBundle(game, contract, fateContract, ability.name);
+  const nextGame = bundle.game;
+  const applied = bundle;
+  const controlApplied =
+    applied.applied && nextGame.control
+      ? (() => {
+          const controlContract = evaluateControlContract({
+            resolutionId: contract.resolutionId,
+            actorId: "player",
+            saveId: game.saveId ?? "default-save",
+            riskInput: {
+              pollution: nextGame.playerCondition?.pollution ?? 0,
+              mentalLoad: nextGame.mentalLoad,
+              spirituality: nextGame.spirituality,
+              consecutiveBacklashes: consecutiveBacklashes(nextGame.abilityJournal ?? []),
+              forcedCast:
+                parsed.acceptableRisks.includes("forced") ||
+                contract.legality.reasons.includes("INSUFFICIENT_SPIRITUALITY"),
+              overreach: contract.legality.reasons.includes("RANK_GATE_BLOCKED"),
+              ritualFailure:
+                (definition.family === "ritual" || definition.activation.action === "ritual") &&
+                (contract.result === "failure" || contract.result === "fail-with-progress"),
+              backlash: contract.result === "backlash",
+              fateSeverity: fateContract.severity,
+              restRelief: 0,
+              companionRelief: 0,
+              protectionRelief: 0,
+            },
+            controlState: nextGame.control ?? createInitialControlState(),
+            eligibleIndex: (nextGame.abilityJournal?.length ?? 0) + 1,
+          });
+          const controlErrors = validateControlContract(controlContract);
+          if (controlErrors.length) throw new Error(`失控合同校验失败：${controlErrors.join("; ")}`);
+          return {
+            contract: controlContract,
+            ...applyControlBundle(nextGame, contract, fateContract, controlContract, ability.name),
+          };
+        })()
+      : undefined;
+  const finalGame = controlApplied?.game ?? nextGame;
+  const narrativeCheck = validateNarrative(contract, modelText);
+  const fateNarrativeCheck = validateFateNarrative(contract, fateContract, modelText);
+  const controlNarrativeCheck = controlApplied
+    ? validateControlNarrative(controlApplied.contract, modelText)
+    : { violations: [] as string[] };
+  const narrative =
+    narrativeCheck.violations.length || fateNarrativeCheck.violations.length || controlNarrativeCheck.violations.length
+      ? [
+          deterministicNarrative(contract, ability.name),
+          deterministicFateNarrative(fateContract, ability.name),
+          controlApplied && controlApplied.contract.triggered
+            ? deterministicControlNarrative(controlApplied.contract, ability.name)
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : (result.observation || deterministicNarrative(contract, ability.name)) +
+        (fateContract.triggered ? `\n${deterministicFateNarrative(fateContract, ability.name)}` : "") +
+        (controlApplied && controlApplied.contract.triggered
+          ? `\n${deterministicControlNarrative(controlApplied.contract, ability.name)}`
+          : "");
+  const focusCost = applied.applied
+    ? contract.committedCosts
+        .filter((cost) => cost.resource === "spirituality")
+        .reduce((sum, cost) => sum + cost.amount, 0)
+    : ability.cost;
+  const overdraw = Math.max(0, focusCost - game.spirituality);
+  const record: AbilityUseRecord = {
+    id: `ability-use-${contract.resolutionId}`,
+    week: game.week,
+    abilityId: ability.id,
+    abilityName: ability.name,
+    context,
+    intent,
+    observation: narrative.slice(0, 800),
+    interpretation: contract.result,
+    confidence:
+      contract.result === "critical-success" || contract.result === "success"
+        ? ("确认" as const)
+        : contract.result === "partial-success"
+          ? ("中等" as const)
+          : ("较低" as const),
+    unknown: contract.blockedEffects.length ? "效果被反制或位阶阻断" : "仍有未确认部分",
+    detection: contract.tracesLeft.length ? "可能被察觉" : "未察觉",
+    cost: focusCost,
+    mentalLoad: contract.result === "backlash" ? 6 : 1 + overdraw * 2,
+    deepLayer: result.deepLayer,
+    fateSummary: fateContract.triggered
+      ? `命运异常：${fateContract.templateTitle ?? fateContract.templateId}（${fateContract.severity}级）`
+      : undefined,
+    fateSeverity: fateContract.severity,
+    controlSummary: controlApplied?.contract.triggered
+      ? `失控：${controlApplied.contract.stageAfter}`
+      : undefined,
+    controlStage: controlApplied?.contract.stageAfter,
+  };
+  const hiddenFact: HiddenWorldFact | null =
+    result.lockedFact && !game.hiddenWorldFacts.some((item) => item.subjectKey === (context.targetId ?? context.label) && item.statement === result.lockedFact)
+      ? {
+          id: `hidden-ai-${contract.resolutionId}`,
+          subjectKey: context.targetId ?? context.label,
+          statement: result.lockedFact,
+          origin: "ai-locked",
+          createdWeek: game.week,
+        }
+      : null;
+  const scene: AbilityScene | null = result.deepLayer
+    ? {
+        id: `ability-scene-${contract.resolutionId}`,
+        layer: result.deepLayer,
+        title: result.deepLayer === "dream" ? `梦境行走 · ${intent.slice(0, 24)}` : `灵界穿梭 · ${intent.slice(0, 24)}`,
+        context: { ...context, kind: result.deepLayer },
+        stability: Math.max(35, 88 - record.mentalLoad * 5),
+        turns: [{ id: `scene-turn-${contract.resolutionId}`, playerIntent: intent, response: narrative, stabilityChange: -record.mentalLoad * 2 }],
+      }
+    : null;
+  const actingMark = evaluateImmediateActing(finalGame, ability, intent, record);
+  return {
+    record,
+    state: {
+      ...finalGame,
+      mentalLoad: Math.min(100, finalGame.mentalLoad + record.mentalLoad),
+      instability: Math.min(100, finalGame.instability + overdraw * 3),
+      playerCondition: overdraw
+        ? { ...finalGame.playerCondition, pollution: Math.min(100, finalGame.playerCondition.pollution + overdraw) }
+        : finalGame.playerCondition,
+      abilityJournal: [record, ...finalGame.abilityJournal].slice(0, 120),
+      digestion: Math.min(100, finalGame.digestion + (actingMark?.gain ?? 0)),
+      actingMarks: actingMark ? [...finalGame.actingMarks, actingMark].slice(-80) : finalGame.actingMarks,
+      hiddenWorldFacts: hiddenFact ? [...finalGame.hiddenWorldFacts, hiddenFact] : finalGame.hiddenWorldFacts,
+      activeAbilityScene: scene,
+      worldKernel: {
+        ...finalGame.worldKernel,
+        knowledge: [
+          ...finalGame.worldKernel.knowledge,
+          {
+            id: `knowledge-${record.id}`,
+            subject: context.label,
+            statement: `${contract.result}${fateContract.triggered ? `；命运异常：${fateContract.templateId}` : ""}${controlApplied?.contract.triggered ? `；失控：${controlApplied.contract.stageAfter}` : ""}`,
+            truth: record.confidence === "确认" ? ("confirmed" as const) : ("likely" as const),
+            visibility: "player" as const,
+            holderIds: ["player"],
+            loreRecordIds: [],
+            acquiredWeek: game.week,
+          },
+        ].slice(-400),
+      },
+      facts: [
+        ...finalGame.facts,
+        {
+          id: `fact-${record.id}`,
+          subject: context.label,
+          statement: `${ability.name}结算：${contract.result}`,
+          certainty: "线索" as const,
+          source: `${PATHWAYS[game.pathwayId].name}·${ability.name}`,
+          week: game.week,
+        },
+      ].slice(-100),
     },
   };
 }

@@ -1,4 +1,6 @@
 import { createWorldKernel, type WorldKernel } from "./world-kernel.ts";
+import { createInitialFateState, type FateAberrationState } from "./fate/index.ts";
+import { createInitialControlState, type ControlState } from "./loss-of-control/index.ts";
 import { emptyMemoryState, type DynamicMemoryState } from "./memory/index.ts";
 
 export type PathwayId = "seer" | "spectator" | "apprentice" | "hunter" | "mystery";
@@ -50,6 +52,10 @@ export type AbilityUseRecord = {
   cost: number;
   mentalLoad: number;
   deepLayer?: "dream" | "spirit";
+  fateSummary?: string;
+  fateSeverity?: 1 | 2 | 3 | 4;
+  controlSummary?: string;
+  controlStage?: string;
 };
 
 export type HiddenWorldFact = {
@@ -742,6 +748,9 @@ export type GameState = {
   worldSnapshots: WorldSnapshot[];
   worldKernel: WorldKernel;
   memory: DynamicMemoryState;
+  abilityResolutions?: string[];
+  fate?: FateAberrationState;
+  control?: ControlState;
   economyHistory: EconomyLedger[];
   organizationConditions: string[];
   cases: CaseFile[];
@@ -1379,6 +1388,9 @@ export function createInitialGame(pathwayId: PathwayId = "seer", origin?: Pick<P
     worldSnapshots: [],
     worldKernel,
     memory: emptyMemoryState(),
+    abilityResolutions: [],
+    fate: createInitialFateState(),
+    control: createInitialControlState(),
     economyHistory: [],
     organizationConditions: ["未获许可", "掩护业务稳定", "成员仍在观察负责人"],
     cases: [

@@ -136,7 +136,7 @@ await page.evaluate(([state]) => {
     JSON.stringify({
       provider: "deepseek",
       endpoint: "https://api.deepseek.com",
-      apiKey: "sk-d6f977051dd340b6bf41875ab6b19bec",
+      apiKey: process.env.QA_KEY ?? "",
       model: "deepseek-v4-flash",
       quality: "balanced",
       rememberKey: true,

@@ -100,6 +100,39 @@ embedding 接口也不影响游玩。桌面版由 Electron RAG Worker 在本地�
 
 动态记忆系统详见 [docs/memory.md](./docs/memory.md)。
 
+## 非凡能力规则引擎（MVP）
+
+非凡能力不再主要依赖大模型“凭感觉”裁决：玩家自然语言命令先解析为结构化意图，再由确定性规则引擎完成合法性检查、位阶/抗性/反制计算、六级结果结算与 `AbilityOutcomeContract` 合同，最后 DeepSeek 严格依据合同生成叙事。详见 [docs/abilities.md](./docs/abilities.md)。
+
+```powershell
+npm run ability:audit      # 定义与资源边界审计
+npm run ability:eval       # 合法性/六级结果/位阶/反制/幂等/叙事等价评测
+npm run ability:longrun    # 三条 30 周路线
+npm run ability:benchmark  # 性能与存档压测
+```
+
+## 命运失控机制（MVP）
+
+大成功和大失败会“离谱地整蛊”玩家：诅咒式成功、歪打正着、全面失控都会真正扭曲任务与长期局面，而不是单纯加减数值。命运骰独立、可复现、防读档重骰，压力会主动“憋一个大的”。详见 [docs/fate.md](./docs/fate.md)。
+
+```powershell
+npm run fate:audit      # 模板质量与反无聊审计
+npm run fate:eval       # 四种交叉/旁路/幂等/受众行为评测
+npm run fate:longrun    # 三条 30 周整活路线
+npm run fate:benchmark  # 4×10 万分布模拟与性能压测
+```
+
+## 生成式能力与轻量失控（MVP）
+
+能力不做成固定技能卡：玩家自由描述用法，AI 出方案、规则层只做包络裁剪（ACCEPT / ACCEPT_WITH_LIMITS / ACCEPT_AS_IMPROVISED_EFFECT / REQUIRES_PREPARATION / REQUIRES_CLARIFICATION / REJECT_OUTSIDE_ABILITY_DOMAIN）。命运异常改为低频节奏并带行动/周/三级/四级冷却；另新增 stable→disturbed→critical→partial-loss→contained-loss 轻量失控框架，失控可恢复、可压制、不可读档重骰。详见 [docs/lightweight-mvp.md](./docs/lightweight-mvp.md)。
+
+```powershell
+npm run ability:generative:eval   # 20 个自由能力方案评测
+npm run fate:frequency:eval       # 低频分布与冷却不变量
+npm run control:eval              # 失控行为评测
+npm run control:longrun           # 三条 30 周失控路线
+```
+
 ## 桌面版打包
 
 ```powershell

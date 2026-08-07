@@ -36,6 +36,7 @@ import { applyWorldTurn, type WorldTurnDelta } from "./world-kernel";
 import { abilitiesFor, abilityRuleSummary } from "./pathway-abilities";
 import { advanceAdvancementStage, createAdvancementProcess, evaluateActing } from "./progression-system";
 import { advanceOrganizationCausality } from "./organization-causality";
+import { advanceFateWeek } from "./fate/index.ts";
 export type { AiConfig } from "./ai-client";
 export const callModel = invokeModel;
 
@@ -1032,6 +1033,7 @@ export function resolveWeek(game: GameState) {
       game.week
     ),
   };
+  nextState = advanceFateWeek(nextState);
   return { state: nextState, chapter };
 }
 

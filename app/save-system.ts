@@ -1,5 +1,7 @@
 import type { GameState } from "./game-model.ts";
 import { emptyMemoryState, ensureAudienceStates } from "./memory/index.ts";
+import { createInitialFateState, type FateAberrationState } from "./fate/index.ts";
+import { createInitialControlState, type ControlState } from "./loss-of-control/index.ts";
 
 export const ACTIVE_SAVE_KEY = "mist-chronicle-complete-v15";
 export const RECOVERY_KEY = "mist-chronicle-recovery-v15";
@@ -64,7 +66,66 @@ export function ensureDynamicMemory(game: { memory?: unknown }): void {
       recalledWeeks: memory.receiptLedger?.recalledWeeks ?? {},
     };
   }
+  if (!Array.isArray((game as { abilityResolutions?: unknown }).abilityResolutions)) {
+    (game as { abilityResolutions: string[] }).abilityResolutions = [];
+  }
   (game as { memory: unknown }).memory = ensureAudienceStates(game.memory as never);
+}
+
+// 旧存档迁移：没有命运状态时补安全默认，并补齐字段。
+export function ensureFateState(game: { fate?: unknown }): void {
+  const fate = game.fate as FateAberrationState | undefined;
+  if (!fate || typeof fate !== "object" || typeof fate.pressure !== "number") {
+    (game as { fate: FateAberrationState }).fate = createInitialFateState();
+    return;
+  }
+  const next: FateAberrationState = {
+    version: 1,
+    pressure: Math.max(0, Math.min(100, fate.pressure)),
+    eligibleActionCount: Number.isFinite(fate.eligibleActionCount) ? fate.eligibleActionCount : 0,
+    totalTriggers: Number.isFinite(fate.totalTriggers) ? fate.totalTriggers : 0,
+    boonTriggers: Number.isFinite(fate.boonTriggers) ? fate.boonTriggers : 0,
+    disasterTriggers: Number.isFinite(fate.disasterTriggers) ? fate.disasterTriggers : 0,
+    lastTriggerWeek: fate.lastTriggerWeek,
+    lastTriggerResolutionId: fate.lastTriggerResolutionId,
+    recentTemplateIds: Array.isArray(fate.recentTemplateIds) ? fate.recentTemplateIds.slice(0, 12) : [],
+    recentFateResolutionIds: Array.isArray(fate.recentFateResolutionIds) ? fate.recentFateResolutionIds.slice(0, 256) : [],
+    resolvedFateAggregate: {
+      count: Number.isFinite(fate.resolvedFateAggregate?.count) ? fate.resolvedFateAggregate.count : 0,
+      hash: typeof fate.resolvedFateAggregate?.hash === "string" ? fate.resolvedFateAggregate.hash : "",
+    },
+    pendingDelayedEffects: Array.isArray(fate.pendingDelayedEffects) ? fate.pendingDelayedEffects.slice(0, 48) : [],
+    severityCounts: {
+      1: Number.isFinite(fate.severityCounts?.["1"]) ? fate.severityCounts["1"] : 0,
+      2: Number.isFinite(fate.severityCounts?.["2"]) ? fate.severityCounts["2"] : 0,
+      3: Number.isFinite(fate.severityCounts?.["3"]) ? fate.severityCounts["3"] : 0,
+      4: Number.isFinite(fate.severityCounts?.["4"]) ? fate.severityCounts["4"] : 0,
+    },
+    severity4Count: Number.isFinite(fate.severity4Count) ? fate.severity4Count : 0,
+    severity4CooldownUntilWeek: fate.severity4CooldownUntilWeek,
+  };
+  (game as { fate: FateAberrationState }).fate = next;
+}
+
+// 旧存档迁移：没有失控状态时补安全默认。
+export function ensureControlState(game: { control?: unknown }): void {
+  const control = game.control as ControlState | undefined;
+  if (!control || typeof control !== "object" || typeof control.stage !== "string") {
+    (game as { control: ControlState }).control = createInitialControlState();
+    return;
+  }
+  (game as { control: ControlState }).control = {
+    stability: Number.isFinite(control.stability) ? control.stability : 100,
+    pollution: Number.isFinite(control.pollution) ? control.pollution : 0,
+    mentalLoad: Number.isFinite(control.mentalLoad) ? control.mentalLoad : 0,
+    stage: ["stable", "disturbed", "critical", "partial-loss", "contained-loss"].includes(control.stage)
+      ? control.stage
+      : "stable",
+    recentRisk: Number.isFinite(control.recentRisk) ? control.recentRisk : 0,
+    activeSymptoms: Array.isArray(control.activeSymptoms) ? control.activeSymptoms.slice(0, 8) : [],
+    lastTriggerEligibleIndex: Number.isFinite(control.lastTriggerEligibleIndex) ? control.lastTriggerEligibleIndex : undefined,
+    resolvedControlIds: Array.isArray(control.resolvedControlIds) ? control.resolvedControlIds.slice(0, 128) : [],
+  };
 }
 
 function stableHash(text: string) {
@@ -96,6 +157,8 @@ export function parseSaveEnvelope(raw: string) {
   if (!value.game.prologueComplete || !value.game.worldKernel || !Array.isArray(value.game.chronicle)) throw new Error("存档缺少世界状态或开局记录，未覆盖当前游戏");
   ensureKnowledgeHorizon(value.game);
   ensureDynamicMemory(value.game);
+  ensureFateState(value.game);
+  ensureControlState(value.game);
   return value as SaveEnvelope;
 }
 
