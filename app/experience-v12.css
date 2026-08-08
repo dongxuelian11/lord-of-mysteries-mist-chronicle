@@ -376,3 +376,5 @@
 .council-map-modal .map-sublocation:hover{border-radius:7px;padding:5px 8px}
 .council-map-modal .map-sublocation:hover>span{width:22px;height:22px;border-radius:5px;font-size:10px}
 .council-map-modal .map-sublocation:hover b{display:block}
+.council-dialogue-backdrop{z-index:1700!important}
+.dialogue-compact-hint{display:flex;align-items:center;gap:7px;margin:0 18px 8px;padding:7px 10px;border-left:2px solid rgba(166,133,76,.55);background:rgba(169,135,76,.055);color:#6f6658;font-size:11px;line-height:1.45}.dialogue-compact-hint svg{flex:none;color:#9a7a47}

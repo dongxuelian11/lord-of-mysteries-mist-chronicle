@@ -124,6 +124,9 @@ test("three consecutive weeks complete world and literary turns without retries"
   const originalWindow = globalThis.window;
   globalThis.window = globalThis;
   let fetchCount = 0;
+  let agentCallCount = 0;
+  let worldCallCount = 0;
+  let literaryCallCount = 0;
   try {
     for (let week = 1; week <= 3; week += 1) {
       const tag = String(week + 1);
@@ -135,8 +138,20 @@ test("three consecutive weeks complete world and literary turns without retries"
       globalThis.fetch = async (_url, init) => {
         fetchCount += 1;
         const body = JSON.parse(String(init?.body ?? "{}"));
-        const user = body.messages?.[1]?.content ?? "";
-        const content = user.includes("worldSummary") ? JSON.stringify(envelope) : chapterJson;
+        const user = body.messages?.at(-1)?.content ?? "";
+        let content;
+        if (user.includes("为这个主体独立形成同一周起点上的提案")) {
+          agentCallCount += 1;
+          const agentRef = user.match(/"ref":"([^"]+)"/)?.[1] ?? "actor:unknown";
+          const planningWeek = Number(user.match(/"planningWeek":(\d+)/)?.[1] ?? week);
+          content = JSON.stringify({ proposal: { planningWeek, agentRef, disposition: "wait", intent: "保持当前计划并观察公开变化。", rationale: "没有出现足以改变本周安排的新认知。", targetRefs: [], requiredKnowledgeIds: [] } });
+        } else if (user.includes("worldSummary")) {
+          worldCallCount += 1;
+          content = JSON.stringify(envelope);
+        } else {
+          literaryCallCount += 1;
+          content = chapterJson;
+        }
         return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content } }] }) };
       };
       const simulated = await generateAiWorldDelta(
@@ -160,7 +175,10 @@ test("three consecutive weeks complete world and literary turns without retries"
     assert.equal(game.worldKernel.lastResolvedWeek, 3);
     assert.equal(game.worldSignals.length, 9);
     assert.equal(game.worldSnapshots.length, 3);
-    assert.equal(fetchCount, 6, "3 周应恰好 6 次模型调用（每周世界+文学各一次）");
+    assert.equal(worldCallCount, 3);
+    assert.equal(literaryCallCount, 3);
+    assert.ok(agentCallCount >= 3, "每周应为活跃 Agent 分别调用模型");
+    assert.equal(fetchCount, agentCallCount + worldCallCount + literaryCallCount);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) delete globalThis.window;

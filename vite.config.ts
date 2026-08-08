@@ -71,7 +71,7 @@ export default defineConfig(async () => {
               },
               {
                 name: "game-ui",
-                test: /app[\\/](?:ai-settings|ability-console|great-smog-finale|investigation-board|opening-prologue|organization-operations|title-screen|weekly-council)\.tsx$/,
+                test: /app[\\/](?:ai-settings|ability-console|great-smog-finale|opening-prologue|organization-management-console|title-screen|weekly-council)\.tsx$/,
                 minSize: 40_000,
                 maxSize: 260_000,
                 priority: 10,

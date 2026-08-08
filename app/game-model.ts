@@ -11,10 +11,11 @@ import type { ParticipationScene } from "./participation-scene.ts";
 import { sequenceLedgerFor } from "./pathway-sequence-ledger.ts";
 import { createHighSequenceLedger, type HighSequenceLedger } from "./high-sequence-ledger.ts";
 import { createCampaignWorldState, type CampaignWorldState } from "./campaign-world.ts";
+import type { OriginTrait, PathwayOriginScenario } from "./pathway-origins.ts";
 
 export type PathwayId = StandardPathwayId;
 type CorePathwayId = "seer" | "spectator" | "apprentice" | "hunter" | "mystery";
-export type ViewId = "intent" | "investigation" | "city" | "organization" | "progression" | "archive" | "ending";
+export type ViewId = "intent" | "progression" | "archive" | "ending";
 export type RiskLevel = "低" | "中" | "高" | "致命";
 export type EvidenceCertainty = "传闻" | "推断" | "可信证据" | "已确认";
 
@@ -177,7 +178,12 @@ export type PlayerOrigin = {
   symbol: string;
   foundingMemberIds: string[];
   foundingMembers?: Member[];
-  startingSequence?: 8 | 9;
+  /** Determined by the selected knowledge-backed origin, never a free difficulty selector. */
+  startingSequence?: 7 | 8 | 9;
+  pathwayOriginId?: string;
+  pathwayOriginTitle?: string;
+  pathwayOrigin?: PathwayOriginScenario;
+  traits?: [OriginTrait, OriginTrait, OriginTrait];
   gender: string;
   age: string;
   organizationName: string;

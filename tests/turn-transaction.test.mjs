@@ -50,6 +50,20 @@ function worldEnvelope(game, chapter) {
   };
 }
 
+function worldModelFetch(envelope) {
+  return async (_url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    const user = body.messages?.at(-1)?.content ?? "";
+    if (user.includes("为这个主体独立形成同一周起点上的提案")) {
+      const agentRef = user.match(/"ref":"([^"]+)"/)?.[1] ?? "actor:unknown";
+      const planningWeek = Number(user.match(/"planningWeek":(\d+)/)?.[1] ?? 1);
+      const proposal = { planningWeek, agentRef, disposition: "wait", intent: "维持既定安排并观察本周公开变化。", rationale: "周初没有足以改变计划的新认知。", targetRefs: [], requiredKnowledgeIds: [] };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify({ proposal }) } }] }) };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(envelope) } }] }) };
+  };
+}
+
 test("closing a council week commits an independently advanced world snapshot", async () => {
   const { engine, model } = await loadGameModules();
   const { generateAiWorldDelta, resolveWeek } = engine;
@@ -60,11 +74,7 @@ test("closing a council week commits an independently advanced world snapshot", 
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   globalThis.window = globalThis;
-  globalThis.fetch = async () => ({
-    ok: true,
-    status: 200,
-    text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(envelope) } }] }),
-  });
+  globalThis.fetch = worldModelFetch(envelope);
   try {
     const committed = await generateAiWorldDelta(
       { provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" },
@@ -82,6 +92,73 @@ test("closing a council week commits an independently advanced world snapshot", 
     assert.ok(committed.worldAgents.profiles.length >= committed.worldKernel.actors.length + committed.worldKernel.factions.length);
     assert.equal(committed.factionStrategy.lastResolvedWeek, resolved.chapter.week);
     assert.ok(committed.factionStrategy.outcomes.length > 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("a quiet week commits with a fixed newspaper and no fabricated world events", async () => {
+  const { engine, model } = await loadGameModules();
+  const { generateAiWorldDelta, resolveWeek } = engine;
+  const game = model.createInitialGame("spectator");
+  const resolved = resolveWeek(game);
+  const envelope = worldEnvelope(resolved.state, resolved.chapter);
+  envelope.worldSummary = { atmosphere: "细雨整周没有停，报童照常沿煤气灯下的街道叫卖，城里没有出现足以惊动议会的新变化。", changes: ["煤价保持稳定", "东区有轨马车调整末班时间"], undercurrents: [] };
+  envelope.publicSignals = [
+    { channel: "报纸", headline: "本周煤价保持稳定", body: "几家主要煤行公布了相同的零售报价，暂未出现冬季前常见的抢购。", reliability: "公开事实", districtId: "east" },
+    { channel: "官方通告", headline: "有轨马车调整末班时间", body: "东区两条线路因夜间检修提前半小时收车，调整仅持续三日。", reliability: "公开事实", districtId: "east" },
+  ];
+  envelope.factionMoves = [];
+  envelope.canonMoves = [];
+  envelope.kernelDelta.projectUpdates = [];
+  envelope.kernelDelta.locationUpdates = [];
+  envelope.kernelDelta.events = [];
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  globalThis.window = globalThis;
+  globalThis.fetch = worldModelFetch(envelope);
+  try {
+    const committed = await generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {});
+    assert.equal(committed.worldSnapshots[0].eventIds.length, 0);
+    assert.equal(committed.worldSignals.length, 2);
+    assert.ok(committed.worldLedger.events.some((event) => event.kind === "week-committed"));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("one agent failing twice prevents adjudication and leaves the week uncommitted", async () => {
+  const { engine, model } = await loadGameModules();
+  const { generateAiWorldDelta, resolveWeek } = engine;
+  const game = model.createInitialGame("spectator");
+  const resolved = resolveWeek(game);
+  const failedRef = resolved.state.worldAgents.activeAgentRefs[0];
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  let adjudicatorCalls = 0;
+  globalThis.window = globalThis;
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    const user = body.messages?.at(-1)?.content ?? "";
+    if (!user.includes("为这个主体独立形成同一周起点上的提案")) adjudicatorCalls += 1;
+    const agentRef = user.match(/"ref":"([^"]+)"/)?.[1] ?? "actor:unknown";
+    const planningWeek = Number(user.match(/"planningWeek":(\d+)/)?.[1] ?? resolved.chapter.week);
+    const content = agentRef === failedRef
+      ? JSON.stringify({ proposal: { agentRef, planningWeek } })
+      : JSON.stringify({ proposal: { planningWeek, agentRef, disposition: "wait", intent: "等待。", rationale: "没有新认知。", targetRefs: [], requiredKnowledgeIds: [] } });
+    return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content } }] }) };
+  };
+  try {
+    await assert.rejects(
+      () => generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {}),
+      /Agent 独立规划失败/,
+    );
+    assert.equal(adjudicatorCalls, 0);
+    assert.equal(resolved.state.worldLedger.events.some((event) => event.kind === "week-committed" && event.week === resolved.chapter.week), false);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) delete globalThis.window;
@@ -108,7 +185,7 @@ test("AI organization prose cannot double-apply rule-owned numeric consequences"
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   globalThis.window = globalThis;
-  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(envelope) } }] }) });
+  globalThis.fetch = worldModelFetch(envelope);
   try {
     const committed = await generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {});
     assert.equal(committed.departments.find((item) => item.id === department.id).capacity, department.capacity);
@@ -144,7 +221,7 @@ test("AI action reports replace provisional rule notes with world-specific obser
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   globalThis.window = globalThis;
-  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(envelope) } }] }) });
+  globalThis.fetch = worldModelFetch(envelope);
   try {
     const committed = await generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {});
     const committedResult = committed.chronicle.find((chapter) => chapter.id === resolved.chapter.id).results[0];
@@ -159,7 +236,7 @@ test("AI action reports replace provisional rule notes with world-specific obser
   }
 });
 
-test("a named Beyonder and the player can each lead only one formal action per week", async () => {
+test("the player can issue multiple goals without a per-person or weekly action quota", async () => {
   const { engine, model } = await loadGameModules();
   const { localContract, scheduleContract } = engine;
   const { createInitialGame } = model;
@@ -167,16 +244,16 @@ test("a named Beyonder and the player can each lead only one formal action per w
   const first = localContract({ intent: "整理公开报纸", game, leaderId: "organization", districtId: "cherwood", abilityIds: [] });
   const occupied = { ...game, schedule: [scheduleContract(game, first)] };
   const second = localContract({ intent: "继续核对另一份报纸", game: occupied, leaderId: first.leaderId, districtId: "east", abilityIds: [] });
-  assert.throws(() => scheduleContract(occupied, second), /每名具名非凡者每周只能承担一项正式行动/);
+  assert.equal(scheduleContract(occupied, second).status, "planned");
 
   const playerFirst = localContract({ intent: "我亲自查看街区", game, leaderId: "player", districtId: "cherwood", abilityIds: [] });
   const playerGame = { ...game, schedule: [scheduleContract(game, playerFirst)] };
   const playerSecond = localContract({ intent: "我亲自参加另一项行动", game: playerGame, leaderId: "player", districtId: "east", abilityIds: [] });
-  assert.throws(() => scheduleContract(playerGame, playerSecond), /每名具名非凡者每周只能承担一项正式行动/);
+  assert.equal(scheduleContract(playerGame, playerSecond).status, "planned");
   assert.equal(playerFirst.executionMode, "player-led");
 });
 
-test("a branch supervisor cannot also take a headquarters formal action", async () => {
+test("a branch supervisor command is accepted and left to background scheduling", async () => {
   const { engine, model } = await loadGameModules();
   const { localContract, scheduleContract } = engine;
   const { createInitialGame } = model;
@@ -184,7 +261,7 @@ test("a branch supervisor cannot also take a headquarters formal action", async 
   const supervisor = game.members.find((member) => member.pathway) ?? game.members[0];
   const withBranch = { ...game, management: { ...game.management, branches: [{ id: "branch", name: "测试分部", districtId: "cherwood", blockId: "block", supervisorId: supervisor.id, stationedManpower: 4, stationedBeyonderIds: [supervisor.id], policy: "intelligence", status: "active", controlSupport: 3, warningRefs: [] }] } };
   const contract = localContract({ intent: `让${supervisor.name}核对公开档案`, game: withBranch, leaderId: "organization", districtId: "cherwood", abilityIds: [] });
-  assert.throws(() => scheduleContract(withBranch, contract), /正驻守“测试分部”/);
+  assert.equal(scheduleContract(withBranch, contract).status, "planned");
 });
 
 test("player scope and explicit bans survive contract parsing and reject narrative overreach", async () => {
@@ -272,7 +349,7 @@ test("the world turn refuses an AI field report that crosses the player's red li
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   globalThis.window = globalThis;
-  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(envelope) } }] }) });
+  globalThis.fetch = worldModelFetch(envelope);
   try {
     await assert.rejects(() => generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {}), /越过/);
   } finally {

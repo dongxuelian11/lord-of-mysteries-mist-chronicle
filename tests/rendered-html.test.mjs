@@ -36,7 +36,7 @@ test("DeepSeek relay validates requests without exposing an open proxy", async (
 });
 
 test("implements the complete simulation systems and accessible Apple-style UI", async () => {
-  const [app, title, council, prologue, abilitySystem, abilityConsole, engine, aiClient, aiSettings, aiRoute, finale, finaleView, model, board, operations, css, councilCss, v10Css, v11Css, finaleCss, apiCss, layout] = await Promise.all([
+  const [app, title, council, prologue, abilitySystem, abilityConsole, engine, aiClient, aiSettings, aiRoute, finale, finaleView, model, managementConsole, css, councilCss, v10Css, v11Css, finaleCss, apiCss, layout] = await Promise.all([
     readFile(new URL("../app/complete-game.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/title-screen.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/weekly-council.tsx", import.meta.url), "utf8"),
@@ -50,8 +50,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
     readFile(new URL("../app/finale-system.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/great-smog-finale.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game-model.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/investigation-board.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/organization-operations.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/organization-management-console.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/complete-game.css", import.meta.url), "utf8"),
     readFile(new URL("../app/weekly-council.css", import.meta.url), "utf8"),
     readFile(new URL("../app/experience-v10.css", import.meta.url), "utf8"),
@@ -60,16 +59,16 @@ test("implements the complete simulation systems and accessible Apple-style UI",
     readFile(new URL("../app/api-settings.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
   ]);
-  const cityMap = await readFile(new URL("../app/city-map-workspace.tsx", import.meta.url), "utf8");
+  const controlMap = await readFile(new URL("../app/backlund-control-map.tsx", import.meta.url), "utf8");
   assert.match(app, /localStorage/);
   assert.match(app, /议桌对发言的规则化理解/);
   assert.match(app, /行动、证据与规则附录/);
-  assert.match(app, /主据点/);
-  assert.match(app, /部门授权/);
+  assert.match(managementConsole, /组织经营账簿/);
+  assert.match(managementConsole, /日常执行由四名负责人自行处理/);
   assert.match(app, /晋升材料/);
   assert.match(app, /能力规则预览/);
   assert.match(app, /权柄前提/);
-  assert.match(app, /这是自由对话，不是关键词菜单/);
+  assert.match(app, /直接交谈，不消耗行动/);
   assert.match(app, /sendChat/);
   assert.match(app, /character-dialogue/);
   assert.match(council, /重读小说章节/);
@@ -108,7 +107,10 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /playerIssuedNoOrders/);
   assert.match(engine, /publicSignals/);
   assert.match(engine, /worldSnapshots/);
-  assert.match(engine, /persistentWorld/);
+  assert.match(engine, /adjudicatorWorld/);
+  assert.match(engine, /autonomousAgentProposals/);
+  assert.match(engine, /planActiveAgentsIndependently/);
+  assert.doesNotMatch(engine, /persistentWorld: \{ \.\.\.game\.worldKernel/);
   assert.match(engine, /kernelDelta/);
   assert.match(engine, /authorizedLore/);
   assert.match(engine, /actionReports/);
@@ -177,15 +179,10 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(council, /八项职责索引/);
   assert.match(council, /同一负责人只出现一次/);
   assert.doesNotMatch(council, /member-agendas/);
-  assert.match(cityMap, /动态世界投射/);
-  assert.match(cityMap, /map-projection-marker/);
-  assert.match(cityMap, /worldKernel/);
-  assert.match(cityMap, /worldSignals/);
-  assert.match(cityMap, /visibility !== "player"/);
-  assert.match(cityMap, /mentionedDistrictIds/);
-  assert.match(cityMap, /历史播放/);
-  assert.match(cityMap, /最近一周的已知动静/);
-  assert.match(cityMap, /只显示组织已经看到、听到或亲自安排的内容/);
+  assert.match(council, /区域 → 区块 → 战略点/);
+  assert.match(controlMap, /projectFactionInfluenceForPlayer/);
+  assert.match(controlMap, /已定位情报/);
+  assert.match(controlMap, /onFormDirection/);
   assert.match(app, /key={`\$\{game\.week\}:\$\{councilDecisionSignal\}`}/);
   assert.doesNotMatch(engine, /visibleFactionMoves:/);
   assert.match(engine, /事实包故意排除了全知世界层/);
@@ -199,11 +196,12 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(title, /世界推演模型正在重写这一页/);
   assert.doesNotMatch(app, /我分四层讲|亲历、下属报告、个人推断与未知分别说清/);
   assert.doesNotMatch(council, /把亲历、下属报告、个人推断与未知分别说清/);
-  assert.match(prologue, /在第一场密议前，写下你是谁/);
+  assert.match(prologue, /在第一场密议前，确定组织从哪里开始/);
   assert.match(prologue, /姓名或长期化名/);
   assert.match(prologue, /推门入席/);
-  assert.match(prologue, /组织是在什么局面下成立的/);
-  assert.match(prologue, /FOUNDING_SITUATIONS/);
+  assert.match(prologue, /选择这条途径如何落到你身上/);
+  assert.match(prologue, /getPathwayOrigins/);
+  assert.match(prologue, /玩家不直接选择序列/);
   assert.match(council, /组织奠基/);
   assert.match(council, /foundationSteps/);
   assert.match(abilitySystem, /generateAbilityDraft/);
@@ -219,21 +217,17 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(abilitySystem, /绝不把“主动进入灵界”改写成触碰吊坠/);
   assert.match(abilityConsole, /失控风险始终存在/);
   assert.match(abilityConsole, /不会偷换行动/);
-  assert.match(board, /由证据开放的可能性/);
-  assert.match(board, /世界没有等待你/);
-  assert.match(board, /建立玩家假设连接/);
-  assert.match(board, /原著人物的自主轨迹/);
-  assert.match(operations, /议会定方向，下属按职务持续执行/);
-  assert.match(operations, /当前主要反制/);
-  assert.match(operations, /暴露来源/);
+  assert.match(managementConsole, /组织经营账簿/);
+  assert.match(managementConsole, /声望/);
+  assert.match(managementConsole, /暴露/);
+  assert.match(managementConsole, /敌意/);
+  assert.match(managementConsole, /控制/);
   assert.match(css, /cubic-bezier\(\.2,\.8,\.2,1\)/);
   assert.match(css, /prefers-reduced-motion:reduce/);
   assert.match(css, /:focus-visible/);
   assert.match(css, /character-dialogue/);
   assert.match(css, /Legibility pass/);
   assert.match(css, /latest-chronicle/);
-  assert.match(css, /investigation-grid/);
-  assert.match(css, /organization-operations/);
   assert.match(css, /@media\(max-width:760px\)/);
   assert.match(css, /title-fog\{[^}]*pointer-events:none/);
   assert.match(css, /title-settings-backdrop\{z-index:180\}/);

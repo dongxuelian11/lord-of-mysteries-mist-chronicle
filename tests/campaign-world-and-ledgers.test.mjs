@@ -13,7 +13,7 @@ import {
   highSequenceAdvancementRequirement,
   validateHighSequenceLedger,
 } from "../app/high-sequence-ledger.ts";
-import { advanceCampaignWorld, applyCampaignActionResults, createCampaignWorldState } from "../app/campaign-world.ts";
+import { advanceCampaignWorld, applyCampaignActionResults, createCampaignWorldState, projectCampaignWorldForSimulation } from "../app/campaign-world.ts";
 import { createSaveEnvelope, parseSaveEnvelope } from "../app/save-system.ts";
 
 test("all 22 pathways expose 220 knowledge-grounded sequence records and playable ability ranks", () => {
@@ -65,6 +65,15 @@ test("other cities can receive dynamic branches, counter-pressure, and historica
   world = advanceCampaignWorld(world, { week: 25, currentSequence: 5, pathwayId: "seer", smogResolved: true });
   assert.equal(world.currentStageId, "intercity-network");
   assert.notEqual(world.cities.find((city) => city.id === "trier").playerControl, before, "control must continue changing after a branch is built");
+});
+
+test("the v0.4 world prompt activates Backlund and keeps other cities in cold storage", () => {
+  const world = createCampaignWorldState();
+  const projection = projectCampaignWorldForSimulation(world, "backlund");
+  assert.equal(projection.city.id, "backlund");
+  assert.equal(projection.coldCityCount, world.cities.length - 1);
+  assert.equal("cities" in projection, false);
+  assert.ok(projection.stages.every((stage) => stage.status === "active" || stage.id === "great-smog"));
 });
 
 test("sequence zero activates continuing post-deity governance instead of ending the world", () => {

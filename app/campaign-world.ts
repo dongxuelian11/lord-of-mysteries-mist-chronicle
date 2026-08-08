@@ -74,6 +74,21 @@ export type CampaignWorldState = {
   events: { id: string; week: number; cityId?: CampaignCityId; stageId: CampaignStageId; summary: string; loreEvidenceIds: string[] }[];
 };
 
+export function projectCampaignWorldForSimulation(state: CampaignWorldState, activeCityId: CampaignCityId = "backlund") {
+  const city = state.cities.find((item) => item.id === activeCityId) ?? state.cities.find((item) => item.id === state.activeCityId) ?? state.cities[0];
+  const relevantStageIds = new Set<CampaignStageId>([state.currentStageId, "great-smog"]);
+  return {
+    version: state.version,
+    activeCityId: city?.id ?? activeCityId,
+    city: city ?? null,
+    stages: state.stages.filter((stage) => stage.status === "active" || relevantStageIds.has(stage.id)),
+    currentStageId: state.currentStageId,
+    postDeity: state.postDeity.active ? state.postDeity : { active: false, weeksSinceDeification: 0 },
+    recentEvents: state.events.filter((event) => !event.cityId || event.cityId === city?.id).slice(-20),
+    coldCityCount: Math.max(0, state.cities.length - (city ? 1 : 0)),
+  };
+}
+
 const sector = (id: string, name: string, value: number, tags: string[]): CampaignStrategicSector => ({ id, name, value, intelligence: 0, control: 0, pressure: 35 + value, controllerRef: "unknown", tags });
 
 const CITY_SEEDS: Omit<CampaignCityState, "status" | "playerControl" | "intelligence" | "localPressure" | "committedManpower" | "resourceYield" | "lastEvent">[] = [

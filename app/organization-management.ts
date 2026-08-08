@@ -1,3 +1,5 @@
+import { BACKLUND_AUTHORED_DISTRICTS } from "./backlund-map-data.ts";
+
 export type OrganizationResourcePool = {
   manpower: number;
   money: number;
@@ -321,65 +323,16 @@ export function attachIntelligenceToBacklundMap(
   return { ...map, districts };
 }
 
-const DISTRICT_SEEDS = [
-  ["north", "北区", ["霍伊大学街区", "圣赛缪尔街区", "出版社街区", "博物馆街区", "北站街区", "学院住宅区"]],
-  ["empress", "皇后区", ["王宫外围", "皇后花园街区", "西宅邸区", "东宅邸区", "使馆街区", "贵族供应区"]],
-  ["west", "西区", ["丰收教堂街区", "律师街区", "私人诊所区", "沙龙街区", "中产住宅区", "慈善机构区"]],
-  ["hillston", "希尔斯顿区", ["证券街区", "银行街区", "保险街区", "百货街区", "商会街区", "仓单交易区"]],
-  ["cherwood", "乔伍德区", ["鸦羽事务所街区", "剧院街区", "中产住宅区", "小工坊区", "地下聚会街区", "南北交通街区"]],
-  ["government", "政府区", ["议会外围", "市政厅街区", "公务员俱乐部区", "档案街区", "公共工程区", "司法街区"]],
-  ["east", "东区", ["废弃纺织厂区", "廉租屋区", "煤气工厂区", "临时招工区", "河岸棚户区", "工人市场区"]],
-  ["bridge", "桥区", ["大桥北口", "马车总站区", "旧货市场区", "短租公寓区", "河运换乘区", "灰色仓储区"]],
-  ["south", "南区", ["慈善诊所区", "工人互助会区", "廉价药房街", "工匠住宅区", "小型工厂区", "南郊入口"]],
-  ["dock", "码头区", ["货运栈桥区", "海关仓库区", "水手酒吧区", "船坞维修区", "海外货栈区", "走私河汊区"]],
-] as const;
-
-const DISTRICT_ANCHORS: Record<string, string[]> = {
-  north: ["霍伊大学学术档案网", "圣赛缪尔教堂外围联络线", "大学图书馆借阅与抄录网"],
-  empress: ["王室宫殿供应商名册", "皇后花园仆役通行线", "贵族宅邸沙龙邀请网"],
-  west: ["丰收教堂救济登记网", "律师街合法身份渠道", "私人沙龙引荐网络"],
-  hillston: ["证券交易所异常委托簿", "银行街票据清算网", "大型百货采购渠道"],
-  cherwood: ["鸦羽事务所本部警戒圈", "剧院街后台消息网", "地下聚会点引荐链"],
-  government: ["王国议会请愿与议程线", "市政厅公共工程档案", "公务员俱乐部私下消息网"],
-  east: ["废弃纺织厂地下出入口", "廉价旅馆流动人口名册", "煤气工厂调压与检修网"],
-  bridge: ["贝克兰德大桥检查岗", "马车总站夜班调度簿", "旧货市场隐秘交易圈"],
-  south: ["慈善诊所病例网", "工人互助会联络簿", "廉价药房材料采购线"],
-  dock: ["货运栈桥装卸班组", "海关仓库报关档案", "水手酒吧远洋消息网"],
-};
-
-const DISTRICT_LORE: Record<string, string[]> = {
-  north: ["lotm-08-007", "lotm-06-001", "lotm-07-001"],
-  empress: ["lotm-08-007", "lotm-11-004"],
-  west: ["lotm-08-007", "lotm-06-001", "lotm-11-002"],
-  hillston: ["lotm-08-007", "lotm-11-001", "lotm-11-003"],
-  cherwood: ["lotm-08-007", "lotm-11-002"],
-  government: ["lotm-08-007", "lotm-11-004"],
-  east: ["lotm-08-007", "lotm-11-001", "lotm-11-002"],
-  bridge: ["lotm-08-007", "lotm-11-001", "lotm-11-002"],
-  south: ["lotm-08-007", "lotm-11-002"],
-  dock: ["lotm-08-007", "lotm-11-001"],
-};
-
-const DISTRICT_FACTIONS: Record<string, BacklundFactionId[]> = {
-  north: ["night-church", "press", "police"],
-  empress: ["royal-project", "witch-sect", "police"],
-  west: ["night-church", "press", "police"],
-  hillston: ["royal-project", "steam-church", "press"],
-  cherwood: ["police", "press", "aurora-order"],
-  government: ["royal-project", "police", "night-church"],
-  east: ["royal-project", "witch-sect", "aurora-order"],
-  bridge: ["black-market", "police", "press"],
-  south: ["night-church", "aurora-order", "police"],
-  dock: ["black-market", "steam-church", "royal-project"],
-};
-
-const STRATEGIC_POINT_KINDS: StrategicPointState["kind"][] = ["information", "transport", "community", "market", "security", "occult", "authority"];
-
-function createStrategicPoint(districtId: string, blockId: string, blockName: string, blockIndex: number, index: number): StrategicPointState {
-  const seed = stableNumber(`${districtId}:${blockId}:${index}`);
+function createAuthoredStrategicPoint(
+  district: typeof BACKLUND_AUTHORED_DISTRICTS[number],
+  blockId: string,
+  pointSeed: typeof district.blocks[number]["points"][number],
+  index: number,
+): StrategicPointState {
+  const seed = stableNumber(`${district.id}:${blockId}:${pointSeed.name}`);
   const player = 5 + seed % 9;
-  const kind = STRATEGIC_POINT_KINDS[(seed + index) % STRATEGIC_POINT_KINDS.length];
-  const rivals = DISTRICT_FACTIONS[districtId] ?? ["police", "press", "black-market"];
+  const kind = pointSeed.kind;
+  const rivals = district.rivals;
   const influenceByFaction: Record<string, number> = { player };
   const rivalTotal = 100 - player;
   const first = 34 + (seed >>> 4) % 10;
@@ -387,16 +340,11 @@ function createStrategicPoint(districtId: string, blockId: string, blockName: st
   influenceByFaction[rivals[0]] = first;
   influenceByFaction[rivals[1]] = second;
   influenceByFaction[rivals[2]] = rivalTotal - first - second;
-  const roleLabels: Record<StrategicPointState["kind"], string> = {
-    authority: "许可与档案渠道", market: "采购与资金渠道", community: "居民与雇工网络",
-    occult: "隐秘仪式场", security: "巡查与武装岗哨", transport: "人货转运通道", information: "报讯与监听网",
-  };
-  const anchor = index === 0 && blockIndex < 3 ? DISTRICT_ANCHORS[districtId]?.[blockIndex] : undefined;
   return {
     id: `${blockId}-point-${index + 1}`,
-    name: anchor ?? `${blockName}·${roleLabels[kind]}`,
+    name: pointSeed.name,
     kind,
-    weight: index === 0 ? 3 : index === 1 ? 2 : 1,
+    weight: pointSeed.weight,
     influenceByFaction,
     contested: true,
     foundations: {
@@ -408,8 +356,8 @@ function createStrategicPoint(districtId: string, blockId: string, blockName: st
     },
     weeklyYield: kind === "market" ? { money: 4 } : kind === "community" ? { manpower: 1 } : kind === "occult" ? { extraordinaryMaterials: 1 } : { intelligence: 2 },
     intelligenceIds: [],
-    loreStatus: anchor ? "verified" : "local-fiction",
-    loreEvidenceIds: [...(DISTRICT_LORE[districtId] ?? ["lotm-08-007"]), `local:${blockId}`],
+    loreStatus: pointSeed.loreStatus,
+    loreEvidenceIds: [...new Set([...district.loreEvidenceIds, ...(pointSeed.loreEvidenceIds ?? [])])],
   };
 }
 
@@ -418,20 +366,20 @@ export function createInitialBacklundMap(): BacklundMapState {
     cityId: "backlund",
     playerFactionId: "player",
     lastRecalculatedWeek: 1,
-    districts: DISTRICT_SEEDS.map(([districtId, districtName, blockNames], districtIndex) => ({
-      id: districtId,
-      name: districtName,
-      weight: districtId === "government" || districtId === "east" || districtId === "dock" ? 4 : 3,
+    districts: BACKLUND_AUTHORED_DISTRICTS.map((district) => ({
+      id: district.id,
+      name: district.name,
+      weight: district.weight,
       control: 0,
-      blocks: blockNames.map((blockName, blockIndex) => {
-        const blockId = `${districtId}-block-${blockIndex + 1}`;
+      blocks: district.blocks.map((blockSeed, blockIndex) => {
+        const blockId = `${district.id}-block-${blockIndex + 1}`;
         return {
           id: blockId,
-          districtId,
-          name: blockName,
-          weight: 1 + ((districtIndex + blockIndex) % 3),
+          districtId: district.id,
+          name: blockSeed.name,
+          weight: blockSeed.weight,
           control: 0,
-          strategicPoints: [0, 1, 2].map((pointIndex) => createStrategicPoint(districtId, blockId, blockName, blockIndex, pointIndex)),
+          strategicPoints: blockSeed.points.map((pointSeed, pointIndex) => createAuthoredStrategicPoint(district, blockId, pointSeed, pointIndex)),
         };
       }),
     })),
@@ -698,19 +646,23 @@ export function startCandidateScreening(
   if (state.resources.money < args.moneyCost) throw new Error("筛选经费不足");
   const availableHeadquarters = state.manpowerAllocation.headquarters - activeScreeningManpower(state);
   if (availableHeadquarters < args.manpower) throw new Error(`本部可调用人力不足：筛选需要 ${args.manpower}，当前可调用 ${Math.max(0, availableHeadquarters)}`);
-  if (state.screeningProjects.some((project) => project.status === "active")) throw new Error("内务部门已有一项候选人筛选正在进行");
+  if (state.screeningProjects.some((project) => project.startedWeek === args.week && project.status !== "cancelled")) throw new Error("内务负责人本回合已经提交过一批候选档案");
+  const project: ScreeningProject = {
+    id: `screening-${args.week}-${state.screeningProjects.length + 1}`,
+    startedWeek: args.week,
+    dueWeek: args.week,
+    manpower: args.manpower,
+    moneyCost: args.moneyCost,
+    status: "completed",
+    candidateIds: [],
+  };
+  const candidates = candidatesForProject(project, args.week, state.reputation.score >= 55 ? 2 : state.reputation.score >= 30 ? 1 : 0);
+  project.candidateIds = candidates.map((candidate) => candidate.id);
   return {
     ...state,
     resources: { ...state.resources, money: state.resources.money - args.moneyCost },
-    screeningProjects: [...state.screeningProjects, {
-      id: `screening-${args.week}-${state.screeningProjects.length + 1}`,
-      startedWeek: args.week,
-      dueWeek: args.week + 1,
-      manpower: args.manpower,
-      moneyCost: args.moneyCost,
-      status: "active",
-      candidateIds: [],
-    }],
+    candidates: [...state.candidates, ...candidates],
+    screeningProjects: [...state.screeningProjects, project],
   };
 }
 

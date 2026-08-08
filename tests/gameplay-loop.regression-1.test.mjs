@@ -22,20 +22,22 @@ test("free ability use defaults to player intent and reports rule rejection inli
   assert.match(gameSource, /setAbilityError\(error instanceof Error/);
 });
 
-test("NPC speech is AI generated and a quiet week still requires AI world simulation", async () => {
-  const [game, engine, council] = await Promise.all([
+test("NPC speech is AI generated and a quiet week uses independent planning plus a fixed newspaper", async () => {
+  const [game, engine, council, adjudicatorPrompt] = await Promise.all([
     read("app/complete-game.tsx"),
     read("app/game-engine.ts"),
     read("app/council-ai.ts"),
+    read("app/world-adjudicator-prompt.ts"),
   ]);
   assert.match(game, /自由人物对话需要先连接AI模型/);
   assert.match(game, /本周没有完成世界推演，你可以检查接口后从已锁定事实继续/);
   assert.match(game, /本地规则不会伪造世界事件/);
   assert.doesNotMatch(game, /我分四层讲|亲历、下属报告、个人推断与未知分别说清/);
   assert.match(engine, /playerIssuedNoOrders/);
-  assert.match(engine, /玩家无行动绝不等于世界无事件/);
-  assert.match(engine, /世界模型没有生成足够的报纸、传闻或公开征兆/);
-  assert.match(engine, /世界模型没有让足够的独立势力采取行动/);
+  assert.match(engine, /planActiveAgentsIndependently/);
+  assert.match(adjudicatorPrompt, /允许真正安静的一周/);
+  assert.match(adjudicatorPrompt, /固定报纸必须给出 2 至 4 条/);
+  assert.doesNotMatch(engine, /世界模型没有让足够的独立势力采取行动/);
   assert.match(council, /不得使用“亲历\/下属报告\/个人推断\/未知”四段式标签/);
   assert.doesNotMatch(council, /亲历、下属报告、个人推断与未知分别说清/);
 });
@@ -50,33 +52,23 @@ test("investigation wording cannot silently create a facility", async () => {
   assert.doesNotMatch(source, /if \(\/建\|修建\|改造\|据点/);
 });
 
-test("map locations expose dossiers, sourced routes, conflicts and historical playback", async () => {
-  const [source, spatial] = await Promise.all([read("app/city-map-workspace.tsx"), read("app/spatial-intelligence.ts")]);
-  assert.match(source, /buildSpatialIntelligence/);
-  assert.match(source, /function publicLocationIntel/);
-  assert.match(source, /路线、时间与来源冲突/);
-  assert.match(source, /历史播放/);
-  assert.match(source, /玩家假设/);
-  assert.match(spatial, /DISTRICT_EDGES/);
-  assert.match(spatial, /SpatialConflict/);
+test("Backlund map exposes district, block and strategic-point control", async () => {
+  const [source, mapData] = await Promise.all([read("app/backlund-control-map.tsx"), read("app/backlund-map-data.ts")]);
+  assert.match(source, /projectFactionInfluenceForPlayer/);
+  assert.match(source, /已定位情报/);
+  assert.match(source, /onFormDirection/);
+  assert.match(source, /point\.controllerId/);
+  assert.match(mapData, /BACKLUND_AUTHORED_DISTRICTS/);
+  assert.match(mapData, /AuthoredStrategicPointSeed/);
 });
 
-test("city workspace responds to its own embedded width without horizontal layer scrolling", async () => {
-  const [source, council, component] = await Promise.all([read("app/experience-v12.css"), read("app/weekly-council.css"), read("app/weekly-council.tsx")]);
-  assert.match(council, /\.agenda-panel>\.city-workspace\{grid-column:1\/-1;inline-size:100%;margin-top:0\}/);
-  assert.match(source, /\.city-workspace \{ container: city-map \/ inline-size;/);
-  assert.match(source, /@container city-map \(max-width: 900px\) \{[\s\S]*?\.city-workspace-head \{ grid-template-columns: minmax\(0, 1fr\);/);
-  assert.match(source, /@container city-map \(max-width: 560px\) \{[\s\S]*?\.map-query \{ grid-template-columns: auto minmax\(0, 1fr\);/);
-  assert.match(source, /\.map-layers \{[^}]*flex-wrap: wrap;[^}]*overflow-x: clip;/);
-  assert.match(source, /\.city-workspace-head h2 \{[^}]*color: #eadfca;[^}]*word-break: keep-all;/);
-  assert.match(source, /\.district-workspace > header h3 \{[^}]*color: #eadfca;/);
-  assert.match(source, /\.council-table\.refined \{[^}]*top: 50%;[^}]*left: 42%;[^}]*translate: -50% -50%;[^}]*transform: none;/);
-  assert.match(source, /\.council-seat\.inner-seat \{[^}]*right: auto;[^}]*bottom: auto;/);
-  assert.match(source, /@media \(max-width: 900px\) \{[\s\S]*?\.council-seat\.seat-6 \{ left: auto; top: auto; right: 3%; bottom: 29%; \}/);
-  assert.match(source, /@media\(max-width:650px\)\{\.council-stages\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\);overflow:visible\}/);
-  assert.match(component, /COUNCIL_STAGE_COPY/);
-  assert.match(component, /className="council-session-state"/);
-  assert.match(component, /className="supervisor-rail-label"/);
+test("Backlund control map keeps its three-pane desktop workspace bounded", async () => {
+  const [source, council, component] = await Promise.all([read("app/management-refactor.css"), read("app/weekly-council.css"), read("app/weekly-council.tsx")]);
+  assert.match(source, /\.backlund-control-map\{display:grid;grid-template-columns:230px minmax\(360px,1fr\) 330px;[^}]*overflow:hidden/);
+  assert.match(source, /\.control-districts,\.control-point-dossier\{min-height:0;overflow:auto/);
+  assert.match(source, /\.control-blocks\{min-height:0;overflow:auto/);
+  assert.match(component, /aria-label="贝克兰德城市地图"/);
+  assert.match(component, /BacklundControlMap/);
 });
 
 test("weekly prose normalizes punctuation and carries consequences into the next council", async () => {

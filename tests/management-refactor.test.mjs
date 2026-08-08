@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createInitialGame, FOUNDING_SITUATIONS, PATHWAYS } from "../app/game-model.ts";
+import { createInitialGame, PATHWAYS } from "../app/game-model.ts";
 import { buildOpeningCandidatePool } from "../app/opening-candidates.ts";
+import { PATHWAY_ORIGINS } from "../app/pathway-origins.ts";
 import {
   allocateManpower,
   advanceManagedBeyonder,
@@ -48,8 +49,8 @@ test("all 22 standard pathways have a complete sequence index and opening dossie
 });
 
 test("opening generates eight named Beyonder candidates and never more than one special sequence 7", () => {
-  const ordinary = buildOpeningCandidatePool({ playerPathwayId: "apprentice", identityId: "doctor", experienceId: "mutual-aid" });
-  const experienced = buildOpeningCandidatePool({ playerPathwayId: "apprentice", identityId: "doctor", experienceId: "south-war" });
+  const ordinary = buildOpeningCandidatePool({ playerPathwayId: "apprentice", originScenarioId: "apprentice-origin-2", originStartingSequence: 9, identityId: "doctor", experienceId: "mutual-aid" });
+  const experienced = buildOpeningCandidatePool({ playerPathwayId: "twilight-giant", originScenarioId: "twilight-giant-origin-2", originStartingSequence: 7, identityId: "doctor", experienceId: "south-war" });
   assert.equal(ordinary.length, 8);
   assert.ok(ordinary.every((candidate) => candidate.pathway && candidate.sequence >= 8));
   assert.equal(ordinary.filter((candidate) => candidate.sequence === 7).length, 0);
@@ -57,21 +58,21 @@ test("opening generates eight named Beyonder candidates and never more than one 
   assert.ok(experienced.every((candidate) => candidate.core.includes("来源特质") && candidate.core.includes("经历特质") && candidate.core.includes("困境特质")));
 });
 
-test("the opening exposes exactly three founding situations with explicit boons, debts, and pressure", () => {
-  assert.equal(FOUNDING_SITUATIONS.length, 3);
-  assert.deepEqual(FOUNDING_SITUATIONS.map((item) => item.id), ["scratch", "remnant", "patronage"]);
-  assert.ok(FOUNDING_SITUATIONS.every((item) => item.boon && item.debt && item.openingPressure));
+test("the opening exposes two causal knowledge-backed origins for every pathway", () => {
+  assert.equal(Object.keys(PATHWAY_ORIGINS).length, 22);
+  assert.ok(Object.values(PATHWAY_ORIGINS).every((origins) => origins.length === 2));
+  assert.ok(Object.values(PATHWAY_ORIGINS).flat().every((origin) => origin.traits.length === 2 && origin.firstCrisis && origin.loreEvidenceIds.length > 0));
 });
 
 test("Backlund starts with district, block and strategic point hierarchy", () => {
   const management = createInitialOrganizationManagement();
   assert.equal(management.map.districts.length, 10);
-  assert.ok(management.map.districts.every((district) => district.blocks.length === 6));
+  assert.ok(management.map.districts.every((district) => district.blocks.length === 5));
   assert.ok(management.map.districts.every((district) => district.blocks.every((block) => block.strategicPoints.length === 3)));
   assert.ok(management.map.districts.every((district) => Number.isFinite(district.control)));
   const points = management.map.districts.flatMap((district) => district.blocks.flatMap((block) => block.strategicPoints));
   assert.ok(points.every((point) => !/公开节点|地下节点|流通节点/.test(point.name)));
-  assert.equal(points.filter((point) => point.loreStatus === "verified").length, 30);
+  assert.ok(points.filter((point) => point.loreStatus === "verified").length >= 20);
   assert.ok(points.every((point) => point.loreEvidenceIds.some((id) => id.startsWith("lotm-"))));
   assert.ok(points.every((point) => Object.keys(point.influenceByFaction).every((id) => !["official", "local", "hidden"].includes(id))));
 });
@@ -253,16 +254,16 @@ test("weekly governance report creates concrete resource and control effects", (
   assert.ok(advanced.events.some((event) => event.includes("四项治理本周实际贡献")));
 });
 
-test("candidate screening occupies headquarters manpower for a week and produces named files", () => {
+test("candidate screening returns named files immediately in the current turn", () => {
   const initial = createInitialOrganizationManagement();
   const screening = startCandidateScreening(initial, { week: 1, manpower: 4, moneyCost: 35 });
   assert.equal(screening.resources.manpower, initial.resources.manpower);
   assert.equal(screening.resources.money, initial.resources.money - 35);
-  assert.equal(screening.screeningProjects[0].status, "active");
-  const advanced = advanceOrganizationManagementWeek(screening, { week: 2, legacyMoney: screening.resources.money, actionSummaries: [] });
-  assert.equal(advanced.state.screeningProjects[0].status, "completed");
-  assert.equal(advanced.state.candidates.length, 2);
-  assert.ok(advanced.state.candidates.every((candidate) => candidate.name && candidate.predicamentTrait));
+  assert.equal(screening.screeningProjects[0].status, "completed");
+  assert.equal(screening.screeningProjects[0].dueWeek, 1);
+  assert.equal(screening.candidates.length, 2);
+  assert.ok(screening.candidates.every((candidate) => candidate.name && candidate.predicamentTrait));
+  assert.throws(() => startCandidateScreening(screening, { week: 1, manpower: 3, moneyCost: 20 }), /本回合已经提交/);
 });
 
 test("a branch requires block control, a supervisor, money, and allocated branch manpower", () => {

@@ -37,17 +37,18 @@ test("malformed world envelopes receive one bounded structural retry", async () 
 });
 
 test("world envelopes reject mechanical weekly repetition and repair raw control characters", async () => {
-  const engine = await read("app/game-engine.ts");
+  const [engine, adjudicatorPrompt] = await Promise.all([read("app/game-engine.ts"), read("app/world-adjudicator-prompt.ts")]);
   assert.match(engine, /function textSimilarity/);
-  assert.match(engine, /公开消息与最近四周高度复写/);
-  assert.match(engine, /validSignals\.length - repeatedSignals\.length < 3/);
-  assert.match(engine, /势力行动只是复述上一周/);
+  assert.match(engine, /全部公开消息都与最近四周高度复写/);
+  assert.match(engine, /repeatedSignals\.length === validSignals\.length/);
+  assert.match(engine, /本周发生的势力行动全部只是复述上一周/);
+  assert.match(adjudicatorPrompt, /不得为了热闹制造事件/);
   assert.match(engine, /character\.charCodeAt\(0\) < 32/);
   assert.match(engine, /JSON\.parse\(repaired\)/);
 });
 
 test("non-investigation orders keep their own semantics instead of becoming clue hunts", async () => {
-  const engine = await read("app/game-engine.ts");
+  const [engine, adjudicatorPrompt] = await Promise.all([read("app/game-engine.ts"), read("app/world-adjudicator-prompt.ts")]);
   for (const domain of ["finance", "training", "security", "recruitment", "cover", "diplomacy"]) {
     assert.match(engine, new RegExp(`domain === "${domain}"`));
   }
@@ -55,7 +56,7 @@ test("non-investigation orders keep their own semantics instead of becoming clue
   assert.doesNotMatch(engine, /function discoverEvidence/);
   assert.match(engine, /const actionEvidenceIds = seeksEvidence\(result\.contract\)/);
   assert.match(engine, /findings: observableFacts\.length \? observableFacts : result\.findings/);
-  assert.match(engine, /非调查行动不得凭空发现档案补录、马车路线、晚宴名单/);
+  assert.match(adjudicatorPrompt, /非调查行动不得凭空发现档案补录、马车路线、宴会名单/);
 });
 
 test("recruitment governance is not mistaken for recruiting a workflow as a person", async () => {

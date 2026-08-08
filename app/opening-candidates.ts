@@ -20,15 +20,19 @@ function hashSeed(value: string) {
 
 export function buildOpeningCandidatePool(args: {
   playerPathwayId: PathwayId;
+  originScenarioId: string;
+  originStartingSequence: 7 | 8 | 9;
   identityId: string;
   experienceId: string;
 }): Member[] {
-  const offset = hashSeed(`${args.playerPathwayId}:${args.identityId}:${args.experienceId}`) % STANDARD_PATHWAY_IDS.length;
-  const experiencedBackground = ["south-war", "church-periphery", "safah-past"].includes(args.experienceId);
+  const playerIndex = STANDARD_PATHWAY_IDS.indexOf(args.playerPathwayId);
+  const originVariant = hashSeed(args.originScenarioId) % 5;
+  const offset = (playerIndex + originVariant + hashSeed(`${args.identityId}:${args.experienceId}`) % 3) % STANDARD_PATHWAY_IDS.length;
   return CANDIDATE_SEEDS.map((seed, index) => {
-    const pathwayId = STANDARD_PATHWAY_IDS[(offset + index * 3) % STANDARD_PATHWAY_IDS.length];
+    const pathwayId = STANDARD_PATHWAY_IDS[(offset + index * 5) % STANDARD_PATHWAY_IDS.length];
     const pathway = PATHWAY_OPENING_DOSSIERS[pathwayId];
-    const sequence = experiencedBackground && index === 3 ? 7 : index === 1 ? 8 : 9;
+    const sequence = args.originStartingSequence === 7 && index === 3 ? 7 : index === 1 || (args.originStartingSequence <= 8 && index === 5) ? 8 : 9;
+    const pathwaySource = pathway.plausibleSource.replace(/。$/, "");
     return {
       id: seed.id,
       name: seed.name,
@@ -42,11 +46,11 @@ export function buildOpeningCandidatePool(args: {
       ideology: 50 + (index % 4) * 7,
       fatigue: sequence === 7 ? 24 : sequence === 8 ? 16 : 8 + index,
       status: "候选入席",
-      background: `${seed.source}；${seed.experience}；${seed.predicament}。`,
-      core: `来源特质：${seed.source}｜经历特质：${seed.experience}｜困境特质：${seed.predicament}`,
+      background: `${pathwaySource}；${seed.experience}；${seed.predicament}。`,
+      core: `来源特质：${pathwaySource}｜经历特质：${seed.experience}｜困境特质：${seed.predicament}`,
       voice: seed.voice,
       arc: seed.predicament,
-      secret: sequence === 7 ? "其序列7经历与负担必须在知识库检索和开局世界事实锁定后才能展开。" : "其未公开经历必须经关系与情报逐步揭示。",
+      secret: sequence === 7 ? `其序列7经历必须由${pathway.name}途径知识账本与开局来源共同锁定；对应代价不能被略过。` : `其${pathway.name}途径来源与未公开经历必须经关系和情报逐步揭示。`,
       personalEvent: seed.predicament,
       personalEventState: "dormant",
       relationshipStage: "正式成员",
