@@ -4,6 +4,8 @@ import test from "node:test";
 import { LORE_RECORDS } from "../app/generated-lore-compendium.ts";
 import { createInitialBacklundMap, recalculateBacklundControl } from "../app/organization-management.ts";
 
+const hasFullLore = LORE_RECORDS.length > 0;
+
 test("Backlund has a stable 10 district, 50 block, 150 strategic-point topology", () => {
   const map = createInitialBacklundMap();
   const blocks = map.districts.flatMap((district) => district.blocks);
@@ -16,7 +18,7 @@ test("Backlund has a stable 10 district, 50 block, 150 strategic-point topology"
   assert.equal(new Set(points.map((point) => point.name)).size, 150);
 });
 
-test("every strategic point cites real lore evidence and no generated local placeholder", () => {
+test("every strategic point cites real lore evidence and no generated local placeholder", { skip: hasFullLore ? false : "公共构建使用空壳知识库，完整知识一致性由 Release CI 校验" }, () => {
   const loreIds = new Set(LORE_RECORDS.map((record) => record.id));
   const points = createInitialBacklundMap().districts.flatMap((district) => district.blocks.flatMap((block) => block.strategicPoints));
   for (const point of points) {
@@ -57,4 +59,3 @@ test("control remains dynamic when a rival counteracts an established player pos
   assert.equal(after.contested, true);
   assert.ok(countered.districts[0].blocks[0].control < playerEstablished.districts[0].blocks[0].control);
 });
-

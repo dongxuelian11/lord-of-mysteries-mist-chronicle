@@ -7,8 +7,9 @@ import { buildOpeningCandidatePool } from "../app/opening-candidates.ts";
 import { PATHWAY_ORIGINS, validateDynamicPathwayOrigin } from "../app/pathway-origins.ts";
 import { STANDARD_PATHWAY_IDS } from "../app/pathway-catalog.ts";
 
+const hasFullLore = LORE_RECORDS.length > 0;
+
 test("all 22 pathways have two fixed knowledge-backed causal origins", () => {
-  const loreIds = new Set(LORE_RECORDS.map((record) => record.id));
   assert.equal(Object.keys(PATHWAY_ORIGINS).length, 22);
   for (const [index, pathwayId] of STANDARD_PATHWAY_IDS.entries()) {
     const origins = PATHWAY_ORIGINS[pathwayId];
@@ -22,8 +23,16 @@ test("all 22 pathways have two fixed knowledge-backed causal origins", () => {
       assert.ok(origin.contact.length >= 8);
       assert.ok(origin.enemy.length >= 8);
       assert.ok(origin.resources.manpower >= 12);
-      assert.ok(origin.loreEvidenceIds.every((id) => loreIds.has(id)), `${pathwayId}: ${origin.loreEvidenceIds.join(",")}`);
       assert.ok(origin.loreEvidenceIds.includes(`lotm-04-${String(index + 2).padStart(3, "0")}`));
+    }
+  }
+});
+
+test("all fixed origins cite records present in the full lore corpus", { skip: hasFullLore ? false : "公共构建使用空壳知识库，完整知识一致性由 Release CI 校验" }, () => {
+  const loreIds = new Set(LORE_RECORDS.map((record) => record.id));
+  for (const [pathwayId, origins] of Object.entries(PATHWAY_ORIGINS)) {
+    for (const origin of origins) {
+      assert.ok(origin.loreEvidenceIds.every((id) => loreIds.has(id)), `${pathwayId}: ${origin.loreEvidenceIds.join(",")}`);
     }
   }
 });
@@ -52,7 +61,7 @@ test("sequence 7 fixed origins are rare and carry concrete long-term burdens", (
   }
 });
 
-test("dynamic origins require pathway evidence and a real sequence 7 burden", () => {
+test("dynamic origins require pathway evidence and a real sequence 7 burden", { skip: hasFullLore ? false : "公共构建使用空壳知识库，动态知识校验由 Release CI 执行" }, () => {
   const base = {
     title: "停职军官的另一份档案",
     summary: "一份经司法体系确认的连续晋升记录让角色以中序列开始，但官方持续追踪其去向。",
@@ -94,4 +103,3 @@ test("candidate pool remains eight named beyonders and reacts to the selected or
   assert.ok(first.every((member) => member.pathway && member.sequence));
   assert.notDeepEqual(first.map((member) => member.pathway), second.map((member) => member.pathway));
 });
-
