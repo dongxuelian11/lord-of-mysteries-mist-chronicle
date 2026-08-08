@@ -52,3 +52,5 @@ next-env.d.ts
 /.openai/
 /private/
 app/generated-lore-compendium.ts
+.gstack/
+.qa-devserver.*.log
