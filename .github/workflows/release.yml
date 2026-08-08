@@ -85,6 +85,15 @@ jobs:
           Copy-Item -Path (Join-Path $seedRoot "*") -Destination private/rag/index -Recurse -Force
 
       - run: npm run release:verify:seed
+
+      - name: Materialize knowledge-backed game ledgers from authorized seed
+        shell: pwsh
+        run: |
+          $tool = Join-Path $env:RUNNER_TEMP "materialize-lore-from-seed.mjs"
+          git fetch --no-tags --depth=1 origin $env:GITHUB_SHA
+          git show "${env:GITHUB_SHA}:scripts/release/materialize-lore-from-seed.mjs" | Set-Content -LiteralPath $tool -Encoding utf8
+          node $tool private/rag/index app/generated-lore-compendium.ts
+
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
