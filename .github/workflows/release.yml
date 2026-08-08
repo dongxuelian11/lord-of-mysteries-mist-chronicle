@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing v* tag to build and publish"
+        required: true
+        type: string
+      unsigned_prerelease:
+        description: "Publish an explicitly unsigned prerelease build"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -11,7 +22,7 @@ permissions:
   attestations: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.inputs.release_tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -19,6 +30,8 @@ jobs:
     runs-on: windows-latest
     environment: release
     env:
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+      UNSIGNED_PRERELEASE: ${{ github.event.inputs.unsigned_prerelease || 'false' }}
       CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
       KNOWLEDGE_SEED_URL: ${{ secrets.KNOWLEDGE_SEED_URL }}
@@ -27,6 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.inputs.release_tag || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -36,7 +50,16 @@ jobs:
       - name: Validate protected release inputs
         shell: pwsh
         run: |
-          foreach ($name in @("CSC_LINK", "CSC_KEY_PASSWORD", "KNOWLEDGE_SEED_URL", "KNOWLEDGE_SEED_SHA256")) {
+          if ($env:UNSIGNED_PRERELEASE -eq "true" -and $env:GITHUB_EVENT_NAME -ne "workflow_dispatch") {
+            throw "Unsigned releases are allowed only through the explicit workflow_dispatch prerelease mode"
+          }
+
+          $requiredSecrets = @("KNOWLEDGE_SEED_URL", "KNOWLEDGE_SEED_SHA256")
+          if ($env:UNSIGNED_PRERELEASE -ne "true") {
+            $requiredSecrets += @("CSC_LINK", "CSC_KEY_PASSWORD")
+          }
+
+          foreach ($name in $requiredSecrets) {
             if ([string]::IsNullOrWhiteSpace((Get-Item "env:$name").Value)) {
               throw "Missing required release secret: $name"
             }
@@ -44,8 +67,6 @@ jobs:
 
       - run: npm ci
       - run: npm run release:verify
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
 
       - name: Download and verify authorized knowledge seed
         shell: pwsh
@@ -70,8 +91,15 @@ jobs:
       - run: npm run bundle:budget
       - run: npm audit --audit-level=high
 
-      - name: Build signed installer without implicit publishing
-        run: npx electron-builder --win nsis --publish never
+      - name: Build installer without implicit publishing
+        shell: pwsh
+        run: |
+          if ($env:UNSIGNED_PRERELEASE -eq "true") {
+            $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
+            Remove-Item Env:CSC_LINK -ErrorAction SilentlyContinue
+            Remove-Item Env:CSC_KEY_PASSWORD -ErrorAction SilentlyContinue
+          }
+          npx electron-builder --win nsis --publish never
 
       - name: Verify Authenticode signature
         shell: pwsh
@@ -80,16 +108,19 @@ jobs:
           $installers = @(Get-ChildItem -LiteralPath release -Filter "*-Setup-$version.exe" -File)
           if ($installers.Count -ne 1) { throw "Expected exactly one installer, found $($installers.Count)" }
           $signature = Get-AuthenticodeSignature -LiteralPath $installers[0].FullName
-          if ($signature.Status -ne "Valid") { throw "Installer signature is not valid: $($signature.Status)" }
+          if ($env:UNSIGNED_PRERELEASE -eq "true") {
+            if ($signature.Status -ne "NotSigned") {
+              throw "Unsigned prerelease has an unexpected signature status: $($signature.Status)"
+            }
+          } elseif ($signature.Status -ne "Valid") {
+            throw "Installer signature is not valid: $($signature.Status)"
+          }
 
       - name: Smoke-test clean installer and bundled seed
         run: npm run release:smoke
 
       - name: Write source/installer provenance manifest
         run: npm run release:provenance
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-          SOURCE_COMMIT: ${{ github.sha }}
 
       - name: Attest installer build provenance
         uses: actions/attest@v4
@@ -98,7 +129,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: mist-chronicle-${{ github.ref_name }}
+          name: mist-chronicle-${{ env.RELEASE_TAG }}
           path: |
             release/*.exe
             release/provenance.json
@@ -111,9 +142,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
-          $assets = @(Get-ChildItem -LiteralPath release -File | Where-Object { $_.Name -like "*-Setup-$version.exe" -or $_.Name -eq "provenance.json" } | ForEach-Object { $_.FullName })
-          if (gh release view $env:GITHUB_REF_NAME *> $null) {
-            gh release upload $env:GITHUB_REF_NAME @assets --clobber
+          $installer = @(Get-ChildItem -LiteralPath release -Filter "*-Setup-$version.exe" -File)
+          if ($installer.Count -ne 1) { throw "Expected exactly one installer, found $($installer.Count)" }
+          $portableName = Join-Path (Resolve-Path release) "Mist-Chronicle-Setup-$version.exe"
+          if ($installer[0].FullName -ne $portableName) {
+            Copy-Item -LiteralPath $installer[0].FullName -Destination $portableName -Force
+          }
+          $assets = @($portableName, (Join-Path (Resolve-Path release) "provenance.json"))
+
+          if (gh release view $env:RELEASE_TAG *> $null) {
+            gh release upload $env:RELEASE_TAG @assets --clobber
+            if ($env:UNSIGNED_PRERELEASE -eq "true") {
+              gh release edit $env:RELEASE_TAG --prerelease
+            }
           } else {
-            gh release create $env:GITHUB_REF_NAME @assets --verify-tag --generate-notes --title "灰雾纪事 $env:GITHUB_REF_NAME"
+            $releaseArgs = @("release", "create", $env:RELEASE_TAG) + $assets + @("--verify-tag", "--generate-notes", "--title", "灰雾纪事 $env:RELEASE_TAG")
+            if ($env:UNSIGNED_PRERELEASE -eq "true") { $releaseArgs += "--prerelease" }
+            gh @releaseArgs
           }

@@ -25,6 +25,17 @@ seed ZIP 内必须且只能有一个 `seed-manifest.json` 所在目录；该目�
 Authenticode 验证、静默安装与首次启动 smoke test、provenance 生成和 GitHub
 attestation。全部通过后才创建或更新 GitHub Release。
 
+正式 tag 推送始终要求有效的 Authenticode 证书。需要先向测试者提供安装包、但
+暂时没有证书时，只能从 Actions 手动运行 `release.yml`，填写已经存在的 tag，
+并显式启用 `unsigned_prerelease`。该模式会验证安装包确实未签名，并强制把
+GitHub Release 保持为 Prerelease；它不会改变普通 tag 推送的签名门禁。
+
+```powershell
+gh workflow run release.yml --ref main `
+  -f release_tag=v0.4.0 `
+  -f unsigned_prerelease=true
+```
+
 创建 tag 前先把版本改到唯一目标值并合入目标提交：
 
 ```powershell
