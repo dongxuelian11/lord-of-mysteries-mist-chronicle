@@ -22,6 +22,7 @@ test("all 22 pathways expose 220 knowledge-grounded sequence records and playabl
   assert.equal(validation.pathwayCount, 22);
   assert.equal(validation.sequenceCount, 220);
   const loreIds = new Set(LORE_RECORDS.map((record) => record.id));
+  const hasPrivateLore = loreIds.size > 0;
   for (const [pathwayId, dossier] of Object.entries(PATHWAY_SEQUENCE_LEDGER)) {
     assert.equal(dossier.sequences.length, 10, pathwayId);
     assert.deepEqual(dossier.sequences.map((entry) => entry.sequence), [9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
@@ -29,7 +30,8 @@ test("all 22 pathways expose 220 knowledge-grounded sequence records and playabl
       assert.ok(entry.operationalEnvelope.length >= 3);
       assert.ok(entry.organizationEffect.length > 20);
       assert.ok(entry.lossOfControlRisk.length > 15);
-      assert.ok(entry.loreEvidenceIds.every((id) => loreIds.has(id)), `${entry.id}: ${entry.loreEvidenceIds.join(",")}`);
+      if (hasPrivateLore) assert.ok(entry.loreEvidenceIds.every((id) => loreIds.has(id)), `${entry.id}: ${entry.loreEvidenceIds.join(",")}`);
+      else assert.ok(entry.loreEvidenceIds.length > 0, `${entry.id}: public source build must retain evidence references`);
     }
     const ranks = new Set(abilitiesFor(pathwayId, 0).map((ability) => ability.unlockRank));
     for (let rank = 9; rank >= 0; rank -= 1) assert.ok(ranks.has(rank), `${pathwayId} missing ability rank ${rank}`);

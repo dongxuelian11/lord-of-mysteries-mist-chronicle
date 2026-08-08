@@ -14,6 +14,43 @@ export const STANDARD_PATHWAY_IDS = [
 
 export type StandardPathwayId = (typeof STANDARD_PATHWAY_IDS)[number];
 
+export type PathwayHighGroup = {
+  sefirot: string;
+  aboveSequence: string;
+};
+
+/**
+ * Minimal high-sequence grouping kept in the public runtime catalogue.
+ *
+ * The private lore compendium remains authoritative when present, while this
+ * derived index lets clean source builds preserve the 22-pathway/9-sefirot
+ * rules without bundling the full private corpus.
+ */
+export const PATHWAY_HIGH_GROUPS: Record<StandardPathwayId, PathwayHighGroup> = {
+  seer: { sefirot: "源堡", aboveSequence: "诡秘之主" },
+  apprentice: { sefirot: "源堡", aboveSequence: "诡秘之主" },
+  error: { sefirot: "源堡", aboveSequence: "诡秘之主" },
+  spectator: { sefirot: "混沌海", aboveSequence: "上帝/全知全能者" },
+  tyrant: { sefirot: "混沌海", aboveSequence: "上帝/全知全能者" },
+  sun: { sefirot: "混沌海", aboveSequence: "上帝/全知全能者" },
+  "white-tower": { sefirot: "混沌海", aboveSequence: "上帝/全知全能者" },
+  "hanged-man": { sefirot: "混沌海", aboveSequence: "上帝/全知全能者" },
+  moon: { sefirot: "母巢", aboveSequence: "生命系旧日（女神之源）" },
+  mother: { sefirot: "母巢", aboveSequence: "生命系旧日（女神之源）" },
+  death: { sefirot: "永暗之河", aboveSequence: "永恒之暗" },
+  darkness: { sefirot: "永暗之河", aboveSequence: "永恒之暗" },
+  "twilight-giant": { sefirot: "永暗之河", aboveSequence: "永恒之暗" },
+  hunter: { sefirot: "灾祸之城", aboveSequence: "毁灭天灾" },
+  demoness: { sefirot: "灾祸之城", aboveSequence: "毁灭天灾" },
+  "black-emperor": { sefirot: "失序之国", aboveSequence: "失序者/秩序阴影" },
+  justiciar: { sefirot: "失序之国", aboveSequence: "失序者/秩序阴影" },
+  paragon: { sefirot: "知识荒野", aboveSequence: "知识之妖" },
+  mystery: { sefirot: "知识荒野", aboveSequence: "知识之妖" },
+  chained: { sefirot: "暗影世界", aboveSequence: "恶魔之父" },
+  abyss: { sefirot: "暗影世界", aboveSequence: "恶魔之父" },
+  "wheel-of-fortune": { sefirot: "光之钥", aboveSequence: "光之钥/命运化身" },
+};
+
 export type OpeningAbilityProfile = {
   id: string;
   name: string;

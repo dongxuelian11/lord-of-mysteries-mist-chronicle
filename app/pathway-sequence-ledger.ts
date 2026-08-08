@@ -1,5 +1,5 @@
 import { LOTM_PATHWAYS } from "./generated-lore-compendium.ts";
-import { STANDARD_PATHWAY_IDS, type StandardPathwayId } from "./pathway-catalog.ts";
+import { PATHWAY_HIGH_GROUPS, PATHWAY_OPENING_DOSSIERS, STANDARD_PATHWAY_IDS, type StandardPathwayId } from "./pathway-catalog.ts";
 
 export type SequenceTier = "低序列" | "中序列" | "圣者" | "天使" | "大天使" | "真神";
 
@@ -30,6 +30,31 @@ export type PathwayLedgerDossier = {
   sequenceEvidenceId: string;
   sequences: PathwaySequenceLedgerEntry[];
 };
+
+type LorePathwayRecord = {
+  group: string;
+  above: string;
+  entry: string;
+  theme: string;
+  representatives: string;
+  sequence_9_to_0: string[];
+};
+
+function lorePathwayRecord(value: unknown): LorePathwayRecord | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.group !== "string"
+    || typeof record.above !== "string"
+    || typeof record.entry !== "string"
+    || typeof record.theme !== "string"
+    || typeof record.representatives !== "string"
+    || !Array.isArray(record.sequence_9_to_0)
+    || record.sequence_9_to_0.length !== 10
+    || !record.sequence_9_to_0.every((item) => typeof item === "string")
+  ) return undefined;
+  return record as unknown as LorePathwayRecord;
+}
 
 function tierFor(sequence: number): SequenceTier {
   if (sequence >= 8) return "低序列";
@@ -72,21 +97,27 @@ function lossRisk(sequence: number, themes: string[]) {
 function buildDossiers(): Record<StandardPathwayId, PathwayLedgerDossier> {
   const dossiers = {} as Record<StandardPathwayId, PathwayLedgerDossier>;
   STANDARD_PATHWAY_IDS.forEach((pathwayId, index) => {
-    const lore = LOTM_PATHWAYS[index];
-    if (!lore) throw new Error(`知识库缺少第${index + 1}条标准途径`);
-    const themes = lore.theme.split(/[、，]/).map((item) => item.trim()).filter(Boolean);
+    const opening = PATHWAY_OPENING_DOSSIERS[pathwayId];
+    const highGroup = PATHWAY_HIGH_GROUPS[pathwayId];
+    const lore = lorePathwayRecord(LOTM_PATHWAYS[index]);
+    const pathwayName = lore?.entry ?? opening.name;
+    const sefirot = lore?.group ?? highGroup.sefirot;
+    const aboveSequence = lore?.above ?? highGroup.aboveSequence;
+    const sequenceNames = lore?.sequence_9_to_0 ?? [...opening.sequences];
+    const themeText = lore?.theme ?? `${opening.managementContribution}、${opening.personalStyle}`;
+    const themes = themeText.split(/[、，。；]/).map((item: string) => item.trim()).filter(Boolean);
     const evidenceId = `lotm-04-${String(index + 2).padStart(3, "0")}`;
-    const sequences = lore.sequence_9_to_0.map((name, offset) => {
+    const sequences = sequenceNames.map((name: string, offset: number) => {
       const sequence = 9 - offset;
       return {
         id: `${pathwayId}:sequence:${sequence}`,
         pathwayId,
-        pathwayName: lore.entry,
+        pathwayName,
         sequence,
         name,
         tier: tierFor(sequence),
-        sefirot: lore.group,
-        aboveSequence: lore.above,
+        sefirot,
+        aboveSequence,
         themes,
         operationalEnvelope: operationalEnvelope(name, sequence, themes),
         organizationEffect: organizationEffect(sequence, themes),
@@ -97,10 +128,10 @@ function buildDossiers(): Record<StandardPathwayId, PathwayLedgerDossier> {
     });
     dossiers[pathwayId] = {
       pathwayId,
-      pathwayName: lore.entry,
-      sefirot: lore.group,
-      aboveSequence: lore.above,
-      representatives: lore.representatives.split(/[、，]/).map((item) => item.trim()).filter(Boolean),
+      pathwayName,
+      sefirot,
+      aboveSequence,
+      representatives: lore?.representatives.split(/[、，]/).map((item: string) => item.trim()).filter(Boolean) ?? [],
       themes,
       sequenceEvidenceId: evidenceId,
       sequences,
