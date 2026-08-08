@@ -3,7 +3,12 @@
 import { retrieveLoreContext as legacyRetrieve } from "../lore-knowledge";
 import { filterChunk } from "./permissions";
 import { buildEvidenceContext } from "./context-builder";
-import type { CanonKnowledgeHorizon } from "./types";
+import type {
+  CanonKnowledgeHorizon,
+  CanonLayer,
+  SourceGrade,
+  Visibility,
+} from "./types";
 import type { LegacyLoreRecord } from "./index";
 
 export type RagBridgeAudience = {
@@ -29,11 +34,11 @@ export type RagBridgeChunk = {
   documentId?: string;
   title: string;
   content: string;
-  visibility: string;
+  visibility: Visibility;
   topics: string[];
   sourceId: string;
-  sourceGrade: string;
-  canonLayer: string;
+  sourceGrade: SourceGrade;
+  canonLayer: CanonLayer;
   sourceLocator?: string;
   work?: "LOTM" | "COI";
   volumeNumber?: number;
@@ -129,8 +134,9 @@ export function reFilter(
         sourceRepo: "",
         sourceCommit: "",
         sourcePath: "",
+        sourceLocator: record.sourceLocator ?? record.sourceId,
         language: "zh-CN",
-        canonLayer: (record.canonLayer as LegacyLoreRecord["canon"]) ?? "canon",
+        canonLayer: record.canonLayer ?? "canon",
         spoilerScope: "all",
         work: record.work,
         volumeNumber: record.volumeNumber,
@@ -233,14 +239,6 @@ export async function retrieveLoreContextAsync(
       },
       limit: request.limit,
       maxChars: request.maxChars,
-      week: request.week,
-      gameDate: request.gameDate,
-      maxSpoilerScope:
-        request.maxSpoilerScope ??
-        (request.audience.kind === "player-facing-narrator"
-          ? "volume1"
-          : undefined),
-      allowedVolumes: request.allowedVolumes,
     }
   );
 }

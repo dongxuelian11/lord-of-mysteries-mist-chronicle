@@ -696,6 +696,7 @@ export type WorldFact = {
 
 export type GameState = {
   version: number;
+  saveId?: string;
   prologueComplete: boolean;
   playerName: string;
   playerAddress: string;
@@ -1091,7 +1092,7 @@ export const INITIAL_TIMELINE: TimelineEvent[] = [
   { id: "tl-great-smog", title: "贝克兰德大雾霾", scheduledWeek: 24, kind: "终局", status: "upcoming", summary: "终局事件可能被阻止、削弱、转移、利用或按原历史爆发。", revealed: true, pressure: 92 },
 ];
 
-export function initializeWorldKernel(input?: Partial<Pick<GameState, "week" | "date" | "factions" | "canonActors" | "timeline" | "deviation" | "pivots">>) {
+export function initializeWorldKernel(input?: Partial<Pick<GameState, "week" | "date" | "factions" | "canonActors" | "timeline" | "deviation" | "pivots">>): WorldKernel {
   const factions = input?.factions ?? INITIAL_FACTIONS;
   const actors = input?.canonActors ?? [
     { id: "klein", name: "克莱恩·莫雷蒂", publicIdentity: "廷根毕业生", location: "廷根", agenda: "活下去，并理解自己为何苏醒。", state: "刚从死亡中醒来", awareness: "未知" as const, recruitable: false as const, lastMove: "在远方整理原主留下的痕迹。" },
@@ -1107,7 +1108,19 @@ export function initializeWorldKernel(input?: Partial<Pick<GameState, "week" | "
     locations: DISTRICTS.map((item) => ({ id: item.id, name: item.name, risk: item.danger })),
     timeline: (input?.timeline ?? INITIAL_TIMELINE).map((item) => ({ id: item.id, title: item.title, scheduledWeek: item.scheduledWeek, status: item.status })),
   });
-  return { ...kernel, canon: { mode: (input?.deviation ?? 0) >= 15 || (input?.pivots ?? []).some((pivot) => pivot.magnitude >= 20) ? "diverging" as const : "anchored" as const, deviation: input?.deviation ?? 0, pivotEventIds: (input?.pivots ?? []).map((pivot) => pivot.id) } };
+  return {
+    ...kernel,
+    canon: {
+      ...kernel.canon,
+      mode:
+        (input?.deviation ?? 0) >= 15 ||
+        (input?.pivots ?? []).some((pivot) => pivot.magnitude >= 20)
+          ? "diverging"
+          : "anchored",
+      deviation: input?.deviation ?? 0,
+      pivotEventIds: (input?.pivots ?? []).map((pivot) => pivot.id),
+    },
+  };
 }
 
 export type OrganizationKind = {

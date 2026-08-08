@@ -231,7 +231,10 @@ export type RuntimeIndex = {
     embeddingModel?: string;
   };
   chunks: LoreChunk[];
-  inverted: Record<string, { df: number; p: [number, number, number][] }>;
+  inverted: Record<
+    string,
+    { df: number; p: { chunkIndex: number; tf: number; fields: number }[] }
+  >;
   aliasMap: Record<string, { canonical: string; type: EntityType }>;
   vectors?: Record<string, number[]>;
 };

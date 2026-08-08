@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const packageVersion = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
 const ghCandidates = [
   path.join(process.env.ProgramFiles || "", "GitHub CLI", "gh.exe"),
   path.join(process.env.LOCALAPPDATA || "", "GitHubCLI", "gh.exe"),
@@ -123,7 +124,7 @@ async function main() {
 
   const url = run(gh, ["repo", "view", repoName, "--json", "url", "--jq", ".url"], { cwd: root });
   console.log(`[publish] 仓库地址: ${(url.stdout || "").trim() || `https://github.com/<owner>/${repoName}`}`);
-  console.log("[publish] 完成。可用 git tag v0.1.0 && git push origin v0.1.0 触发安装包构建。");
+  console.log(`[publish] 完成。可用 git tag v${packageVersion} && git push origin v${packageVersion} 触发安装包构建。`);
 }
 
 main().catch((err) => {

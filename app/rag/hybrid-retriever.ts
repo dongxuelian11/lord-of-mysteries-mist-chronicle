@@ -406,8 +406,15 @@ export class HybridRetriever {
           entity.name,
         ];
         const entityTerms = tokenizeNames(names);
+        const entityQuery = names.join(" ");
         const mini = lexicalSearch(
-          { terms: entityTerms, entities: [] },
+          {
+            original: entityQuery,
+            normalized: entityQuery.toLowerCase(),
+            expanded: entityQuery,
+            terms: entityTerms,
+            entities: [],
+          },
           this.chunks,
           this.inverted,
           3,

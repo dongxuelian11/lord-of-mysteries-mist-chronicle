@@ -8,6 +8,7 @@ import type {
   CharacterBelief,
   DynamicMemoryContext,
   DynamicMemoryState,
+  MemoryEvent,
   MemoryReference,
   MemoryTrace,
   SceneType,

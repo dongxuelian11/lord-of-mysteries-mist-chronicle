@@ -8,8 +8,8 @@
 2. 提交前运行：
 
    ```powershell
+   npm run typecheck
    npm run lint
-   npm run build
    npm test
    ```
 
@@ -42,4 +42,6 @@ npm run dev       # 打开开发服务器
 npm run dist:win  # 生成 release/灰雾纪事-Setup-<version>.exe
 ```
 
-安装包未签名，分发时请保留 NOTICE 与 LICENSE。
+本地安装包默认不具备正式发布资格。正式分发必须使用受保护的 release
+环境完成 seed 校验、Windows 代码签名、安装 smoke test 与 provenance 生成，
+详见 `docs/releasing.md`。

@@ -11,6 +11,7 @@ type TurnStage = { name: string; ms: number; status: "ok" | "error" };
 type Props = {
   config: AiConfig;
   rememberKey: boolean;
+  secureStorageAvailable: boolean;
   connection: ConnectionState;
   turnStages: TurnStage[];
   showDiagnostics: boolean;
@@ -26,7 +27,7 @@ type Props = {
   onNewGame: () => void;
 };
 
-export default function AiSettings({ config, rememberKey, connection, turnStages, showDiagnostics, autoDecision, onAutoDecision, draftPathway, onChange, onRememberKey, onTest, onSave, onClearKey, onPathway, onNewGame }: Props) {
+export default function AiSettings({ config, rememberKey, secureStorageAvailable, connection, turnStages, showDiagnostics, autoDecision, onAutoDecision, draftPathway, onChange, onRememberKey, onTest, onSave, onClearKey, onPathway, onNewGame }: Props) {
   const provider = config.provider ?? "deepseek";
   const ready = Boolean(config.endpoint.trim() && config.apiKey.trim() && config.model.trim());
   function selectProvider(value: AiProviderId) {
@@ -49,7 +50,7 @@ export default function AiSettings({ config, rememberKey, connection, turnStages
     {provider === "deepseek" && <div className="deepseek-note"><Zap size={15} /><p><strong>已使用官方 V4 Flash 预设</strong><span>模型 deepseek-v4-flash · 请求通过本站同源转发，避免浏览器跨域失败；密钥不会保存在服务器。</span></p></div>}
 
     <label className="api-key-field"><span><KeyRound size={13} />API Key</span><input type="password" autoComplete="off" value={config.apiKey} onChange={(event) => onChange({ apiKey: event.target.value })} placeholder={provider === "deepseek" ? "sk-… 仅用于调用 DeepSeek" : "仅发送给你填写的模型端点"} /></label>
-    <label className="remember-key"><button className={rememberKey ? "on" : ""} onClick={() => onRememberKey(!rememberKey)} role="switch" aria-checked={rememberKey}><i /></button><span><strong>在这台设备长期保存密钥</strong><small>{rememberKey ? "密钥会写入本浏览器本地存储" : "默认只保留到当前浏览器会话结束"}</small></span></label>
+    <label className="remember-key"><button className={rememberKey ? "on" : ""} onClick={() => onRememberKey(!rememberKey)} role="switch" aria-checked={rememberKey} disabled={!secureStorageAvailable}><i /></button><span><strong>在这台设备长期保存密钥</strong><small>{rememberKey ? "密钥由操作系统凭据保护，不写入浏览器存储" : secureStorageAvailable ? "默认只保留到当前应用会话结束" : "浏览器预览不提供系统凭据库，只支持会话保存"}</small></span></label>
     {rememberKey && <button className="clear-key-button" onClick={onClearKey}>清除已保存的 Key</button>}
     <label className="remember-key"><button className={autoDecision ? "on" : ""} onClick={() => onAutoDecision(!autoDecision)} role="switch" aria-checked={autoDecision}><i /></button><span><strong>讨论生成决议后直接执行</strong><small>{autoDecision ? "书记员整理出的决议不再弹确认，直接写入本周计划" : "书记员整理后先给你确认草稿，确认后才写入"}</small></span></label>
 

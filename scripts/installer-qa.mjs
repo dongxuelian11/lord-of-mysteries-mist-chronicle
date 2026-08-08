@@ -8,9 +8,10 @@ import os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const packageVersion = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
 const installer =
   process.argv[2] ||
-  path.join(root, "release", "灰雾纪事-Setup-0.1.0.exe");
+  path.join(root, "release", `灰雾纪事-Setup-${packageVersion}.exe`);
 const installDir =
   process.argv[3] ||
   path.join(os.tmpdir(), "gmzz-install-test-" + Date.now());

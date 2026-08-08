@@ -127,13 +127,8 @@ export default function CompleteGame() {
   const [showSettings, setShowSettings] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [aiConfig, setAiConfig] = useState<AiConfig>({ ...DEEPSEEK_FLASH_PRESET });
-  const [rememberApiKey, setRememberApiKey] = useState(() => {
-    if (typeof window === "undefined") return true;
-    try {
-      const value = JSON.parse(window.localStorage.getItem(AI_KEY) ?? "{}") as { rememberKey?: boolean };
-      return value.rememberKey ?? true;
-    } catch { return true; }
-  });
+  const [rememberApiKey, setRememberApiKey] = useState(false);
+  const [secureStorageAvailable, setSecureStorageAvailable] = useState(false);
   const [connectionState, setConnectionState] = useState<{ status: "idle" | "testing" | "success" | "error"; message: string }>({ status: "idle", message: "" });
   const [connectionVerified, setConnectionVerified] = useState(false);
   const [draftPathway, setDraftPathway] = useState<PathwayId>("seer");
@@ -146,7 +141,8 @@ export default function CompleteGame() {
   const [chatContext, setChatContext] = useState<"council" | "private">("council");
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => { void (async () => {
       const saved = window.localStorage.getItem(SAVE_KEY);
       const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const savedAi = window.localStorage.getItem(AI_KEY);
@@ -165,18 +161,38 @@ export default function CompleteGame() {
           else if ([5, 6, 7].includes(legacy.version ?? 0) && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));
         } catch { /* 旧存档只用于读取纪事，损坏时不影响新游戏。 */ }
       }
+      let secureResult: Awaited<ReturnType<NonNullable<typeof window.mistCredentials>["load"]>> = { available: false, apiKey: "" };
+      if (window.mistCredentials) {
+        try { secureResult = await window.mistCredentials.load(); }
+        catch { secureResult = { available: false, apiKey: "", error: "secure-storage-unavailable" }; }
+      }
+      if (cancelled) return;
+      setSecureStorageAvailable(secureResult.available);
       if (savedAi) {
         try {
           const value = JSON.parse(savedAi) as Partial<AiConfig> & { rememberKey?: boolean };
           const sessionKey = window.sessionStorage.getItem(AI_SESSION_KEY) ?? "";
-          setAiConfig({ ...DEEPSEEK_FLASH_PRESET, ...value, provider: value.provider ?? (value.endpoint?.includes("api.deepseek.com") ? "deepseek" : "compatible"), apiKey: value.apiKey || sessionKey });
-          setRememberApiKey(value.rememberKey ?? true);
+          const legacyPlaintextKey = value.apiKey ?? "";
+          let secureKey = secureResult.apiKey ?? "";
+          let rememberKey = Boolean(value.rememberKey && secureResult.available);
+          if (legacyPlaintextKey && rememberKey && window.mistCredentials) {
+            const migration = await window.mistCredentials.save(legacyPlaintextKey);
+            rememberKey = Boolean(migration.saved);
+            secureKey = rememberKey ? legacyPlaintextKey : "";
+          }
+          if (cancelled) return;
+          const apiKey = rememberKey ? secureKey : (sessionKey || legacyPlaintextKey);
+          const sanitized = { ...value, apiKey: "", rememberKey };
+          window.localStorage.setItem(AI_KEY, JSON.stringify(sanitized));
+          if (!rememberKey && legacyPlaintextKey) window.sessionStorage.setItem(AI_SESSION_KEY, legacyPlaintextKey);
+          setAiConfig({ ...DEEPSEEK_FLASH_PRESET, ...value, provider: value.provider ?? (value.endpoint?.includes("api.deepseek.com") ? "deepseek" : "compatible"), apiKey });
+          setRememberApiKey(rememberKey);
         }
         catch { window.localStorage.removeItem(AI_KEY); }
       }
       setHydrated(true);
-    }, 0);
-    return () => window.clearTimeout(timer);
+    })(); }, 0);
+    return () => { cancelled = true; window.clearTimeout(timer); };
   }, []);
 
   useEffect(() => { if (hydrated && game.prologueComplete) window.localStorage.setItem(SAVE_KEY, JSON.stringify(game)); }, [game, hydrated]);
@@ -523,15 +539,28 @@ export default function CompleteGame() {
     void openSituation(next);
   }
 
-  function saveSettings() {
-    const stored = { ...aiConfig, apiKey: rememberApiKey ? aiConfig.apiKey : "", rememberKey: rememberApiKey };
+  async function saveSettings() {
+    let remembered = false;
+    if (rememberApiKey && secureStorageAvailable && window.mistCredentials) {
+      try {
+        const result = await window.mistCredentials.save(aiConfig.apiKey);
+        remembered = Boolean(result.saved);
+      } catch { remembered = false; }
+    }
+    const stored = { ...aiConfig, apiKey: "", rememberKey: remembered };
     window.localStorage.setItem(AI_KEY, JSON.stringify(stored));
-    if (rememberApiKey) window.sessionStorage.removeItem(AI_SESSION_KEY); else window.sessionStorage.setItem(AI_SESSION_KEY, aiConfig.apiKey);
+    if (remembered) window.sessionStorage.removeItem(AI_SESSION_KEY);
+    else window.sessionStorage.setItem(AI_SESSION_KEY, aiConfig.apiKey);
+    setRememberApiKey(remembered);
     setConnectionVerified(false);
-    setShowSettings(false); setToast(aiReady ? `${aiConfig.model} 已启用` : "模型配置尚未完成，世界推演保持暂停");
+    setShowSettings(false);
+    setToast(!rememberApiKey || remembered
+      ? (aiReady ? `${aiConfig.model} 已启用` : "模型配置尚未完成，世界推演保持暂停")
+      : "系统安全存储不可用；密钥仅保留到本次会话结束");
   }
 
-  function clearSavedKey() {
+  async function clearSavedKey() {
+    try { await window.mistCredentials?.clear(); } catch { /* 本地状态仍然清除 */ }
     const stored = { ...aiConfig, apiKey: "", rememberKey: false };
     window.localStorage.setItem(AI_KEY, JSON.stringify(stored));
     window.sessionStorage.removeItem(AI_SESSION_KEY);
@@ -703,7 +732,7 @@ export default function CompleteGame() {
 
   if (entry === "title") return <>
     <TitleScreen hydrated={hydrated} hasSave={hasSave} save={game} onContinue={continueSavedGame} onNewGame={startNewGame} onSettings={() => setShowSettings(true)} onExport={() => downloadSave(game)} onImport={(file) => void importSave(file)} />
-    {showSettings && <div className="complete-sheet-backdrop title-settings-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="title-settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本地配置</p><h2 id="title-settings-title">模型、世界推演与设定资料</h2></div><button onClick={() => setShowSettings(false)} aria-label="关闭设置"><X size={17} /></button></header><AiSettings config={aiConfig} rememberKey={rememberApiKey} connection={connectionState} turnStages={turnStages} showDiagnostics={DEV_MODE} autoDecision={autoExecuteDecision} onAutoDecision={(value) => { setAutoExecuteDecision(value); window.localStorage.setItem("mist-chronicle-auto-decision", value ? "1" : "0"); }} draftPathway={draftPathway} onChange={(patch) => { setAiConfig((current) => ({ ...current, ...patch })); setConnectionState({ status: "idle", message: "配置已改变，请重新测试" }); setConnectionVerified(false); }} onRememberKey={setRememberApiKey} onTest={() => void testConnection()} onSave={saveSettings} onClearKey={clearSavedKey} onPathway={setDraftPathway} onNewGame={startNewGame} /></section></div>}
+    {showSettings && <div className="complete-sheet-backdrop title-settings-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="title-settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本地配置</p><h2 id="title-settings-title">模型、世界推演与设定资料</h2></div><button onClick={() => setShowSettings(false)} aria-label="关闭设置"><X size={17} /></button></header><AiSettings config={aiConfig} rememberKey={rememberApiKey} secureStorageAvailable={secureStorageAvailable} connection={connectionState} turnStages={turnStages} showDiagnostics={DEV_MODE} autoDecision={autoExecuteDecision} onAutoDecision={(value) => { setAutoExecuteDecision(value); window.localStorage.setItem("mist-chronicle-auto-decision", value ? "1" : "0"); }} draftPathway={draftPathway} onChange={(patch) => { setAiConfig((current) => ({ ...current, ...patch })); setConnectionState({ status: "idle", message: "配置已改变，请重新测试" }); setConnectionVerified(false); }} onRememberKey={setRememberApiKey} onTest={() => void testConnection()} onSave={() => void saveSettings()} onClearKey={() => void clearSavedKey()} onPathway={setDraftPathway} onNewGame={startNewGame} /></section></div>}
   </>;
 
   if (hydrated && !game.prologueComplete) return <main className="complete-game-shell prologue-only">
@@ -821,7 +850,7 @@ export default function CompleteGame() {
 
     {activeReaderChapter && <div className="complete-reader-backdrop" onMouseDown={() => { if (!generationStage) { setTurnChapter(null); setSelectedChapter(null); } }}><section className="complete-reader" role="dialog" aria-modal="true" aria-labelledby="reader-title" onMouseDown={(event) => event.stopPropagation()}><header className="reader-commandbar"><div><small>第 {activeReaderChapter.week} 周 · {activeReaderChapter.date}</small><span>{activeReaderChapter.source === "ai" ? "文学模式" : readerChapterCommitted ? "世界事实已保存 · 待补写文学章节" : "本周尚未结算 · 可原样重试"}</span></div><div><button onClick={() => setReaderScale((value) => Math.max(.9, value - .1))}>A−</button><button onClick={() => setReaderScale(1)}>A</button><button onClick={() => setReaderScale((value) => Math.min(1.25, value + .1))}>A＋</button><button onClick={() => { if (!generationStage) { setTurnChapter(null); setSelectedChapter(null); } }}><X size={16} /></button></div></header>{generationStage && <div className="reader-generation"><Sparkles size={15} /><span><strong>{activeReaderChapter.source === "ai" ? "文学章节正在校订" : "世界事实正在安全结算"}</strong><small>{generationStage}；完成的阶段不会因后续失败而重复。</small></span><i /><i /><i /></div>}{generationError && <div className="inline-warning reader-warning"><ShieldAlert size={14} />{generationError}</div>}<article className="reader-page" style={{ "--reader-scale": readerScale } as React.CSSProperties}><div className="folio"><span>灰雾纪事</span><i /><span>W{String(activeReaderChapter.week).padStart(2, "0")}</span></div><h1 id="reader-title">{activeReaderChapter.title}</h1>{activeReaderChapter.sections.map((section, index) => <section key={`${section.heading}-${index}`}><h2>{section.heading}</h2>{section.paragraphs.map((paragraph, paragraphIndex) => <p key={`${index}-${paragraphIndex}`}>{paragraph}</p>)}</section>)}<div className="reader-end"><CloudFog size={18} /><span>本章完</span></div></article>{activeReaderChapter.results.length > 0 && <details className="reader-appendix"><summary><span><ListTodo size={15} />行动、证据与规则附录</span><small>{activeReaderChapter.summary}</small></summary><div>{activeReaderChapter.results.map((result) => <article key={result.id}><header><strong>{result.title}</strong><b className={result.outcome}>{result.outcome}</b></header><p>{result.contract.rawIntent}</p><ul>{result.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul><footer><span>消化 +{result.digestionGain}</span><span>任务推进 +{result.missionProgress}%</span><span>资金 {result.resourceChanges.money}</span></footer></article>)}</div></details>}<footer className="reader-actions"><button onClick={() => { if (generationStage) return; setTurnChapter(null); setSelectedChapter(null); setView("archive"); }} disabled={Boolean(generationStage)}><Archive size={14} />进入纪事档案</button>{readerChapterCommitted && aiReady && <button className="reader-retry-literary" onClick={() => void retryLiteraryChapter(activeReaderChapter)} disabled={Boolean(generationStage)}><Sparkles size={14} />{activeReaderChapter.source === "ai" ? "安全重写文学章节" : "只补写文学章节"}</button>}<button className="complete-primary compact" onClick={() => { setTurnChapter(null); setSelectedChapter(null); }} disabled={Boolean(generationStage)}>{game.ending.phase === "finale" ? "返回终局作战桌" : game.ending.phase === "ended" ? "查看最终结局" : `继续第 ${game.week} 周`} <ArrowRight size={15} /></button></footer></section></div>}
 
-    {showSettings && <div className="complete-sheet-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本机配置</p><h2 id="settings-title">AI推演与新游戏</h2></div><button onClick={() => setShowSettings(false)} aria-label="关闭设置"><X size={17} /></button></header><AiSettings config={aiConfig} rememberKey={rememberApiKey} connection={connectionState} turnStages={turnStages} showDiagnostics={DEV_MODE} autoDecision={autoExecuteDecision} onAutoDecision={(value) => { setAutoExecuteDecision(value); window.localStorage.setItem("mist-chronicle-auto-decision", value ? "1" : "0"); }} draftPathway={draftPathway} onChange={(patch) => { setAiConfig((current) => ({ ...current, ...patch })); setConnectionState({ status: "idle", message: "配置已改变，请重新测试" }); setConnectionVerified(false); }} onRememberKey={setRememberApiKey} onTest={() => void testConnection()} onSave={saveSettings} onClearKey={clearSavedKey} onPathway={setDraftPathway} onNewGame={startNewGame} /></section></div>}
+    {showSettings && <div className="complete-sheet-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本机配置</p><h2 id="settings-title">AI推演与新游戏</h2></div><button onClick={() => setShowSettings(false)} aria-label="关闭设置"><X size={17} /></button></header><AiSettings config={aiConfig} rememberKey={rememberApiKey} secureStorageAvailable={secureStorageAvailable} connection={connectionState} turnStages={turnStages} showDiagnostics={DEV_MODE} autoDecision={autoExecuteDecision} onAutoDecision={(value) => { setAutoExecuteDecision(value); window.localStorage.setItem("mist-chronicle-auto-decision", value ? "1" : "0"); }} draftPathway={draftPathway} onChange={(patch) => { setAiConfig((current) => ({ ...current, ...patch })); setConnectionState({ status: "idle", message: "配置已改变，请重新测试" }); setConnectionVerified(false); }} onRememberKey={setRememberApiKey} onTest={() => void testConnection()} onSave={() => void saveSettings()} onClearKey={() => void clearSavedKey()} onPathway={setDraftPathway} onNewGame={startNewGame} /></section></div>}
 
     {chatMemberId && (() => {
       const member = game.members.find((item) => item.id === chatMemberId)!;

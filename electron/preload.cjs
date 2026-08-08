@@ -6,3 +6,9 @@ contextBridge.exposeInMainWorld("mistRag", {
   listChunkIds: () => ipcRenderer.invoke("rag:listChunkIds"),
   status: () => ipcRenderer.invoke("rag:status"),
 });
+
+contextBridge.exposeInMainWorld("mistCredentials", {
+  load: () => ipcRenderer.invoke("credentials:load"),
+  save: (apiKey) => ipcRenderer.invoke("credentials:save", apiKey),
+  clear: () => ipcRenderer.invoke("credentials:clear"),
+});

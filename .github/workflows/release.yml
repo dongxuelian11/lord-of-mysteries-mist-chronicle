@@ -1,24 +1,119 @@
-name: Build Windows Installer
+name: Build and publish Windows installer
 
 on:
   push:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   installer:
     runs-on: windows-latest
+    environment: release
+    env:
+      CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      KNOWLEDGE_SEED_URL: ${{ secrets.KNOWLEDGE_SEED_URL }}
+      KNOWLEDGE_SEED_SHA256: ${{ secrets.KNOWLEDGE_SEED_SHA256 }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+
+      - name: Validate protected release inputs
+        shell: pwsh
+        run: |
+          foreach ($name in @("CSC_LINK", "CSC_KEY_PASSWORD", "KNOWLEDGE_SEED_URL", "KNOWLEDGE_SEED_SHA256")) {
+            if ([string]::IsNullOrWhiteSpace((Get-Item "env:$name").Value)) {
+              throw "Missing required release secret: $name"
+            }
+          }
+
       - run: npm ci
-      - run: npm run build
-      - run: npx electron-builder --win nsis
+      - run: npm run release:verify
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Download and verify authorized knowledge seed
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "knowledge-seed.zip"
+          $expanded = Join-Path $env:RUNNER_TEMP "knowledge-seed"
+          Invoke-WebRequest -Uri $env:KNOWLEDGE_SEED_URL -OutFile $archive
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = $env:KNOWLEDGE_SEED_SHA256.Trim().ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Knowledge seed archive SHA-256 mismatch" }
+          Expand-Archive -LiteralPath $archive -DestinationPath $expanded -Force
+          $manifests = @(Get-ChildItem -LiteralPath $expanded -Filter seed-manifest.json -Recurse -File)
+          if ($manifests.Count -ne 1) { throw "Expected exactly one seed-manifest.json in the seed archive" }
+          $seedRoot = $manifests[0].Directory.FullName
+          New-Item -ItemType Directory -Force -Path private/rag/index | Out-Null
+          Copy-Item -Path (Join-Path $seedRoot "*") -Destination private/rag/index -Recurse -Force
+
+      - run: npm run release:verify:seed
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run bundle:budget
+      - run: npm audit --audit-level=high
+
+      - name: Build signed installer without implicit publishing
+        run: npx electron-builder --win nsis --publish never
+
+      - name: Verify Authenticode signature
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          $installers = @(Get-ChildItem -LiteralPath release -Filter "*-Setup-$version.exe" -File)
+          if ($installers.Count -ne 1) { throw "Expected exactly one installer, found $($installers.Count)" }
+          $signature = Get-AuthenticodeSignature -LiteralPath $installers[0].FullName
+          if ($signature.Status -ne "Valid") { throw "Installer signature is not valid: $($signature.Status)" }
+
+      - name: Smoke-test clean installer and bundled seed
+        run: npm run release:smoke
+
+      - name: Write source/installer provenance manifest
+        run: npm run release:provenance
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_COMMIT: ${{ github.sha }}
+
+      - name: Attest installer build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: release/*.exe
+
       - uses: actions/upload-artifact@v4
         with:
-          name: mist-chronicle-installer
-          path: release/*.exe
-          retention-days: 14
+          name: mist-chronicle-${{ github.ref_name }}
+          path: |
+            release/*.exe
+            release/provenance.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create or update GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          $assets = @(Get-ChildItem -LiteralPath release -File | Where-Object { $_.Name -like "*-Setup-$version.exe" -or $_.Name -eq "provenance.json" } | ForEach-Object { $_.FullName })
+          if (gh release view $env:GITHUB_REF_NAME *> $null) {
+            gh release upload $env:GITHUB_REF_NAME @assets --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME @assets --verify-tag --generate-notes --title "灰雾纪事 $env:GITHUB_REF_NAME"
+          }

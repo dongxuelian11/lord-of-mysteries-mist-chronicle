@@ -38,8 +38,9 @@ npm run dev
 
 ## 世界知识库说明
 
-原著设定知识库（`app/generated-lore-compendium.ts`）**不随开源仓库分发**，
-公共构建使用空壳占位，游戏仍可运行但不含原著专属知识。
+原始语料与生成期知识文件**不随开源仓库分发**；从源码直接构建且未提供
+`private/` 数据时使用空壳占位。正式签名安装包包含维护者确认有权分发的
+派生运行索引 seed，不包含原始 TXT、EPUB 或 Git 缓存。
 
 维护者私有流程：
 
@@ -140,13 +141,16 @@ npm run build
 npm run dist:win
 ```
 
-产物：`release/灰雾纪事-Setup-<version>.exe`（NSIS 安装包，未签名，
-分发时请保留 LICENSE 与 NOTICE）。
+本地命令产物：`release/灰雾纪事-Setup-<version>.exe`。正式版本由 tag 触发
+发布流水线，要求 tag 与 `package.json` 版本完全一致，并完成授权 seed 哈希
+校验、Windows 代码签名、干净安装启动测试及 GitHub provenance attestation。
+发布配置见 [docs/releasing.md](./docs/releasing.md)。
 
 ## 测试与 QA
 
 ```powershell
 npm run lint
+npm run typecheck
 npm test
 ```
 

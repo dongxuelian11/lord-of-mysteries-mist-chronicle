@@ -33,6 +33,7 @@ function readJson(file) {
 
 function buildSeedManifest(indexDir, extra = {}) {
   const meta = readJson(path.join(indexDir, "index.meta.json"));
+  const appPackage = readJson(path.join(__dirname, "..", "package.json"));
   if (!meta || !meta.chunks) throw new Error("索引 meta 缺失，无法生成 seed manifest");
   const files = {};
   for (const name of SEED_FILES) {
@@ -56,7 +57,7 @@ function buildSeedManifest(indexDir, extra = {}) {
       ? sha256(fs.readFileSync(sourceManifestPath))
       : "missing",
     seedVersion: corpusVersion,
-    minAppVersion: "0.1.0",
+    minAppVersion: appPackage?.version ?? "0.0.0",
     files,
     ...extra,
   };

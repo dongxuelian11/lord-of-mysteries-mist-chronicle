@@ -1,6 +1,6 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
-import { sites } from "./build/sites-vite-plugin";
+import { sites } from "./build/sites-vite-plugin.ts";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -52,6 +52,35 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    build: {
+      rolldownOptions: {
+        output: {
+          codeSplitting: {
+            groups: [
+              {
+                name: "react-runtime",
+                test: /node_modules[\\/](?:react|react-dom|scheduler)[\\/]/,
+                priority: 30,
+              },
+              {
+                name: "game-engine",
+                test: /app[\\/](?:game-engine|game-model|ability-system|council-ai|finale-system|progression-system|pathway-abilities|fate|memory|rag)[\\/.-]/,
+                minSize: 40_000,
+                maxSize: 320_000,
+                priority: 20,
+              },
+              {
+                name: "game-ui",
+                test: /app[\\/](?:ai-settings|ability-console|great-smog-finale|investigation-board|opening-prologue|organization-operations|title-screen|weekly-council)\.tsx$/,
+                minSize: 40_000,
+                maxSize: 260_000,
+                priority: 10,
+              },
+            ],
+          },
+        },
+      },
+    },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,

@@ -21,14 +21,19 @@ import {
 import { buildFateContract, twistFor } from "./contract.ts";
 import { isFateEligible } from "./eligibility.ts";
 import { createInitialFateState, pressureGain, riskClassFor } from "./pressure.ts";
-import { fateSeed, rollFateDecision, selectSeverity, stableHash } from "./roll.ts";
+import {
+  fateSeed,
+  rollFateDecision,
+  selectSeverity,
+  stableHash,
+  type FateDecision,
+} from "./roll.ts";
 import { selectFateTemplate } from "./selector.ts";
 import { fateTemplates, safeFallbackFor } from "./templates.ts";
 import { recordFateTraceFromContract } from "./trace.ts";
 import type {
   FateAberrationContract,
   FateAberrationState,
-  FateDecision,
   FateRiskClass,
 } from "./types.ts";
 
@@ -168,10 +173,11 @@ export function resolveFateAberration(options: FateResolveOptions): FateAberrati
 
   const polarity = decision.polarity ?? "boon";
   const twist = decision.triggered ? twistFor(polarity, abilityContract.result) : undefined;
+  const forcedTemplateId = options.force?.templateId;
   const template = decision.triggered && twist
-    ? (options.force?.templateId
+    ? (forcedTemplateId
         // 模板执行失败不得重新抽取：直接使用确定性安全兜底。
-        ? fateTemplates().find((item) => item.id === options.force.templateId) ?? safeFallbackFor(twist)
+        ? fateTemplates().find((item) => item.id === forcedTemplateId) ?? safeFallbackFor(twist)
         : selectFateTemplate(fateTemplates(), {
             definition,
             contract: abilityContract,

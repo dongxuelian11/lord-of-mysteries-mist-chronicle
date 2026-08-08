@@ -11,18 +11,20 @@ files:
 extraResources:
   - from: node_modules/vinext
     to: vinext
-  - from: private/rag/index
+  - from: .runtime/release-seed
     to: knowledge/seed
-    filter:
-      - index.meta.json
-      - chunks.json
-      - documents.json
-      - inverted.json
-      - alias-map.json
-      - seed-manifest.json
-asar: false
+asar: true
+asarUnpack:
+  # The production server and RAG worker run as child processes and therefore
+  # need real filesystem paths. Everything else remains inside app.asar.
+  - dist/**
+  - electron/server.mjs
+  - electron/rag-worker.mjs
+  - scripts/rag/lib/**
 win:
   icon: build/icon.png
+  signAndEditExecutable: true
+  verifyUpdateCodeSignature: true
   target:
     - target: nsis
       arch:

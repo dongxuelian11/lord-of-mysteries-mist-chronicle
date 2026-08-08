@@ -344,6 +344,7 @@ function resolveImmediateAbilityWithEngine(
       protectionRelief: 0,
     },
     controlState: game.control ?? createInitialControlState(),
+    fateContract,
     eligibleIndex: (game.abilityJournal?.length ?? 0) + 1,
   });
   const controlErrors = validateControlContract(controlContract);

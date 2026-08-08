@@ -3,7 +3,7 @@
 //   1. 启动内置生产服务器（ELECTRON_RUN_AS_NODE 子进程）
 //   2. 打开游戏窗口
 //   3. 关闭窗口时杀掉整个进程树，确保无后台残留
-const { app, BrowserWindow, dialog, ipcMain, utilityProcess } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, utilityProcess } = require("electron");
 const { spawn, execFileSync } = require("node:child_process");
 const http = require("node:http");
 const net = require("node:net");
@@ -14,7 +14,11 @@ const { deploySeed } = require("./knowledge-seed.cjs");
 
 const isWindows = process.platform === "win32";
 const appRoot = path.join(__dirname, "..");
-const serverScript = path.join(__dirname, "server.mjs");
+const runtimeAppRoot = app.isPackaged
+  ? path.join(process.resourcesPath, "app.asar.unpacked")
+  : appRoot;
+const runtimeElectronDir = path.join(runtimeAppRoot, "electron");
+const serverScript = path.join(runtimeElectronDir, "server.mjs");
 
 // 允许通过环境变量指定用户数据目录（便携/隔离测试用）
 if (process.env.GMZZ_USER_DATA) {
@@ -46,6 +50,64 @@ const ragIpc = createRagIpc({
 });
 
 const log = (...args) => console.log("[gmzz]", ...args);
+const credentialFile = () => path.join(app.getPath("userData"), "ai-credentials.json");
+
+async function credentialEncryptionAvailable() {
+  const available = typeof safeStorage.isAsyncEncryptionAvailable === "function"
+    ? await safeStorage.isAsyncEncryptionAvailable()
+    : safeStorage.isEncryptionAvailable();
+  if (!available) return false;
+  return !(process.platform === "linux" && safeStorage.getSelectedStorageBackend?.() === "basic_text");
+}
+
+async function saveCredential(apiKey) {
+  if (typeof apiKey !== "string" || !apiKey.trim() || apiKey.length > 32768) {
+    throw new Error("invalid-api-key");
+  }
+  if (!(await credentialEncryptionAvailable())) throw new Error("secure-storage-unavailable");
+  const encrypted = typeof safeStorage.encryptStringAsync === "function"
+    ? await safeStorage.encryptStringAsync(apiKey)
+    : safeStorage.encryptString(apiKey);
+  const target = credentialFile();
+  const temporary = `${target}.tmp`;
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(temporary, JSON.stringify({ version: 1, encrypted: encrypted.toString("base64") }), { mode: 0o600 });
+  try { fs.rmSync(target, { force: true }); } catch { /* first save */ }
+  fs.renameSync(temporary, target);
+  return { available: true, saved: true };
+}
+
+async function loadCredential() {
+  const available = await credentialEncryptionAvailable();
+  if (!available) return { available: false, apiKey: "" };
+  const target = credentialFile();
+  if (!fs.existsSync(target)) return { available: true, apiKey: "" };
+  try {
+    const payload = JSON.parse(fs.readFileSync(target, "utf8"));
+    if (payload.version !== 1 || typeof payload.encrypted !== "string") throw new Error("invalid-credential-file");
+    const encrypted = Buffer.from(payload.encrypted, "base64");
+    if (typeof safeStorage.decryptStringAsync === "function") {
+      const decrypted = await safeStorage.decryptStringAsync(encrypted);
+      if (decrypted.shouldReEncrypt) await saveCredential(decrypted.result);
+      return { available: true, apiKey: decrypted.result };
+    }
+    return { available: true, apiKey: safeStorage.decryptString(encrypted) };
+  } catch (error) {
+    log("无法读取系统加密的 AI 凭据:", error?.message ?? error);
+    return { available: true, apiKey: "", error: "credential-decryption-failed" };
+  }
+}
+
+function clearCredential() {
+  fs.rmSync(credentialFile(), { force: true });
+  return { available: true, cleared: true };
+}
+
+function registerCredentialIpc() {
+  ipcMain.handle("credentials:load", () => loadCredential());
+  ipcMain.handle("credentials:save", (_event, apiKey) => saveCredential(apiKey));
+  ipcMain.handle("credentials:clear", () => clearCredential());
+}
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -144,7 +206,7 @@ function ensureBundledKnowledge() {
 
 function startRagWorker() {
   if (ragWorker) return;
-  const workerPath = path.join(__dirname, "rag-worker.mjs");
+  const workerPath = path.join(runtimeElectronDir, "rag-worker.mjs");
   ragWorker = utilityProcess.fork(workerPath, [], {
     env: {
       ...process.env,
@@ -219,14 +281,14 @@ async function startServer() {
 
   log(`启动生产服务器（端口 ${serverPort}）…`);
   serverProc = spawn(process.execPath, [serverScript], {
-    cwd: appRoot,
+    cwd: runtimeAppRoot,
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
       NODE_ENV: "production",
       GMZZ_PORT: String(serverPort),
       GMZZ_HOST: "127.0.0.1",
-      GMZZ_OUT_DIR: path.join(appRoot, "dist"),
+      GMZZ_OUT_DIR: path.join(runtimeAppRoot, "dist"),
       GMZZ_VINEXT_DIR: vinextDir,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -343,6 +405,7 @@ if (!gotLock) {
     ensureBundledKnowledge();
     startRagWorker();
     registerRagIpc();
+    registerCredentialIpc();
     const url = await startServer();
     if (!url) return;
 

@@ -56,8 +56,8 @@ export function buildMemoryIndexes(state: DynamicMemoryState): MemoryIndexes {
     plansByCharacter: new Map(),
     audienceByKey: new Map(),
   };
-  const push = (map: Map<string, string[]>, key: string, id: string) => {
-    if (!key) return;
+  const push = <K extends string | number>(map: Map<K, string[]>, key: K, id: string) => {
+    if (key === "") return;
     const list = map.get(key) ?? [];
     list.push(id);
     map.set(key, list);

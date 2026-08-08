@@ -174,8 +174,9 @@ npm run rag:longrun
 npm run rag:export
 ```
 
-`private/` 被 Git 忽略；不要把私有正文、API Key 或索引提交到公共仓库。
-安装包内不包含完整私有索引（桌面版从用户目录加载，未导出时回退旧版语料）。
+`private/` 被 Git 忽略；不要把原始正文、API Key 或生成期索引提交到公共仓库。
+维护者确认有权分发的正式安装包包含经过 manifest 与逐文件 SHA-256 校验的
+运行索引 seed；源码构建未提供 seed 时从用户目录加载并回退到公共空壳。
 
 ## 已知边界
 
