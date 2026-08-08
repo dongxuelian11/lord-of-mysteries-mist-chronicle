@@ -159,7 +159,9 @@ jobs:
           }
           $assets = @($portableName, (Join-Path (Resolve-Path release) "provenance.json"))
 
-          if (gh release view $env:RELEASE_TAG *> $null) {
+          gh release view $env:RELEASE_TAG *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+          if ($releaseExists) {
             gh release upload $env:RELEASE_TAG @assets --clobber
             if ($env:UNSIGNED_PRERELEASE -eq "true") {
               gh release edit $env:RELEASE_TAG --prerelease
