@@ -7,7 +7,7 @@ export const WORLD_ADJUDICATOR_SYSTEM = `你是《灰雾纪事》的持续世界
 允许真正安静的一周。等待、观察、休整或隐藏可以不形成事件。公开信息只能通过报纸、街谈、通告、行业消息、私人来信或可感知征兆进入玩家视野。只返回严格 JSON。`;
 
 export function buildWorldAdjudicatorPrompt(payload: unknown, kernelProtocol: string) {
-  return `裁决本周 autonomousAgentProposals 与玩家已经锁定的行动结果。
+  return `裁决本周 adjudicatorWorld.proposals 与玩家已经锁定的行动结果。
 
 约束：
 - 只有确实改变状态或发生相互作用的提案才形成事件；events、factionMoves、canonMoves、projectUpdates 都可以为空。

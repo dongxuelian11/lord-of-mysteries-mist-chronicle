@@ -95,11 +95,16 @@ export function validateAgentProposal(value: unknown, frame: AutonomousDecisionF
   const rationale = shortText(input.rationale, 480);
   if (!intent) return { issue: "缺少本周意图" };
   if (!rationale) return { issue: "缺少依据" };
-  const requiredKnowledgeIds = stringList(input.requiredKnowledgeIds, 16);
   const allowedKnowledgeIds = new Set(frame.knownKnowledgeIds);
-  const unknownKnowledge = requiredKnowledgeIds.find((id) => !allowedKnowledgeIds.has(id));
+  const explicitKnowledgeIds = stringList(input.requiredKnowledgeIds, 16);
+  const unknownKnowledge = explicitKnowledgeIds.find((id) => !allowedKnowledgeIds.has(id));
   if (unknownKnowledge) return { issue: `引用了自身不可见的知识：${unknownKnowledge}` };
-  const targetRefs = stringList(input.targetRefs, 12);
+  const rawTargetRefs = stringList(input.targetRefs, 12);
+  // 模型偶尔会把自身可见的 knowledge id 放进 targetRefs。它表达的是依据而非行动目标，
+  // 因此确定性地归位到 requiredKnowledgeIds；未知裸 id 仍然拒绝，不能猜测实体类型。
+  const misplacedKnowledgeIds = rawTargetRefs.filter((ref) => allowedKnowledgeIds.has(ref));
+  const requiredKnowledgeIds = [...new Set([...explicitKnowledgeIds, ...misplacedKnowledgeIds])].slice(0, 16);
+  const targetRefs = rawTargetRefs.filter((ref) => !allowedKnowledgeIds.has(ref));
   const invalidTarget = targetRefs.find((ref) => !targetRefPattern.test(ref));
   if (invalidTarget) return { issue: `目标引用格式无效：${invalidTarget}` };
   const locationId = shortText(input.locationId, 80) || undefined;
@@ -237,4 +242,119 @@ export function assertWorldAdjudicatorPayloadBudget(payload: unknown, maximum = 
     throw new Error(`世界裁决投影超过字符预算：${characters}/${maximum}；必须先缩小相关性投影，禁止发送无界 Prompt`);
   }
   return characters;
+}
+
+function trimPayloadArray(container: Record<string, unknown> | null, key: string, maximum: number, newest = false) {
+  if (!container || !Array.isArray(container[key])) return;
+  const values = container[key] as unknown[];
+  container[key] = newest ? values.slice(-maximum) : values.slice(0, maximum);
+}
+
+function trimPayloadText(container: Record<string, unknown>, key: string, maximum: number) {
+  if (typeof container[key] === "string" && container[key].length > maximum) container[key] = container[key].slice(0, maximum);
+}
+
+function compactOptionalValue(value: unknown, maximumText: number, depth = 0): unknown {
+  if (typeof value === "string") return value.length > maximumText ? value.slice(0, maximumText) : value;
+  if (depth >= 5) return value;
+  if (Array.isArray(value)) return value.map((item) => compactOptionalValue(item, maximumText, depth + 1));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, compactOptionalValue(item, maximumText, depth + 1)]));
+}
+
+function compactPayloadArrayText(container: Record<string, unknown> | null, key: string, maximumText: number) {
+  if (!container || !Array.isArray(container[key])) return;
+  container[key] = (container[key] as unknown[]).map((item) => compactOptionalValue(item, maximumText));
+}
+
+export function fitWorldAdjudicatorPayload<T extends Record<string, unknown>>(input: T, maximum = WORLD_ADJUDICATOR_PAYLOAD_CHAR_LIMIT): T {
+  const payload = JSON.parse(JSON.stringify(input)) as Record<string, unknown>;
+  if (JSON.stringify(payload).length <= maximum) return payload as T;
+
+  trimPayloadArray(payload, "recentWorld", 2);
+  trimPayloadArray(payload, "recentSignals", 6);
+  trimPayloadArray(payload, "knownEvidence", 16, true);
+  trimPayloadArray(payload, "pivots", 8, true);
+  trimPayloadArray(payload, "timeline", 16, true);
+  trimPayloadArray(payload, "factions", 12);
+  trimPayloadArray(payload, "canonActors", 12);
+  trimPayloadText(payload, "dynamicMemory", 7_000);
+  trimPayloadText(payload, "authorizedLore", 10_000);
+  trimPayloadText(payload, "designerSupplement", 4_000);
+
+  const organization = recordOf(payload.organizationState);
+  trimPayloadArray(organization, "formulas", 16, true);
+  trimPayloadArray(organization, "branches", 12, true);
+  trimPayloadArray(organization, "members", 10);
+  trimPayloadArray(organization, "recruits", 8);
+  trimPayloadArray(organization, "unresolvedIssues", 10, true);
+
+  const strategy = recordOf(payload.factionStrategy);
+  trimPayloadArray(strategy, "diplomacy", 20, true);
+  trimPayloadArray(strategy, "latestOutcomes", 8, true);
+
+  const adjudicator = recordOf(payload.adjudicatorWorld);
+  trimPayloadArray(adjudicator, "recentEvents", 28, true);
+  trimPayloadArray(adjudicator, "projects", 24);
+  trimPayloadArray(adjudicator, "locations", 12);
+
+  if (JSON.stringify(payload).length > maximum) {
+    trimPayloadText(payload, "dynamicMemory", 4_000);
+    trimPayloadText(payload, "authorizedLore", 6_000);
+    trimPayloadText(payload, "designerSupplement", 1_500);
+    trimPayloadArray(adjudicator, "recentEvents", 16, true);
+    trimPayloadArray(adjudicator, "projects", 16);
+  }
+
+  // 长线世界的最后一级相关性投影。当前行动契约与独立 Agent 提案是裁决输入，
+  // 永不在这里裁剪；只继续收缩可由持久账本恢复的历史、旁支实体与参考资料。
+  if (JSON.stringify(payload).length > maximum) {
+    trimPayloadArray(payload, "recentWorld", 1);
+    trimPayloadArray(payload, "recentSignals", 4);
+    trimPayloadArray(payload, "knownEvidence", 8, true);
+    trimPayloadArray(payload, "pivots", 4, true);
+    trimPayloadArray(payload, "timeline", 8, true);
+    trimPayloadArray(payload, "factions", 8);
+    trimPayloadArray(payload, "canonActors", 8);
+    trimPayloadText(payload, "dynamicMemory", 2_000);
+    trimPayloadText(payload, "authorizedLore", 3_500);
+    trimPayloadText(payload, "designerSupplement", 500);
+
+    trimPayloadArray(organization, "offices", 8);
+    trimPayloadArray(organization, "formulas", 10, true);
+    trimPayloadArray(organization, "branches", 8, true);
+    trimPayloadArray(organization, "departments", 8);
+    trimPayloadArray(organization, "members", 8);
+    trimPayloadArray(organization, "recruits", 6);
+    trimPayloadArray(organization, "unresolvedIssues", 6, true);
+
+    trimPayloadArray(strategy, "profiles", 10);
+    trimPayloadArray(strategy, "diplomacy", 12, true);
+    trimPayloadArray(strategy, "latestOutcomes", 5, true);
+
+    trimPayloadArray(adjudicator, "actors", 12);
+    trimPayloadArray(adjudicator, "factions", 10);
+    trimPayloadArray(adjudicator, "recentEvents", 10, true);
+    trimPayloadArray(adjudicator, "projects", 12);
+    trimPayloadArray(adjudicator, "locations", 8);
+
+    const campaign = recordOf(payload.campaignWorld);
+    trimPayloadArray(campaign, "stages", 4);
+    trimPayloadArray(campaign, "recentEvents", 8, true);
+
+    const highSequence = recordOf(payload.highSequenceLedger);
+    trimPayloadArray(highSequence, "characteristics", 24, true);
+    trimPayloadArray(highSequence, "uniquenesses", 10);
+    trimPayloadArray(highSequence, "sefirot", 5);
+    trimPayloadArray(highSequence, "recentEvents", 10, true);
+
+    for (const key of ["recentWorld", "recentSignals", "knownEvidence", "pivots", "timeline", "factions", "canonActors"]) compactPayloadArrayText(payload, key, 240);
+    for (const key of ["offices", "formulas", "branches", "departments", "members", "recruits", "unresolvedIssues"]) compactPayloadArrayText(organization, key, 240);
+    for (const key of ["profiles", "diplomacy", "latestOutcomes"]) compactPayloadArrayText(strategy, key, 240);
+    for (const key of ["actors", "factions", "recentEvents", "projects", "locations"]) compactPayloadArrayText(adjudicator, key, 240);
+    for (const key of ["stages", "recentEvents"]) compactPayloadArrayText(campaign, key, 240);
+    for (const key of ["characteristics", "uniquenesses", "sefirot", "recentEvents"]) compactPayloadArrayText(highSequence, key, 240);
+  }
+  assertWorldAdjudicatorPayloadBudget(payload, maximum);
+  return payload as T;
 }

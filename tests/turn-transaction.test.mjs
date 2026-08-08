@@ -131,6 +131,53 @@ test("a quiet week commits with a fixed newspaper and no fabricated world events
   }
 });
 
+test("repeated public news is repaired locally without rerunning world adjudication", async () => {
+  const { engine, model } = await loadGameModules();
+  const game = model.createInitialGame("spectator");
+  const resolved = engine.resolveWeek(game);
+  const envelope = worldEnvelope(resolved.state, resolved.chapter);
+  resolved.state.worldSignals = envelope.publicSignals.map((signal, index) => ({
+    ...signal,
+    id: `prior-signal-${index}`,
+    week: Math.max(0, resolved.state.week - 1),
+  }));
+  const repairedSignals = [
+    { channel: "报纸", headline: "皇后区慈善厨房延长开放时间", body: "三处慈善厨房本周将在晚间多开放一小时，登记处提醒领取者携带原有凭证。", reliability: "公开事实", districtId: "queens" },
+    { channel: "行业消息", headline: "北区钟表行调整学徒考试", body: "钟表匠协会把本季学徒考试移至周六上午，报名费用与考核章程维持不变。", reliability: "公开事实", districtId: "north" },
+  ];
+  const baseFetch = worldModelFetch(envelope);
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  let adjudicatorCalls = 0;
+  let publicSignalRepairCalls = 0;
+  globalThis.window = globalThis;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    const user = body.messages?.at(-1)?.content ?? "";
+    if (user.includes("本周世界事实已经完成裁决并被冻结")) {
+      publicSignalRepairCalls += 1;
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify({ publicSignals: repairedSignals }) } }] }) };
+    }
+    if (!user.includes("为这个主体独立形成同一周起点上的提案")) adjudicatorCalls += 1;
+    return baseFetch(url, init);
+  };
+  try {
+    const committed = await engine.generateAiWorldDelta(
+      { provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" },
+      resolved.state,
+      resolved.chapter,
+      () => {},
+    );
+    assert.equal(adjudicatorCalls, 1, "accepted world facts must not be adjudicated again");
+    assert.equal(publicSignalRepairCalls, 1);
+    assert.deepEqual(committed.worldSignals.slice(0, 2).map((signal) => signal.headline), repairedSignals.map((signal) => signal.headline));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
 test("one agent failing twice prevents adjudication and leaves the week uncommitted", async () => {
   const { engine, model } = await loadGameModules();
   const { generateAiWorldDelta, resolveWeek } = engine;
@@ -291,6 +338,7 @@ test("negated compliant phrasing does not trigger red-line rejection", async () 
   const contract = localContract({ intent: "只整理本周报纸与公开失踪记录，不接触任何人，也不使用黑玻璃挂坠。", game, leaderId: "organization", districtId: "cherwood", abilityIds: [] });
   assert.equal(actionTextBoundaryIssue("伊妮丝没有接触任何人，没有使用黑玻璃挂坠，只留在事务所内比对公开报纸。", game, contract), null);
   assert.equal(actionTextBoundaryIssue("伊妮丝未进入任何档案室，只在门外记录了出入时间。", game, contract), null);
+  assert.equal(actionTextBoundaryIssue("伊妮丝在事务所内比对公开报纸。另一版报纸称嫌疑人曾接触码头工人。", game, contract), null);
   assert.ok(actionTextBoundaryIssue("伊妮丝前往档案室询问书记员，并触碰黑玻璃挂坠。", game, contract));
 });
 
@@ -351,7 +399,90 @@ test("the world turn refuses an AI field report that crosses the player's red li
   globalThis.window = globalThis;
   globalThis.fetch = worldModelFetch(envelope);
   try {
-    await assert.rejects(() => generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {}), /越过/);
+    await assert.rejects(() => generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {}), /越过|局部修复/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("an overreaching action report is repaired alone while adjudicated world facts stay frozen", async () => {
+  const { engine, model } = await loadGameModules();
+  let game = model.createInitialGame("spectator");
+  const contract = engine.localContract({ intent: "请情报负责人只整理本周报纸与公开失踪记录，不接触任何人。", game, leaderId: "organization", districtId: "cherwood", abilityIds: [] });
+  game = { ...game, schedule: [engine.scheduleContract(game, contract)] };
+  const resolved = engine.resolveWeek(game);
+  const result = resolved.chapter.results[0];
+  const envelope = worldEnvelope(resolved.state, resolved.chapter);
+  envelope.actionReports = [{ actionId: result.id, fieldReport: "伊妮丝进入档案室询问书记员。", observableFacts: ["书记员提供一张名册。", "她抄录了其中地址。"], followUp: "继续盘问工头。" }];
+  const baseFetch = worldModelFetch(envelope);
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  let adjudicatorCalls = 0;
+  let reportRepairCalls = 0;
+  globalThis.window = globalThis;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    const user = body.messages?.at(-1)?.content ?? "";
+    if (user.includes("这份行动报告必须在不重算世界")) {
+      reportRepairCalls += 1;
+      const actionReport = {
+        actionId: result.id,
+        fieldReport: "伊妮丝全程留在组织据点，只比对已经持有的公开报纸与警察厅通告。",
+        observableFacts: ["三份报纸对同一失踪日期的记载相差一天。", "公开通告中的姓名拼写与报纸版本存在一处差异。"],
+        followUp: "下一周可继续核对组织已经持有的公开材料。",
+      };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify({ actionReport }) } }] }) };
+    }
+    if (!user.includes("为这个主体独立形成同一周起点上的提案")) adjudicatorCalls += 1;
+    return baseFetch(url, init);
+  };
+  try {
+    const committed = await engine.generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {});
+    const committedResult = committed.chronicle.find((item) => item.id === resolved.chapter.id).results[0];
+    assert.equal(adjudicatorCalls, 1);
+    assert.equal(reportRepairCalls, 1);
+    assert.match(committedResult.reasons.join(" "), /全程留在组织据点/);
+    assert.doesNotMatch(committedResult.reasons.join(" "), /询问书记员/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("literary continuity rewrites only an overreaching paragraph", async () => {
+  const { engine, model } = await loadGameModules();
+  let game = model.createInitialGame("spectator");
+  const contract = engine.localContract({ intent: "请情报负责人只整理本周报纸与公开失踪记录，不接触任何人。", game, leaderId: "organization", districtId: "cherwood", abilityIds: [] });
+  game = { ...game, schedule: [engine.scheduleContract(game, contract)] };
+  const resolved = engine.resolveWeek(game);
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  let writerCalls = 0;
+  let paragraphRepairCalls = 0;
+  globalThis.window = globalThis;
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    const user = body.messages?.at(-1)?.content ?? "";
+    const content = user.includes("只重写这一段")
+      ? (paragraphRepairCalls += 1, { paragraph: "伊妮丝留在组织据点，把已经持有的三份报纸按日期排开，逐项标记公开记载之间的差异。" })
+      : (writerCalls += 1, { title: "纸面差异", sections: [{ heading: "煤气灯下", paragraphs: ["会长在议事桌旁等待。", "伊妮丝前往警察厅询问书记员，并抄录了一份内部名册。"] }] });
+    return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }) };
+  };
+  try {
+    const chapter = await engine.generateLiteraryChapter(
+      { provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model", quality: "balanced" },
+      resolved.state,
+      resolved.chapter,
+      () => {},
+    );
+    assert.equal(writerCalls, 1);
+    assert.equal(paragraphRepairCalls, 1);
+    assert.equal(chapter.sections[0].paragraphs[0], "会长在议事桌旁等待。");
+    assert.match(chapter.sections[0].paragraphs[1], /留在组织据点/);
+    assert.doesNotMatch(chapter.sections[0].paragraphs.join(" "), /询问书记员|内部名册/);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) delete globalThis.window;

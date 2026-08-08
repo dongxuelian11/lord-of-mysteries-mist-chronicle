@@ -75,7 +75,11 @@ async function readStreamedContent(response: Response, onToken?: (text: string) 
     const { done, value } = await reader.read();
     if (done) break;
     const chunk = decoder.decode(value, { stream: true });
-    if (sseMode === null) sseMode = (raw + chunk).trimStart().startsWith("data:");
+    if (sseMode === null) {
+      const first = (raw + chunk).trimStart();
+      const contentType = response.headers?.get?.("content-type") ?? "";
+      sseMode = /text\/event-stream/i.test(contentType) || first.startsWith("data:") || first.startsWith(":") || first.startsWith("event:");
+    }
     if (sseMode) {
       buffer += chunk;
       let index: number;
@@ -87,6 +91,7 @@ async function readStreamedContent(response: Response, onToken?: (text: string) 
       raw += chunk;
     }
   }
+  if (sseMode && buffer.trim()) finishSseLine(buffer);
   if (sseMode === false) {
     // 兼容不返回 SSE 的服务端（直接返回 JSON）
     const payload = JSON.parse(raw) as { choices?: { message?: { content?: unknown } }[] };

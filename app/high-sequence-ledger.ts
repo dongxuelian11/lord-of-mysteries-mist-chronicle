@@ -97,6 +97,21 @@ export function ensureHighSequenceLedger(value?: Partial<HighSequenceLedger> | n
   };
 }
 
+export function projectHighSequenceLedgerForSimulation(ledger: HighSequenceLedger, pathwayId: StandardPathwayId) {
+  const located = (holderRef: HighAssetHolderRef) => holderRef !== "unlocated";
+  return {
+    version: ledger.version,
+    characteristics: ledger.characteristics,
+    uniquenesses: ledger.uniquenesses.filter((item) => item.pathwayIds.includes(pathwayId) || located(item.holderRef)),
+    sefirot: ledger.sefirot.filter((item) => item.pathwayIds.includes(pathwayId) || located(item.holderRef)),
+    recentEvents: ledger.events.slice(-24),
+    omittedUnlocatedAssets: {
+      uniquenesses: ledger.uniquenesses.filter((item) => !item.pathwayIds.includes(pathwayId) && !located(item.holderRef)).length,
+      sefirot: ledger.sefirot.filter((item) => !item.pathwayIds.includes(pathwayId) && !located(item.holderRef)).length,
+    },
+  };
+}
+
 function ledgerEvent(week: number, assetId: string, action: HighSequenceLedgerEvent["action"], sourceEventId: string, fromHolderRef?: HighAssetHolderRef, toHolderRef?: HighAssetHolderRef): HighSequenceLedgerEvent {
   return { id: `high-ledger:${week}:${assetId}:${action}:${sourceEventId}`, week, assetId, action, sourceEventId, fromHolderRef, toHolderRef };
 }

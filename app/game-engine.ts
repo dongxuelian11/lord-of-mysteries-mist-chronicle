@@ -59,6 +59,7 @@ import {
 import {
   assertWorldAdjudicatorPayloadBudget,
   buildAdjudicatorProjection,
+  fitWorldAdjudicatorPayload,
   planActiveAgentsIndependently,
   type AgentProposal,
   type AgentPlanningProjection,
@@ -66,9 +67,13 @@ import {
 import { buildWorldAdjudicatorPrompt, WORLD_ADJUDICATOR_SYSTEM } from "./world-adjudicator-prompt.ts";
 import { resolveFactionStrategyRound } from "./faction-strategy.ts";
 import { participationSceneModelView, type ParticipationScene } from "./participation-scene.ts";
-import { applyHighSequenceActionResults, highSequenceAdvancementRequirement, incorporateAdvancementAsset } from "./high-sequence-ledger.ts";
+import { applyHighSequenceActionResults, highSequenceAdvancementRequirement, incorporateAdvancementAsset, projectHighSequenceLedgerForSimulation } from "./high-sequence-ledger.ts";
 import { advanceCampaignWorld, applyCampaignActionResults, applyCampaignSignals, campaignWeeklyYield, projectCampaignWorldForSimulation } from "./campaign-world.ts";
+import { extractJson, textSimilarity } from "./model-output.ts";
+import { actionTextBoundaryIssue } from "./action-boundaries.ts";
+import { repairActionReports, requestWorldEnvelope } from "./world-envelope.ts";
 export type { AiConfig } from "./ai-client";
+export { actionTextBoundaryIssue } from "./action-boundaries.ts";
 export const callModel = invokeModel;
 const uncommittedAgentProposalCache = new WeakMap<GameState, Map<string, AgentProposal>>();
 
@@ -91,116 +96,6 @@ function hash(value: string) {
     output = Math.imul(output, 16777619);
   }
   return Math.abs(output >>> 0);
-}
-
-function extractJson(raw: string) {
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? raw;
-  const start = fenced.indexOf("{");
-  const end = fenced.lastIndexOf("}");
-  if (start < 0 || end <= start) throw new Error("模型没有返回可解析的JSON");
-  const candidate = fenced.slice(start, end + 1);
-  try {
-    return JSON.parse(candidate) as Record<string, unknown>;
-  } catch (error) {
-    // Models occasionally emit literal newlines or tabs inside JSON strings.
-    // Escaping only control characters that occur while a string is open keeps
-    // the structure intact and avoids spending another full world turn request.
-    let repaired = "";
-    let inString = false;
-    let escaped = false;
-    for (const character of candidate) {
-      if (escaped) { repaired += character; escaped = false; continue; }
-      if (character === "\\" && inString) { repaired += character; escaped = true; continue; }
-      if (character === '"') { repaired += character; inString = !inString; continue; }
-      if (inString && character.charCodeAt(0) < 32) {
-        repaired += character === "\n" ? "\\n" : character === "\r" ? "\\r" : character === "\t" ? "\\t" : " ";
-        continue;
-      }
-      repaired += character;
-    }
-    try { return JSON.parse(repaired) as Record<string, unknown>; }
-    catch { throw error; }
-  }
-}
-
-function textSimilarity(left: string, right: string) {
-  const normalize = (value: string) => value.toLowerCase().replace(/[\d\s\p{P}\p{S}]/gu, "");
-  const grams = (value: string) => {
-    const clean = normalize(value);
-    const output = new Set<string>();
-    for (let index = 0; index <= clean.length - 3; index += 1) output.add(clean.slice(index, index + 3));
-    return output;
-  };
-  const a = grams(left);
-  const b = grams(right);
-  if (!a.size || !b.size) return 0;
-  let overlap = 0;
-  for (const value of a) if (b.has(value)) overlap += 1;
-  return (2 * overlap) / (a.size + b.size);
-}
-
-function worldEnvelopeIssue(value: Record<string, unknown>, game: GameState, playerIssuedNoOrders: boolean, expectedActionIds: string[]) {
-  const validSignals = Array.isArray(value.publicSignals) ? value.publicSignals.filter((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).headline === "string" && typeof (item as Record<string, unknown>).body === "string") : [];
-  if (validSignals.length < 2) return "固定报纸与公开消息少于2条";
-  const validMoves = Array.isArray(value.factionMoves) ? value.factionMoves.filter((item) => item && typeof item === "object" && game.factions.some((faction) => faction.id === (item as Record<string, unknown>).factionId) && typeof (item as Record<string, unknown>).title === "string" && typeof (item as Record<string, unknown>).detail === "string") : [];
-  const kernel = value.kernelDelta && typeof value.kernelDelta === "object" && !Array.isArray(value.kernelDelta) ? value.kernelDelta as Record<string, unknown> : null;
-  if (!kernel) return "缺少持续世界状态增量kernelDelta";
-  if (playerIssuedNoOrders && Array.isArray(value.actionReports) && value.actionReports.length) return "无玩家命令的一周不应生成行动报告";
-  if (!playerIssuedNoOrders) {
-    const reports = Array.isArray(value.actionReports) ? value.actionReports.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))) : [];
-    const missing = expectedActionIds.filter((id) => !reports.some((report) => report.actionId === id && typeof report.fieldReport === "string" && Array.isArray(report.observableFacts) && report.observableFacts.filter((fact) => typeof fact === "string" && fact.trim()).length >= 2));
-    if (missing.length) return `行动报告缺少可核验的现场事实：${missing.join("、")}`;
-  }
-  const recentSignals = (game.worldSignals ?? []).filter((signal) => signal.week >= game.week - 4).slice(0, 24);
-  const repeatedSignals = validSignals.filter((item) => {
-    const signal = item as Record<string, unknown>;
-    const candidate = `${String(signal.headline ?? "")} ${String(signal.body ?? "")}`;
-    return recentSignals.some((previous) => textSimilarity(candidate, `${previous.headline} ${previous.body}`) >= .78);
-  });
-  if (repeatedSignals.length === validSignals.length) return "全部公开消息都与最近四周高度复写";
-  const genuinelyAdvancedMoves = validMoves.filter((item) => {
-    const move = item as Record<string, unknown>;
-    const prior = game.factions.find((faction) => faction.id === move.factionId)?.lastMove ?? "";
-    return !prior || textSimilarity(`${String(move.title ?? "")} ${String(move.detail ?? "")}`, prior) < .8;
-  });
-  if (validMoves.length && !genuinelyAdvancedMoves.length) return "本周发生的势力行动全部只是复述上一周";
-  return null;
-}
-
-async function requestWorldEnvelope(config: AiConfig, system: string, prompt: string, game: GameState, playerIssuedNoOrders: boolean, expectedActionIds: string[], onStage: (value: string) => void, onToken?: (text: string) => void) {
-  let lastIssue = "世界模型没有返回可解析结构";
-  const recentSignalExcerpts = (game.worldSignals ?? [])
-    .filter((signal) => signal.week >= game.week - 4)
-    .slice(0, 12)
-    .map((signal) => `- ${signal.channel}｜${signal.headline}：${signal.body.slice(0, 180)}`)
-    .join("\n");
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const repair = attempt ? `\n\n上一次输出未通过结构校验：${lastIssue}。不要解释错误，不要沿用损坏JSON；请根据同一事实与持续状态重新推演一次，并返回完整、严格、可解析的JSON。若错误涉及重复，以下是本次禁止复写的近期公开文本：\n${recentSignalExcerpts || "（没有近期公开文本）"}\n持续事件必须推进到新的参与者反应、地点变化、制度后果或可观察代价；仅改写措辞仍视为失败。至少两条公开消息应来自近期消息未覆盖的事件结果或社会侧面，但仍须由本周世界状态因果支持。` : "";
-    try {
-      const value = extractJson(await callModel(config, system, `${prompt}${repair}`, { json: true, maxTokens: 8200, temperature: attempt ? .58 : .72, stream: true, onToken }));
-      const issue = worldEnvelopeIssue(value, game, playerIssuedNoOrders, expectedActionIds);
-      if (!issue) return value;
-      lastIssue = issue;
-    } catch (error) {
-      lastIssue = error instanceof Error ? error.message : "世界模型输出无法解析";
-    }
-    if (!attempt) onStage(`世界推演结果不完整（${lastIssue}），正在进行一次结构修复`);
-  }
-  throw new Error(`${lastIssue}；结构修复后仍未达到世界回合最低要求`);
-}
-
-async function repairActionReports(config: AiConfig, game: GameState, chapter: ChronicleChapter, violations: { result: ActionResult; issue: string }[], original: unknown[], onToken?: (text: string) => void) {
-  const originalById = new Map<string, unknown>();
-  for (const item of original) {
-    if (item && typeof item === "object" && !Array.isArray(item)) {
-      const value = item as Record<string, unknown>;
-      if (typeof value.actionId === "string") originalById.set(value.actionId, value);
-    }
-  }
-  const system = "你是《灰雾纪事》世界模型行动报告的连续性编辑。玩家红线与撤退条件是硬约束；你只能修复越界的 actionReports，不得改动其他世界内容。";
-  const prompt = `以下现场报告越过了玩家明确红线，必须全部重写为合规版本：\n${violations.map((item) => `- ${item.result.title}\n  红线：${item.result.contract.redLines}\n  撤退条件：${item.result.contract.retreat}\n  问题：${item.issue}\n  原始报告：${JSON.stringify(originalById.get(item.result.id) ?? {})}`).join("\n")}\n\n只返回 {"actionReports":[...]}（数组包含本周全部 actionReports，未违规条目保持原样，只改违规条目）。每条包含 actionId、fieldReport、observableFacts、followUp。\n硬性禁止：fieldReport 与 observableFacts 中不得出现“接触、询问、盘问、审问、进入、潜入、调取、抄录、拜访、跟踪、尾随”等词，也不得描写组织成员与任何对象发生上述行为。\n合规写法示例：执行者留在街对面的候车棚，只记录出入时间与衣着；可核验事实写成“九点十七分，一名戴灰呢帽者从侧门离开”，而不是“我询问了门房”。`;
-  const raw = extractJson(await invokeModel(config, system, prompt, { json: true, maxTokens: 3200, temperature: .3, stream: true, onToken }));
-  return Array.isArray(raw.actionReports) ? raw.actionReports : original;
 }
 
 function knownLoreIds(game: GameState, holderId: string) {
@@ -297,7 +192,7 @@ async function requestAutonomousAgentProposal(
   const raw = extractJson(await callModel(
     config,
     "你正在扮演《灰雾纪事》持续世界中的一个独立主体。你只能依据本次提供的自身投影、私有记忆引用和已授权知识做本周计划；不得假设知道其他主体的私密提案或世界真相。你只提出意图，不决定成功，不修改资源和事实。允许行动、延续、观察、隐藏、休整或等待；没有状态驱动的理由时应自然等待。只返回严格JSON。",
-    `为这个主体独立形成同一周起点上的提案。返回：{"proposal":{"planningWeek":${projection.week},"agentRef":"${projection.agent.ref}","disposition":"act|continue|observe|hide|rest|wait","intent":"本周意图","rationale":"只能引用自身可见依据","locationId":"已有地点id或省略","targetRefs":["actor:...|faction:...|location:...|project:...|player|organization"],"requiredKnowledgeIds":["只能取自agent.knownKnowledgeIds"],"conditionalOn":"仅限本周开始前已经存在的条件命令或省略"}}。不要为了热闹强迫主体行动。\n${JSON.stringify({ projection, authorizedKnownLore: lore.context, loreRecordIds: lore.records.map((record) => record.id) })}${repair}`,
+    `为这个主体独立形成同一周起点上的提案。返回：{"proposal":{"planningWeek":${projection.week},"agentRef":"${projection.agent.ref}","disposition":"act|continue|observe|hide|rest|wait","intent":"本周意图","rationale":"只能引用自身可见依据","locationId":"已有地点id或省略","targetRefs":["actor:...|faction:...|location:...|project:...|player|organization"],"requiredKnowledgeIds":["只能取自agent.knownKnowledgeIds"],"conditionalOn":"仅限本周开始前已经存在的条件命令或省略"}}。targetRefs 只能填写带上述前缀的行动目标；knowledge id 绝不能放入 targetRefs，只能放入 requiredKnowledgeIds；没有明确目标时 targetRefs 必须为 []。不要为了热闹强迫主体行动。\n${JSON.stringify({ projection, authorizedKnownLore: lore.context, loreRecordIds: lore.records.map((record) => record.id) })}${repair}`,
     {
       json: true,
       maxTokens: 1_100,
@@ -523,28 +418,6 @@ export function localContract(args: {
     opportunityId: matchedOpportunity?.id,
     methodTags: inferMethodTags(args.intent),
   };
-}
-
-export function actionTextBoundaryIssue(text: string, game: GameState, contract: ActionContract) {
-  const source = `${contract.rawIntent}；${contract.redLines}`;
-  const actorNames = contract.leaderId === "player"
-    ? [game.playerName, game.playerAddress]
-    : contract.leaderId === "organization"
-      ? game.members.map((member) => member.name)
-      : [game.members.find((member) => member.id === contract.leaderId)?.name];
-  const actors = [...new Set(actorNames.filter(Boolean).flatMap((name) => [String(name), ...String(name).split("·").filter((part) => part.length >= 2)]))].map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  if (!actors.length) return null;
-  const actor = `(?:${actors.join("|")})`;
-  // “没有接触/未进入/不使用挂坠”等否定式合规表述不应触发红线；
-  // 先把这类否定短语从待检文本中移除，再按关键词判断。
-  const safeText = text.replace(/(?:没有|未|不曾|从未|避免|不|不再)[^，。；]{0,6}(?:接触|询问|盘问|审问|逼问|交谈|拜访|触碰|拿起|使用|发动|启用|解封|进入|走进|潜入|钻进|调查|追踪|跟踪|尾随|前往|调取|抄录)/g, " ");
-  const near = (verbs: string) => new RegExp(`(?:${actor})[\\s\\S]{0,180}(?:${verbs})|(?:${verbs})[\\s\\S]{0,100}(?:${actor})`).test(safeText);
-  if (/只(?:整理|汇总|比对|核对)[^。；]*(?:报纸|通告|公开|记录|资料|消息|传闻)/.test(source) && near("前往|进入|走进|询问|拜访|接触|盘问|跟踪|潜入|调取|抄录")) return "正文越过了只整理既有公开来源的行动范围";
-  if (/不(?:主动)?接触|不询问|不盘问/.test(source) && near("接触|询问|盘问|审问|逼问|交谈|拜访")) return "正文越过了不接触、不询问或不盘问的明确红线";
-  if (/不(?:使用|用|触碰|发动)[^。；]*(?:封印物|挂坠)|(?:封印物|挂坠)[^。；]*不(?:使用|用|触碰|发动)/.test(source) && near("触碰|拿起|使用|发动|启用|解封")) return "正文越过了不使用封印物或挂坠的明确红线";
-  if (/不(?:进入|潜入)/.test(source) && near("进入|走进|潜入|钻进")) return "正文越过了不得进入目标地点的明确红线";
-  if (/不(?:调查|追踪|跟踪)/.test(source) && near("调查|追踪|跟踪|尾随")) return "正文越过了不得调查或追踪的明确红线";
-  return null;
 }
 
 export async function interpretIntentWithAi(config: AiConfig, args: Parameters<typeof localContract>[0]) {
@@ -1312,13 +1185,13 @@ function literaryAgencyIssue(chapter: ReturnType<typeof validateChapter>, game: 
   if (!identities.length) return null;
   const actor = `(?:${identities.join("|")})`;
   const unauthorized = "(?:离开(?:了)?据点|决定去|前往|走进|来到.{0,12}(?:档案室|黑市|码头|东区|桥区|皇后区)|打听|调查|询问|拜访|跟踪|追踪|潜入|亲自查看|现场核验|设法.{0,12}(?:取得|抄到|获得))";
-  if (new RegExp(`${actor}[\\s\\S]{0,180}${unauthorized}`).test(prose) || new RegExp(`${unauthorized}[\\s\\S]{0,80}${actor}`).test(prose)) {
+  const paragraphs = chapter.sections.flatMap((section) => section.paragraphs);
+  if (paragraphs.some((paragraph) => new RegExp(`${actor}[\\s\\S]{0,180}${unauthorized}`).test(paragraph) || new RegExp(`${unauthorized}[\\s\\S]{0,80}${actor}`).test(paragraph))) {
     return "本周没有玩家决议，正文却让玩家或组织成员执行了外出、调查、接触或取证行动";
   }
   const externalPlace = /码头区|桥区|皇后区|东区|黑市|酒馆|老宅|面粉厂|厂区|河堤|市场|巷口|栅栏|仓库|警察厅/;
   const sceneAction = /坐在|站在|走到|沿着|离开|返回|回到|钻进|靠近|认出|记住|跟上|拿出|等候|尾随|守在|绕到/;
   const actorExpression = new RegExp(actor);
-  const paragraphs = chapter.sections.flatMap((section) => section.paragraphs);
   if (paragraphs.some((paragraph) => actorExpression.test(paragraph) && externalPlace.test(paragraph) && sceneAction.test(paragraph))) {
     return "本周没有玩家决议，正文却把玩家或组织成员放进了外部地点的亲历场景";
   }
@@ -1326,13 +1199,35 @@ function literaryAgencyIssue(chapter: ReturnType<typeof validateChapter>, game: 
 }
 
 async function enforceLiteraryAgency(config: AiConfig, system: string, factPack: Record<string, unknown>, game: GameState, local: ChronicleChapter, candidate: ReturnType<typeof validateChapter>, onStage: (value: string) => void, onToken?: (text: string) => void) {
-  const issue = literaryAgencyIssue(candidate, game, local);
-  if (!issue) return candidate;
-  onStage("连续性编辑正在纠正玩家行动越权");
-  const repaired = validateChapter(extractJson(await callModel(config, `${system}\n你是玩家主权连续性编辑。`, `上一稿违反了不可越过的玩家行动边界：${issue}。保持世界新闻、公共人物和城市变化继续发生，但删除玩家与组织成员未经决议的外出、调查、接触、取证和自行决策；他们只能在据点内阅读已经进入事实包的公开消息、维持日常值守或保持沉默。不要用新的行动替换旧行动。返回同样JSON。\n事实：${JSON.stringify(factPack)}\n违规初稿：${JSON.stringify(candidate)}`, { json: true, maxTokens: 6200, temperature: .32, stream: true, onToken })));
-  const remainingIssue = literaryAgencyIssue(repaired, game, local);
-  if (remainingIssue) throw new Error(`${remainingIssue}；一次连续性修复后仍未通过`);
-  return repaired;
+  let repaired = candidate;
+  let issue = literaryAgencyIssue(repaired, game, local);
+  if (!issue) return repaired;
+  for (let pass = 0; pass < 2; pass += 1) {
+    const targets: { sectionIndex: number; paragraphIndex: number; issue: string }[] = [];
+    repaired.sections.forEach((section, sectionIndex) => section.paragraphs.forEach((paragraph, paragraphIndex) => {
+      const paragraphChapter = { title: repaired.title, sections: [{ heading: section.heading, paragraphs: [paragraph] }] };
+      const paragraphIssue = literaryAgencyIssue(paragraphChapter, game, local);
+      if (paragraphIssue) targets.push({ sectionIndex, paragraphIndex, issue: paragraphIssue });
+    }));
+    if (!targets.length) break;
+    onStage(`连续性编辑正在局部纠正越界段落（${pass + 1}/2）`);
+    const sections = repaired.sections.map((section) => ({ ...section, paragraphs: [...section.paragraphs] }));
+    for (const target of targets) {
+      const original = sections[target.sectionIndex].paragraphs[target.paragraphIndex];
+      const raw = extractJson(await callModel(
+        config,
+        `${system}\n你是玩家主权连续性编辑。世界事实只读；你一次只能改写一个越界段落。`,
+        `这一个段落违反了玩家行动边界：${target.issue}。只重写这一段，不要重写章节，不得新增行动、线索、人物、地点或世界事实。\n本周已结算行动：${JSON.stringify(local.results.map((result) => ({ title: result.title, outcome: result.outcome, findings: result.findings, consequence: result.consequence, contract: { rawIntent: result.contract.rawIntent, approach: result.contract.approach, desiredOutcome: result.contract.desiredOutcome, redLines: result.contract.redLines, retreat: result.contract.retreat } })))}\n本周公开消息：${JSON.stringify(factPack.publicSignals ?? [])}\n原段落：${JSON.stringify(original)}\n\n只返回严格 JSON：{"paragraph":"改写后的单个自然段"}。保留原段落的文风和已锁定结果，但绝不扩大行动范围。若行动只允许整理、汇总、比对公开来源，成员必须始终留在组织据点，只能阅读已经持有的公开材料；不要在输出中复述、讨论或引用禁区行为。`,
+        { json: true, maxTokens: 1200, temperature: pass ? .12 : .2, stream: true, onToken },
+      ));
+      if (typeof raw.paragraph !== "string" || !raw.paragraph.trim()) throw new Error("文学连续性编辑没有返回可用的局部段落");
+      sections[target.sectionIndex].paragraphs[target.paragraphIndex] = raw.paragraph.trim().slice(0, 1200);
+    }
+    repaired = { ...repaired, sections };
+    issue = literaryAgencyIssue(repaired, game, local);
+    if (!issue) return repaired;
+  }
+  throw new Error(`${issue}；两次局部连续性修复后仍未通过`);
 }
 
 export async function generateLiteraryChapter(config: AiConfig, game: GameState, local: ChronicleChapter, onStage: (value: string) => void, onToken?: (text: string) => void): Promise<ChronicleChapter> {
@@ -1604,7 +1499,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
       unresolvedIssues: game.organizationIssues.filter((item) => item.state === "待裁决" || item.state === "已逾期"),
     },
     campaignWorld: projectCampaignWorldForSimulation(game.campaignWorld, "backlund"),
-    highSequenceLedger: game.highSequenceLedger,
+    highSequenceLedger: projectHighSequenceLedgerForSimulation(game.highSequenceLedger, game.pathwayId),
     factionStrategy: {
       profiles: game.factionStrategy.profiles,
       diplomacy: game.factionStrategy.diplomacy,
@@ -1612,9 +1507,8 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
       latestOutcomes: game.factionStrategy.outcomes.slice(-12),
     },
     adjudicatorWorld,
-    autonomousAgentProposals,
     autonomousResidency: {
-      activeRefs: autonomousState.activeAgentRefs,
+      activeCount: autonomousState.activeAgentRefs.length,
       coldCount: autonomousState.coldAgentRefs.length,
       limit: 24,
     },
@@ -1623,12 +1517,13 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     loreRecordIds: lore.records.map((item) => item.id),
     designerSupplement: config.worldBible?.trim().slice(0, 12000) || null,
   };
-  (payload as Record<string, unknown>).autonomousAgentRules = "autonomousAgentProposals 已由每个活跃主体从同一周起点独立生成并通过知识来源校验。裁决器不得替主体改变意图，也不得把某主体提案的私有依据泄露给其他主体或玩家。提案只表达意图，不代表成功；必须依据准备、情报、序列、能力、控制力、行动性质与既有条件命令统一处理冲突和先后。";
+  (payload as Record<string, unknown>).autonomousAgentRules = "adjudicatorWorld.proposals 已由每个活跃主体从同一周起点独立生成并通过知识来源校验。裁决器不得替主体改变意图，也不得把某主体提案的私有依据泄露给其他主体或玩家。提案只表达意图，不代表成功；必须依据准备、情报、序列、能力、控制力、行动性质与既有条件命令统一处理冲突和先后。";
   const kernelProtocol = `同时必须返回kernelDelta，作为下周继续推演的权威世界状态增量：{"kernelDelta":{"newActors":[{"id":"稳定英文id","name":"本周首次进入推演且值得长期追踪的人物","locationId":"已有地点id","agenda":"长期诉求","shortTermGoal":"当前目标","condition":"处境"}],"newFactions":[{"id":"稳定英文id","name":"本周首次进入推演的组织","posture":"立场与目标","resources":0到100,"suspicion":0到100}],"newProjects":[{"id":"稳定英文id","ownerId":"已有或新角色/势力id","title":"新形成的持续计划","stage":"阶段","progress":0到100,"momentum":-10到10,"secrecy":0到100,"nextMilestone":"下一里程碑","blockers":[],"status":"active|paused|completed|failed"}],"actorUpdates":[{"actorId":"adjudicatorWorld中的id","locationId":"已有地点id","shortTermGoal":"下一阶段目标","lastAction":"本周实际行动","condition":"当前处境"}],"factionUpdates":[{"factionId":"已有id","posture":"当前姿态与目标","resourcesDelta":-8到8,"suspicionDelta":-6到6,"lastAction":"本周自主行动"}],"projectUpdates":[{"projectId":"adjudicatorWorld中的项目id","progressDelta":-8到10,"stage":"当前阶段","nextMilestone":"可检验的下一里程碑","blockers":["阻碍"],"status":"active|paused|completed|failed"}],"locationUpdates":[{"locationId":"已有地点id","riskDelta":-8到8,"stabilityDelta":-8到8,"publicMood":"普通人可感受到的气氛","condition":"本周形成的地点状态"}],"events":[{"id":"本回合内部临时id","title":"事件名","detail":"世界真相层发生的具体事件","locationId":"已有地点id或空","actorIds":["已有或newActors的id"],"factionIds":["已有或newFactions的id"],"causeIds":["本回合事件临时id或既有事件id"],"visibility":"world|public|player|actors"}],"observations":[{"eventId":"对应事件临时id","channel":"观察来源","text":"实际能被某方获知的内容","visibility":"public|player|actors","holderIds":["仅actors时填写角色id"]}],"knowledge":[{"subject":"对象","statement":"新形成的认知，允许为误判","truth":"confirmed|likely|false|unknown","visibility":"world|public|player|actors","holderIds":["持有者id"],"loreRecordIds":["本次authorizedLore中确实被获知的记录id"],"sourceEventId":"事件临时id"}],"canon":{"mode":"anchored|diverging","deviationDelta":0到8,"pivotEventIds":["明确偏转事件临时id"]}}}。newActors/newFactions只用于真正需要跨周追踪的新主体，不能每周滥造。events、projectUpdates、actorUpdates与factionUpdates均由实际状态变化决定，可以为空；等待、隐藏、休整或没有相互作用的提案不应制造事件。世界真相事件默认visibility=world；只有observations可以把其中一部分转化为角色或玩家认知。不要因为模型读到了authorizedLore，就让NPC或玩家自动知道它。历史偏转未达到门槛时必须保持anchored，并让原著锚点大致按时间惯性发展。`;
   const organizationProtocol = `同时返回organizationDelta，让组织内部遵循跨周因果而不是事件模板：{"organizationDelta":{"departmentDevelopments":[{"departmentId":"已有id","report":"本周自然形成的一句话述职","cause":"决议、旧积压或常设命令"}],"memberDevelopments":[{"memberId":"已有id","observation":"可观察的具体变化","cause":"来源"}],"recruitDevelopments":[{"memberId":"已有候选人id","observation":"关系为何推进、停滞或倒退"}],"governanceIssues":[{"category":"部门|招募|成员|资源","sourceId":"已有部门或人物id","title":"只有确需会长拍板才出现","summary":"前因、现状与放任后果","urgency":35到95,"deadline":1到3,"signals":["可观察征兆"]}],"formulaDiscoveries":[{"pathwayId":"仅限现有22途径id","sequence":0到9,"status":"lead|fragment|verifying|verified","reliability":0到100,"sourceRefs":["本周actionId或世界事件id"],"loreEvidenceIds":["必须来自authorizedLore的记录id"]}],"newRecruitableNpc":{"name":"仅在世界因果中反复接触后才锁定的新原创人物或空","role":"公开身份","specialty":"明确专长","background":"固定背景","core":"性格核心","voice":"说话方式","arc":"成长方向","secret":"锁定秘密","contactReason":"为何进入招募视野"}|null}}。只有玩家本周明确搜集、交易或核验魔药配方且行动成功时，才能输出formulaDiscoveries；verified必须有authorizedLore记录直接支撑且reliability至少90，否则最多为fragment或verifying。不得编造知识库不存在的配方内容。部门能力、积压、暴露、凝聚，成员压力、信任及招募动量均由规则引擎结算；你只能生成可观察叙述和需要裁决的议题，不得输出或暗示修改这些数值。不要套固定事件桥段，不得自动令成员死亡、离开、加入或背叛；重大不可逆结果只能先形成governanceIssues，留给玩家干预。没有真实变化时数组可以为空。`;
   (payload as Record<string, unknown>).organizationInstructions = organizationProtocol;
-  assertWorldAdjudicatorPayloadBudget(payload);
-  const raw = await requestWorldEnvelope(worldConfig, WORLD_ADJUDICATOR_SYSTEM, buildWorldAdjudicatorPrompt(payload, kernelProtocol), game, chapter.results.length === 0, chapter.results.map((result) => result.id), onStage, onToken);
+  const boundedPayload = fitWorldAdjudicatorPayload(payload);
+  assertWorldAdjudicatorPayloadBudget(boundedPayload);
+  const raw = await requestWorldEnvelope(worldConfig, WORLD_ADJUDICATOR_SYSTEM, buildWorldAdjudicatorPrompt(boundedPayload, kernelProtocol), game, chapter.results.length === 0, chapter.results.map((result) => result.id), onStage, onToken);
   const moves = Array.isArray(raw.factionMoves) ? raw.factionMoves.slice(0, 5) : [];
   const factions = game.factions.map((item) => ({ ...item }));
   const worldMoves: WorldMove[] = [];
@@ -1711,26 +1606,30 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     }
   }
   let actionReportsRaw = Array.isArray(raw.actionReports) ? raw.actionReports : [];
-  for (let repairAttempt = 0; repairAttempt < 3; repairAttempt += 1) {
-    const scanned = new Map<string, Record<string, unknown>>();
-    for (const report of actionReportsRaw) {
-      if (!report || typeof report !== "object") continue;
-      const value = report as Record<string, unknown>;
-      if (typeof value.actionId === "string" && chapter.results.some((item) => item.id === value.actionId)) scanned.set(value.actionId, value);
-    }
-    const violations = chapter.results.flatMap((result) => {
-      const report = scanned.get(result.id);
-      if (!report) return [];
-      const fieldReport = typeof report.fieldReport === "string" ? report.fieldReport.trim().slice(0, 700) : "";
-      const observableFacts = Array.isArray(report.observableFacts) ? report.observableFacts.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 4) : [];
-      const followUp = typeof report.followUp === "string" ? report.followUp.trim().slice(0, 300) : "";
-      const issue = actionTextBoundaryIssue([fieldReport, ...observableFacts, followUp].join("\n"), game, result.contract);
-      return issue ? [{ result, issue }] : [];
-    });
-    if (!violations.length) break;
-    if (repairAttempt === 2) throw new Error(`世界模型对“${violations[0].result.title}”的现场报告${violations[0].issue}；两次修复后仍未通过`);
+  const scanned = new Map<string, Record<string, unknown>>();
+  for (const report of actionReportsRaw) {
+    if (!report || typeof report !== "object") continue;
+    const value = report as Record<string, unknown>;
+    if (typeof value.actionId === "string" && chapter.results.some((item) => item.id === value.actionId)) scanned.set(value.actionId, value);
+  }
+  const violations = chapter.results.flatMap((result) => {
+    const report = scanned.get(result.id);
+    if (!report) return [];
+    const fieldReport = typeof report.fieldReport === "string" ? report.fieldReport.trim().slice(0, 700) : "";
+    const observableFacts = Array.isArray(report.observableFacts) ? report.observableFacts.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 4) : [];
+    const followUp = typeof report.followUp === "string" ? report.followUp.trim().slice(0, 300) : "";
+    const issue = actionTextBoundaryIssue([fieldReport, ...observableFacts, followUp].join("\n"), game, result.contract);
+    return issue ? [{ result, issue }] : [];
+  });
+  if (violations.length) {
     onStage("连续性编辑正在修复越界的现场报告");
-    actionReportsRaw = await repairActionReports(config, game, chapter, violations, actionReportsRaw, onToken);
+    const kernelDelta = raw.kernelDelta && typeof raw.kernelDelta === "object" && !Array.isArray(raw.kernelDelta) ? raw.kernelDelta as Record<string, unknown> : {};
+    actionReportsRaw = await repairActionReports(config, game, chapter, violations, actionReportsRaw, {
+      worldSummary: raw.worldSummary,
+      publicSignals: raw.publicSignals,
+      events: kernelDelta.events,
+      locationUpdates: kernelDelta.locationUpdates,
+    }, onToken);
   }
   const reportById = new Map<string, Record<string, unknown>>();
   if (Array.isArray(actionReportsRaw)) for (const report of actionReportsRaw) {

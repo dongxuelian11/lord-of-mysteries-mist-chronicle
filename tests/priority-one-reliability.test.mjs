@@ -25,26 +25,30 @@ test("world state commits before literary prose and a failed chapter can be retr
 });
 
 test("malformed world envelopes receive one bounded structural retry", async () => {
-  const engine = await read("app/game-engine.ts");
-  assert.match(engine, /function worldEnvelopeIssue/);
-  assert.match(engine, /for \(let attempt = 0; attempt < 2; attempt \+= 1\)/);
-  assert.match(engine, /正在进行一次结构修复/);
-  assert.match(engine, /结构修复后仍未达到世界回合最低要求/);
+  const [engine, envelope] = await Promise.all([read("app/game-engine.ts"), read("app/world-envelope.ts")]);
+  assert.match(envelope, /function worldEnvelopeIssue/);
+  assert.match(envelope, /for \(let attempt = 0; attempt < 2; attempt \+= 1\)/);
+  assert.match(envelope, /正在进行一次结构修复/);
+  assert.match(envelope, /结构修复后仍未达到世界回合最低要求/);
   assert.match(engine, /requestWorldEnvelope\(worldConfig/);
-  assert.match(engine, /无玩家命令的一周不应生成行动报告/);
-  assert.match(engine, /本次禁止复写的近期公开文本/);
-  assert.match(engine, /至少两条公开消息应来自近期消息未覆盖的事件结果或社会侧面/);
+  assert.match(envelope, /无玩家命令的一周不应生成行动报告/);
+  assert.match(envelope, /本次禁止复写的近期公开文本/);
+  assert.match(envelope, /至少两条公开消息应来自近期消息未覆盖的事件结果或社会侧面/);
 });
 
 test("world envelopes reject mechanical weekly repetition and repair raw control characters", async () => {
-  const [engine, adjudicatorPrompt] = await Promise.all([read("app/game-engine.ts"), read("app/world-adjudicator-prompt.ts")]);
-  assert.match(engine, /function textSimilarity/);
-  assert.match(engine, /全部公开消息都与最近四周高度复写/);
-  assert.match(engine, /repeatedSignals\.length === validSignals\.length/);
-  assert.match(engine, /本周发生的势力行动全部只是复述上一周/);
+  const [envelope, modelOutput, adjudicatorPrompt] = await Promise.all([read("app/world-envelope.ts"), read("app/model-output.ts"), read("app/world-adjudicator-prompt.ts")]);
+  assert.match(modelOutput, /function textSimilarity/);
+  assert.match(envelope, /async function repairPublicSignals/);
+  assert.match(envelope, /世界事实已经完成裁决并被冻结/);
+  assert.match(envelope, /唯一输出权限是 publicSignals/);
+  assert.match(envelope, /两次公开消息局部重写后仍未通过校验/);
+  assert.match(envelope, /全部公开消息都与最近四周高度复写/);
+  assert.match(envelope, /repeatedSignals\.length === validSignals\.length/);
+  assert.match(envelope, /本周发生的势力行动全部只是复述上一周/);
   assert.match(adjudicatorPrompt, /不得为了热闹制造事件/);
-  assert.match(engine, /character\.charCodeAt\(0\) < 32/);
-  assert.match(engine, /JSON\.parse\(repaired\)/);
+  assert.match(modelOutput, /character\.charCodeAt\(0\) < 32/);
+  assert.match(modelOutput, /JSON\.parse\(repaired\)/);
 });
 
 test("non-investigation orders keep their own semantics instead of becoming clue hunts", async () => {
@@ -72,8 +76,9 @@ test("no-order literary chapters cannot make the player investigate off-screen",
   const engine = await read("app/game-engine.ts");
   assert.match(engine, /function literaryAgencyIssue/);
   assert.match(engine, /本周没有任何玩家决议/);
-  assert.match(engine, /连续性编辑正在纠正玩家行动越权/);
-  assert.match(engine, /一次连续性修复后仍未通过/);
+  assert.match(engine, /连续性编辑正在局部纠正越界段落/);
+  assert.match(engine, /两次局部连续性修复后仍未通过/);
+  assert.match(engine, /一次只能改写一个越界段落/);
   assert.match(engine, /const externalPlace =/);
   assert.match(engine, /const sceneAction =/);
   assert.match(engine, /放进了外部地点的亲历场景/);

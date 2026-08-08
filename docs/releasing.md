@@ -1,7 +1,7 @@
 # 正式发布
 
 正式 Windows 版本采用 `v<package.json version>` tag 触发。当前发布线为
-`0.3.x`，tag、源码提交、安装包 SHA-256 与知识 seed build ID 会同时写入
+`0.4.x`，tag、源码提交、安装包 SHA-256 与知识 seed build ID 会同时写入
 `release/provenance.json`，避免版本标签与二进制来源脱节。
 
 ## Release 环境

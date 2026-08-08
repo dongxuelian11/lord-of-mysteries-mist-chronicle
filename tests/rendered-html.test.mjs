@@ -36,7 +36,7 @@ test("DeepSeek relay validates requests without exposing an open proxy", async (
 });
 
 test("implements the complete simulation systems and accessible Apple-style UI", async () => {
-  const [app, title, council, prologue, abilitySystem, abilityConsole, engine, aiClient, aiSettings, aiRoute, finale, finaleView, model, managementConsole, css, councilCss, v10Css, v11Css, finaleCss, apiCss, layout] = await Promise.all([
+  const [app, title, council, prologue, abilitySystem, abilityConsole, engine, worldEnvelope, aiClient, aiSettings, aiRoute, finale, finaleView, model, managementConsole, css, councilCss, v10Css, v11Css, finaleCss, apiCss, layout] = await Promise.all([
     readFile(new URL("../app/complete-game.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/title-screen.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/weekly-council.tsx", import.meta.url), "utf8"),
@@ -44,6 +44,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
     readFile(new URL("../app/ability-system.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ability-console.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game-engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/world-envelope.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ai-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ai-settings.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/ai/deepseek/route.ts", import.meta.url), "utf8"),
@@ -93,7 +94,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.doesNotMatch(engine, /chronicle: \[chapter, \.\.\.game\.chronicle\]\.slice/);
   assert.match(engine, /advanceSequence/);
   assert.match(engine, /actionEvidenceIds/);
-  assert.match(engine, /行动报告缺少可核验的现场事实/);
+  assert.match(worldEnvelope, /行动报告缺少可核验的现场事实/);
   assert.match(engine, /refreshOpportunities/);
   assert.match(engine, /applyWorldTurn/);
   assert.match(engine, /timelineAfterWeek/);

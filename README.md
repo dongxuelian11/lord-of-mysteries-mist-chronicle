@@ -168,6 +168,10 @@ npm run dist:win
 校验、Windows 代码签名、干净安装启动测试及 GitHub provenance attestation。
 发布配置见 [docs/releasing.md](./docs/releasing.md)。
 
+## 长线世界可靠性
+
+自治世界采用 24 Agent 活跃集、逐主体独立规划、冷存储与 72,000 字符硬预算。公开消息、行动报告和文学越权只做局部重试；已接受的世界事实不会被整周重算，模型连续失败会直接报错，不使用降级文本。v0.4.0 已完成连续 20 周真实模型回归。详见 [docs/WORLD_RUNTIME_RELIABILITY.md](./docs/WORLD_RUNTIME_RELIABILITY.md)。
+
 ## 测试与 QA
 
 ```powershell
@@ -190,6 +194,10 @@ npm run bundle:budget
 app/                  # 游戏前端与逻辑（React + vinext/Next 风格）
   game-model.ts       # 游戏状态模型
   game-engine.ts      # 推演引擎
+  world-runtime.ts    # 活跃集、独立 Agent 与裁决相关性投影
+  world-envelope.ts   # 世界输出校验及局部修复
+  action-boundaries.ts # 玩家行动红线校验
+  model-output.ts     # 模型 JSON 解析与文本相似度
   council-ai.ts       # AI 调用与上下文组装
   weekly-council.tsx  # 议会页
   city-map-workspace.tsx # 城市地图

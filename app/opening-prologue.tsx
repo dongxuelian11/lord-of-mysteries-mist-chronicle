@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Anchor, ArrowLeft, ArrowRight, Check, Eye, Feather, KeyRound, Landmark, LoaderCircle, ShieldAlert, Sparkles, UsersRound } from "lucide-react";
 import type { AiConfig } from "./ai-client.ts";
 import { GameState, ORGANIZATION_KINDS, PATHWAYS, type PathwayId, type PlayerOrigin } from "./game-model.ts";
@@ -67,12 +67,13 @@ export default function OpeningPrologue({ game, aiConfig, onBegin }: Props) {
   const sequence = PATHWAYS[pathwayId].sequences.find((item) => item.rank === origin.startingSequence)!;
   const origins = dynamicOrigin && dynamicOrigin.pathwayId === pathwayId ? [...fixedOrigins, dynamicOrigin] : fixedOrigins;
 
-  useEffect(() => {
-    setOrigin(getPathwayOrigins(pathwayId)[0]);
+  function choosePathway(nextPathwayId: PathwayId) {
+    setPathwayId(nextPathwayId);
+    setOrigin(getPathwayOrigins(nextPathwayId)[0]);
     setDynamicOrigin(undefined);
     setDynamicStatus("idle");
     setMemberIds(["opening-ada", "opening-silas", "opening-miriam", "opening-jonas"]);
-  }, [pathwayId]);
+  }
 
   const symbolCandidates = useMemo(() => {
     const seed = IDENTITIES.findIndex((item) => item.id === identityId) + EXPERIENCES.findIndex((item) => item.id === experienceId) + Object.keys(PATHWAYS).indexOf(pathwayId);
@@ -143,7 +144,7 @@ export default function OpeningPrologue({ game, aiConfig, onBegin }: Props) {
         <header><p>1349年6月30日 · 贝克兰德</p><h1 id="prologue-title">在第一场密议前，确定组织从哪里开始</h1><span>选择不是数值难度，而是一条会持续产生盟友、敌人、污染、债务与经营机会的历史分支。</span></header>
         <nav className="origin-steps">{["途径", "来源", "身份", "班底", "入席"].map((label, index) => <button key={label} className={step === index ? "active" : step > index ? "done" : ""} onClick={() => setStep(index)}><span>{step > index ? <Check size={12} /> : index + 1}</span>{label}</button>)}</nav>
 
-        {step === 0 && <section className="origin-step"><div className="step-heading"><Sparkles size={18} /><div><h2>先选择非凡途径</h2><p>22 条途径会改变来源难度、污染方式、外部追索、经营价值与晋升稀缺度；玩家不直接选择序列。</p></div></div><div className="pathway-origin-grid">{Object.values(PATHWAYS).map((pathway) => { const dossier = PATHWAY_OPENING_DOSSIERS[pathway.id]; const difficulty = getPathwayOrigins(pathway.id)[0].difficulty; return <button key={pathway.id} className={pathwayId === pathway.id ? "selected" : ""} onClick={() => setPathwayId(pathway.id)}><span style={{ background: pathway.color }} /><strong>{pathway.name}</strong><small>经营 {difficultyLabel(difficulty.organizationValue)} · 污染 {difficultyLabel(difficulty.pollution)}</small><p>{dossier.managementContribution}</p><em>{dossier.knownRisk}</em></button>; })}</div></section>}
+        {step === 0 && <section className="origin-step"><div className="step-heading"><Sparkles size={18} /><div><h2>先选择非凡途径</h2><p>22 条途径会改变来源难度、污染方式、外部追索、经营价值与晋升稀缺度；玩家不直接选择序列。</p></div></div><div className="pathway-origin-grid">{Object.values(PATHWAYS).map((pathway) => { const dossier = PATHWAY_OPENING_DOSSIERS[pathway.id]; const difficulty = getPathwayOrigins(pathway.id)[0].difficulty; return <button key={pathway.id} className={pathwayId === pathway.id ? "selected" : ""} onClick={() => choosePathway(pathway.id)}><span style={{ background: pathway.color }} /><strong>{pathway.name}</strong><small>经营 {difficultyLabel(difficulty.organizationValue)} · 污染 {difficultyLabel(difficulty.pollution)}</small><p>{dossier.managementContribution}</p><em>{dossier.knownRisk}</em></button>; })}</div></section>}
 
         {step === 1 && <section className="origin-step"><div className="step-heading"><ShieldAlert size={18} /><div><h2>选择这条途径如何落到你身上</h2><p>两套固定来源已经过知识账本校验；动态来源由 AI 在同一知识边界内生成，失败会直接报错，不会降级成通用背景。</p></div></div><div className="founding-situation-grid">{origins.map((item) => <button key={item.id} className={origin.id === item.id ? "selected" : ""} onClick={() => setOrigin(item)}><strong>{item.title} · 序列{item.startingSequence}</strong><p>{item.summary}</p><small>优势：{item.traits[0].name}｜{item.traits[0].description}</small><em>负担：{item.traits[1].name}｜{item.traits[1].description}</em><small>起点：{item.startingLocation.label} · 人力{item.resources.manpower} / 金钱{item.resources.money} / 材料{item.resources.extraordinaryMaterials}</small></button>)}</div><div className="origin-difficulty" aria-label="途径开局难度">{DIFFICULTY_FIELDS.map(([key, label]) => <span key={key}><b>{label}</b>{difficultyLabel(origin.difficulty[key])}</span>)}</div><label className="free-background"><span>动态来源补充（可选）</span><textarea value={dynamicPrompt} onChange={(event) => setDynamicPrompt(event.target.value)} placeholder="例如：我希望角色与报社、某个衰落家族或南大陆经历有关。AI 会自行决定合理序列与代价。" maxLength={320} /></label><button className="primary" onClick={() => void generateOrigin()} disabled={dynamicStatus === "loading"}>{dynamicStatus === "loading" ? <><LoaderCircle className="spin" size={15} />知识库约束生成中</> : "生成第三套动态来源"}</button>{dynamicStatus === "error" && <p className="founding-pressure"><b>生成失败：</b>{dynamicError}</p>}<p className="founding-pressure"><b>第一场危机：</b>{origin.firstCrisis}</p></section>}
 

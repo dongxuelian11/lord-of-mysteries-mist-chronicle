@@ -65,6 +65,43 @@ test("literary streaming parses SSE deltas and reports tokens as they arrive", a
   }
 });
 
+test("SSE comment heartbeats before the first data event are ignored", async () => {
+  const { engine, model } = await loadGameModules();
+  let game = model.createInitialGame("spectator");
+  const contract = engine.localContract({ intent: "整理本周公开报纸资料，不接触任何人。", game, leaderId: "organization", districtId: "cherwood", abilityIds: [] });
+  game = { ...game, schedule: [engine.scheduleContract(game, contract)] };
+  const resolved = engine.resolveWeek(game);
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  globalThis.window = globalThis;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: new Headers({ "content-type": "text/event-stream" }),
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(": keep-alive\n\n"));
+        controller.enqueue(sseData({ choices: [{ delta: { content: CHAPTER_JSON } }] }));
+        controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    }),
+  });
+  try {
+    const chapter = await engine.generateLiteraryChapter(
+      { provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" },
+      game,
+      resolved.chapter,
+      () => {},
+    );
+    assert.equal(chapter.title, "测试章节");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
 test("streaming calls fall back to plain JSON responses without a body", async () => {
   const { engine, model } = await loadGameModules();
   const { generateLiteraryChapter, localContract, resolveWeek, scheduleContract } = engine;

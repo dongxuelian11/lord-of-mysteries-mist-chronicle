@@ -11,6 +11,7 @@ import {
   claimPathwayUniqueness,
   createHighSequenceLedger,
   highSequenceAdvancementRequirement,
+  projectHighSequenceLedgerForSimulation,
   validateHighSequenceLedger,
 } from "../app/high-sequence-ledger.ts";
 import { advanceCampaignWorld, applyCampaignActionResults, createCampaignWorldState, projectCampaignWorldForSimulation } from "../app/campaign-world.ts";
@@ -51,6 +52,15 @@ test("the high sequence ledger contains exactly 22 uniquenesses and 9 sefirot an
   assert.throws(() => claimHighSequenceCharacteristic(ledger, { pathwayId: "seer", sequence: 1, holderRef: "player", week: 40, sourceEventId: "event:seq1:4" }), /第四份/);
   assert.throws(() => claimPathwayUniqueness(ledger, "seer", "actor:rival", 40, "event:steal"), /必须先通过世界行动/);
   assert.equal(validateHighSequenceLedger(ledger).ok, true);
+});
+
+test("world simulation receives only relevant or already-located high assets", () => {
+  const ledger = createHighSequenceLedger();
+  const projection = projectHighSequenceLedgerForSimulation(ledger, "seer");
+  assert.equal(projection.uniquenesses.length, 1);
+  assert.equal(projection.sefirot.length, 1);
+  assert.equal(projection.omittedUnlocatedAssets.uniquenesses, 21);
+  assert.equal(projection.omittedUnlocatedAssets.sefirot, 8);
 });
 
 test("other cities can receive dynamic branches, counter-pressure, and historical stage progression", () => {

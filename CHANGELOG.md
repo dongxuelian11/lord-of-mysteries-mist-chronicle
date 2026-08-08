@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0 - 2026-08-09
+
+### Features
+
+- Center the desktop experience on an immersive council workspace with one-screen organization resources, direct subordinate dialogue, immediate candidate screening, and a three-level Backlund control map.
+- Bound the autonomous world runtime with a 24-agent active set, independent per-agent planning, hard knowledge isolation, relevance projection, cold storage, and a 72,000-character adjudication budget.
+- Allow quiet weeks while retaining fixed newspapers and public notices; world events, faction moves, projects, and regional control now advance only when supported by current state.
+- Add repeatable real-model regression tooling with secure Electron credential access and resumable temporary QA checkpoints.
+
+### Fixes
+
+- Repair repeated public signals, overreaching action reports, and literary agency violations locally without rerunning accepted world facts or successful agent proposals.
+- Preserve current action contracts and every autonomous proposal during late-campaign prompt compaction while trimming only recoverable historical context.
+- Normalize visible knowledge IDs accidentally placed in agent target references while continuing to reject unknown entity references.
+- Parse SSE comment and keep-alive frames correctly before the first streamed data event.
+- Split model-output parsing, player-action boundaries, and world-envelope reliability out of the central game engine.
+
+### Verification
+
+- Pass the full production build and 232 automated tests.
+- Complete a continuous 20-week DeepSeek regression with 20 committed world snapshots, 77 public signals, non-empty literary chapters, and no fallback text.
+
 ## 0.3.0 - 2026-08-08
 
 ### Features
@@ -21,4 +43,3 @@
 ### Documentation
 
 - Document the seven-stage campaign, complete pathway and high-sequence ledgers, v21 save migration, Windows runtime compatibility, QA gates, and protected Windows release process.
-
