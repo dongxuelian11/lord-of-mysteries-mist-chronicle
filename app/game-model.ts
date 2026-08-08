@@ -2,8 +2,18 @@ import { createWorldKernel, type WorldKernel } from "./world-kernel.ts";
 import { createInitialFateState, type FateAberrationState } from "./fate/index.ts";
 import { createInitialControlState, type ControlState } from "./loss-of-control/index.ts";
 import { emptyMemoryState, type DynamicMemoryState } from "./memory/index.ts";
+import { PATHWAY_OPENING_DOSSIERS, type StandardPathwayId } from "./pathway-catalog.ts";
+import { createInitialOrganizationManagement, type OrganizationManagementState } from "./organization-management.ts";
+import { createWorldLedger, type WorldLedger } from "./world-ledger.ts";
+import { createAutonomousWorldState, type AutonomousWorldState } from "./autonomous-agents.ts";
+import { createFactionStrategyState, type FactionStrategyState } from "./faction-strategy.ts";
+import type { ParticipationScene } from "./participation-scene.ts";
+import { sequenceLedgerFor } from "./pathway-sequence-ledger.ts";
+import { createHighSequenceLedger, type HighSequenceLedger } from "./high-sequence-ledger.ts";
+import { createCampaignWorldState, type CampaignWorldState } from "./campaign-world.ts";
 
-export type PathwayId = "seer" | "spectator" | "apprentice" | "hunter" | "mystery";
+export type PathwayId = StandardPathwayId;
+type CorePathwayId = "seer" | "spectator" | "apprentice" | "hunter" | "mystery";
 export type ViewId = "intent" | "investigation" | "city" | "organization" | "progression" | "archive" | "ending";
 export type RiskLevel = "低" | "中" | "高" | "致命";
 export type EvidenceCertainty = "传闻" | "推断" | "可信证据" | "已确认";
@@ -87,6 +97,9 @@ export type Sequence = {
   name: string;
   capabilities: string[];
   acting: string;
+  organizationEffect?: string;
+  lossOfControlRisk?: string;
+  loreEvidenceIds?: string[];
 };
 
 export type Pathway = {
@@ -163,12 +176,15 @@ export type PlayerOrigin = {
   experienceDetail: string;
   symbol: string;
   foundingMemberIds: string[];
+  foundingMembers?: Member[];
+  startingSequence?: 8 | 9;
   gender: string;
   age: string;
   organizationName: string;
   organizationKind: string;
   organizationKindLabel: string;
   organizationCharter: string;
+  foundingSituationId?: "scratch" | "remnant" | "patronage";
 };
 
 export type CouncilTopicMessage = {
@@ -427,6 +443,7 @@ export type WorldSignal = {
   body: string;
   reliability: "公开事实" | "多源传闻" | "单一消息" | "异常感知";
   districtId?: string;
+  cityId?: string;
   relatedFactionId?: string;
 };
 
@@ -438,6 +455,7 @@ export type WorldSnapshot = {
   undercurrents: string[];
   eventIds?: string[];
   districtStates?: { districtId: string; risk: number; stability: number; conditions: string[] }[];
+  cityStates?: { cityId: string; control: number; intelligence: number; pressure: number; status: string }[];
 };
 
 export type SpatialSource = {
@@ -541,7 +559,7 @@ export type PlayerCondition = {
 };
 
 export type EndingState = {
-  phase: "running" | "finale" | "ended" | "sandbox";
+  phase: "running" | "major-event" | "finale" | "ended" | "sandbox";
   route?: "阻止" | "利用" | "改变" | "逃离";
   title?: string;
   epilogue?: string[];
@@ -638,6 +656,7 @@ export type ActionContract = {
   approach: string;
   leaderId: string;
   memberIds: string[];
+  executionMode?: "delegated" | "player-led";
   districtId: string;
   abilityIds: string[];
   facilityId?: string;
@@ -716,6 +735,7 @@ export type GameState = {
   abilityJournal: AbilityUseRecord[];
   hiddenWorldFacts: HiddenWorldFact[];
   activeAbilityScene: AbilityScene | null;
+  activeParticipationScene: ParticipationScene | null;
   formulaKnowledge: number;
   materials: Material[];
   advancementProcess: AdvancementProcess | null;
@@ -748,6 +768,9 @@ export type GameState = {
   worldSignals: WorldSignal[];
   worldSnapshots: WorldSnapshot[];
   worldKernel: WorldKernel;
+  worldLedger: WorldLedger;
+  worldAgents: AutonomousWorldState;
+  factionStrategy: FactionStrategyState;
   memory: DynamicMemoryState;
   abilityResolutions?: string[];
   fate?: FateAberrationState;
@@ -769,11 +792,14 @@ export type GameState = {
   councilTopics: CouncilTopic[];
   routeHypotheses?: PlayerRouteHypothesis[];
   spatialContext?: SpatialContextItem[];
+  management: OrganizationManagementState;
+  highSequenceLedger: HighSequenceLedger;
+  campaignWorld: CampaignWorldState;
 };
 
 const seq = (rank: number, name: string, capabilities: string[], acting: string): Sequence => ({ rank, name, capabilities, acting });
 
-export const PATHWAYS: Record<PathwayId, Pathway> = {
+const CORE_PATHWAYS: Record<CorePathwayId, Pathway> = {
   seer: {
     id: "seer", name: "占卜家", color: "#b7a36f",
     sequences: [
@@ -876,6 +902,59 @@ export const PATHWAYS: Record<PathwayId, Pathway> = {
   },
 };
 
+function pathwayFromOpeningDossier(pathwayId: PathwayId): Pathway {
+  const dossier = PATHWAY_OPENING_DOSSIERS[pathwayId];
+  return {
+    id: pathwayId,
+    name: dossier.name,
+    color: dossier.color,
+    sequences: dossier.sequences.map((name, index) => {
+      const rank = 9 - index;
+      const ledger = sequenceLedgerFor(pathwayId, rank)!;
+      return {
+        ...seq(rank, name, ledger.operationalEnvelope, ledger.actingReminder),
+        organizationEffect: ledger.organizationEffect,
+        lossOfControlRisk: ledger.lossOfControlRisk,
+        loreEvidenceIds: ledger.loreEvidenceIds,
+      };
+    }),
+    startingAbilities: dossier.openingAbilities.map((item) => ({
+      ...item,
+      cost: item.passive ? 0 : 1,
+      mode: "感知",
+      scope: "当前场景内的合法目标",
+      duration: item.passive ? "持续被动" : "一次行动",
+      contexts: ["council", "dialogue", "district", "organization", "self"],
+      constraints: ["只能产生知识库确认的当前序列效果", "不能凭空生成玩家无权得知的世界事实"],
+      ruleTags: ["lore-gated", "opening"],
+      unlockRank: 9,
+    })),
+  };
+}
+
+// Keep the hand-authored core pathways as the eager cache. Decorating them here
+// would read the generated ledger while both modules are still initialising,
+// which can leave the ledger undefined in server-rendered builds.
+const pathwayCache = { ...CORE_PATHWAYS } as Partial<Record<PathwayId, Pathway>>;
+export const PATHWAYS = new Proxy(pathwayCache, {
+  get(target, property) {
+    if (typeof property !== "string") return Reflect.get(target, property);
+    const pathwayId = property as PathwayId;
+    if (target[pathwayId]) return target[pathwayId];
+    if (!PATHWAY_OPENING_DOSSIERS[pathwayId]) return undefined;
+    const pathway = pathwayFromOpeningDossier(pathwayId);
+    target[pathwayId] = pathway;
+    return pathway;
+  },
+  ownKeys() {
+    return Reflect.ownKeys(PATHWAY_OPENING_DOSSIERS);
+  },
+  getOwnPropertyDescriptor(target, property) {
+    if (typeof property !== "string" || !PATHWAY_OPENING_DOSSIERS[property as PathwayId]) return Reflect.getOwnPropertyDescriptor(target, property);
+    return { configurable: true, enumerable: true };
+  },
+}) as Record<PathwayId, Pathway>;
+
 export const DISTRICTS: District[] = [
   { id: "north", name: "北区", subtitle: "大学与教会", background: "大学、出版社与教会总部共同维持秩序。知识容易获得，秘密也更容易进入官方档案。", danger: 34, intel: 45, x: 20, y: 17, size: "large", landmarks: ["霍伊大学", "圣赛缪尔教堂", "大学图书馆"], opportunity: "档案研究、学者关系与官方知识。", warning: "未经许可的仪式会迅速引来值夜者。" },
   { id: "empress", name: "皇后区", subtitle: "王室与大贵族", background: "宫殿、花园与世袭宅邸形成封闭世界，真正的信息沿仆役和供应商网络流动。", danger: 53, intel: 19, x: 42, y: 16, size: "medium", landmarks: ["王室宫殿", "皇后花园", "贵族宅邸群"], opportunity: "贵族线人、王室项目与上流资源。", warning: "身份审查严格，一次异常就可能永久封闭渠道。" },
@@ -889,7 +968,7 @@ export const DISTRICTS: District[] = [
   { id: "dock", name: "码头区", subtitle: "仓库、船运与走私", background: "五海与殖民地的船只把材料、移民和未知事物带进首都，港务制度早已被多方侵蚀。", danger: 69, intel: 54, x: 83, y: 72, size: "large", landmarks: ["货运栈桥", "海关仓库", "水手酒吧"], opportunity: "海外材料、航运记录和黑市渠道。", warning: "封闭货舱与海外非凡者带来未知风险。" },
 ];
 
-const RANK_EIGHT_RECIPES: Record<PathwayId, Material[]> = {
+const RANK_EIGHT_RECIPES: Partial<Record<PathwayId, Material[]>> = {
   seer: [
     { id: "seer-main-1", name: "成年角影豹的完整脑垂体", kind: "主材料", obtained: false, known: true, source: "东区地下兽材商或组织狩猎" },
     { id: "seer-main-2", name: "双面笑蛾的结晶粉末", kind: "主材料", obtained: false, known: true, source: "北区标本馆、神秘学聚会" },
@@ -917,7 +996,7 @@ const RANK_EIGHT_RECIPES: Record<PathwayId, Material[]> = {
   ],
 };
 
-const HIGHER_RECIPE_NAMES: Record<PathwayId, Record<number, [string, string, string]>> = {
+const HIGHER_RECIPE_NAMES: Partial<Record<PathwayId, Record<number, [string, string, string]>>> = {
   seer: {
     7: ["熔岩章鱼的血液结晶", "雾树树心粉末", "舞台火焰与一枚旧纸人"], 6: ["千面狩猎者的完整面皮", "影纹水母的变色囊", "属于三个身份的真实签名"],
     5: ["罗塞尔时期秘偶师的灵性结晶", "成熟木偶树的核心", "自愿交出的灵体之线媒介"], 4: ["诡术邪怪的主眼", "迷雾巨狼的心脏", "一场无人识破的公开表演记录"],
@@ -950,7 +1029,7 @@ const HIGHER_RECIPE_NAMES: Record<PathwayId, Record<number, [string, string, str
   },
 };
 
-export const ADVANCEMENT_RITUALS: Record<PathwayId, Record<number, string>> = {
+export const ADVANCEMENT_RITUALS: Partial<Record<PathwayId, Record<number, string>>> = {
   seer: { 8: "在众目睽睽之下完成一次无人受伤、且无人识破准备的表演。", 7: "提前准备至少三种替代手段，在失控局面中完成目标。", 6: "以另一个身份生活七日，最后准确说出自己的全部真实关系。", 5: "在不直接伤害目标的前提下，操纵一场不少于十人的完整事件。", 4: "策划一场影响整座城区、事后无人理解手段的诡术。", 3: "从历史中找回一段被遗忘的真实，并让至少百人重新记住。", 2: "先独立实现七十二个微小愿望，再完成一个改变万人命运的愿望。", 1: "建立稳定锚点后，于一场天使级冲突中完成概念嫁接。", 0: "容纳唯一性与源质，并让足够多的锚点仍能确认你是谁。" },
   spectator: { 8: "在不干预的情况下完整观察并复述三场重大冲突。", 7: "治愈一名真正抗拒治疗者的创伤且不抹去其人格。", 6: "让目标主动完成你预设的行为，却在最后保留拒绝权。", 5: "进入并走出一场持续七夜的共享梦境。", 4: "无声影响一座城市的情绪潮流并在峰值前使其平复。", 3: "编织一个百人共享且逻辑自洽的梦境世界。", 2: "识破一次针对时代的巨大骗局并守住自我。", 1: "书写一个覆盖万人、完全符合人物性格的发展并令其成为现实。", 0: "容纳唯一性与源质，让群体潜意识承认你的象征。" },
   apprentice: { 8: "仅用低阶戏法从封闭建筑中带出三人。", 7: "独立记录七夜星图并准确找到一个失落坐标。", 6: "记录三种不同途径能力并在正确场景安全复现。", 5: "不借固定门径抵达十二座城市并全部平安返回。", 4: "隐藏一个重要空间一年且不被任何预言发现。", 3: "完成一次星界漫游并带回可验证的异域证据。", 2: "建立跨越两个规则区域的稳定通道。", 1: "关闭一扇本不可能关闭的概念之门。", 0: "容纳唯一性与源质，让所有重要坐标仍指向你的归处。" },
@@ -959,7 +1038,12 @@ export const ADVANCEMENT_RITUALS: Record<PathwayId, Record<number, string>> = {
 };
 
 export function materialsFor(pathwayId: PathwayId, targetRank: number): Material[] {
-  if (targetRank === 8) return RANK_EIGHT_RECIPES[pathwayId].map((item) => ({
+  const unresolvedRecipe: Material[] = [
+    { id: `${pathwayId}-${targetRank}-main-a`, name: `序列${targetRank}主材料（尚未验证）`, kind: "主材料", obtained: false, known: false, source: "需要通过可靠配方或知识库证据确认" },
+    { id: `${pathwayId}-${targetRank}-main-b`, name: `序列${targetRank}另一主材料（尚未验证）`, kind: "主材料", obtained: false, known: false, source: "需要通过可靠配方或知识库证据确认" },
+    { id: `${pathwayId}-${targetRank}-aux`, name: `序列${targetRank}辅助材料（尚未验证）`, kind: "辅助材料", obtained: false, known: false, source: "配方验证后才会显示具体名称" },
+  ];
+  if (targetRank === 8) return (RANK_EIGHT_RECIPES[pathwayId] ?? unresolvedRecipe).map((item) => ({
     ...item,
     authenticity: item.obtained ? "已确认" : "待核验",
     purity: item.obtained ? 92 : 0,
@@ -969,7 +1053,17 @@ export function materialsFor(pathwayId: PathwayId, targetRank: number): Material
     storage: item.obtained ? "低温避光材料柜" : "尚未入库",
     provenance: item.obtained ? "创立组织时登记的基础库存" : "尚未建立来源链",
   }));
-  const names = HIGHER_RECIPE_NAMES[pathwayId][targetRank] ?? HIGHER_RECIPE_NAMES[pathwayId][0];
+  const names = HIGHER_RECIPE_NAMES[pathwayId]?.[targetRank] ?? HIGHER_RECIPE_NAMES[pathwayId]?.[0];
+  if (!names) return unresolvedRecipe.map((item) => ({
+    ...item,
+    authenticity: "未知",
+    purity: 0,
+    freshness: 0,
+    contamination: 0,
+    traceRisk: 0,
+    storage: "尚未入库",
+    provenance: "尚未建立来源链",
+  }));
   return names.map((name, index) => ({
     id: `${pathwayId}-${targetRank}-${index}`,
     name,
@@ -1132,6 +1226,21 @@ export type OrganizationKind = {
   boon: string;
   debt: string;
 };
+
+export type FoundingSituation = {
+  id: "scratch" | "remnant" | "patronage";
+  name: string;
+  description: string;
+  boon: string;
+  debt: string;
+  openingPressure: string;
+};
+
+export const FOUNDING_SITUATIONS: FoundingSituation[] = [
+  { id: "scratch", name: "白手建会", description: "四名非凡者在一处勉强安全的据点第一次共同入席。", boon: "暴露与外部债务最低，章程完全由你决定", debt: "资金、材料和可靠关系都很有限", openingPressure: "组织尚未形成稳定供给，第一项行动之外还必须尽快证明它能养活成员。" },
+  { id: "remnant", name: "继承残部", description: "你接过一个已经受创的旧组织及其部分资产。", boon: "非凡材料较多，并握有一条待核验配方线索", debt: "旧敌、旧记录与失联人员会沿遗产追来", openingPressure: "旧组织留下的名册并不完整，其中一名失联者仍可能知道据点位置。" },
+  { id: "patronage", name: "受托外围", description: "一位不公开身份的资助者提供资金，要求组织替其处理城市事务。", boon: "开局金钱与普通人力充足，拥有初步社会名声", debt: "资助者握有组织把柄，官方更快注意你的扩张", openingPressure: "资助者的第一封催办信已经送达；拒绝、拖延或服从都会改变双方关系。" },
+];
 
 export const ORGANIZATION_KINDS: OrganizationKind[] = [
   { id: "detective", name: "侦探事务所", defaultName: "鸦羽侦探事务所", cover: "私人调查、失物寻回与商业背景核查", description: "以合法委托为掩护，调查都市暗面。", boon: "容易接触案件与委托人", debt: "每个异常行动都可能污染公开声誉" },
@@ -1328,10 +1437,11 @@ function createOpeningState(origin: Pick<PlayerOrigin, "organizationKind" | "ide
 
 export function createInitialGame(pathwayId: PathwayId = "seer", origin?: Pick<PlayerOrigin, "organizationKind" | "identityLabel" | "organizationName">): GameState {
   const worldKernel = initializeWorldKernel();
+  const management = createInitialOrganizationManagement();
   const openingOrigin = { organizationKind: origin?.organizationKind ?? "detective", identityLabel: origin?.identityLabel ?? "私人调查事务所经营者" };
   const opening = createOpeningState(openingOrigin);
-  return {
-    version: 15,
+  const initialState = {
+    version: 21,
     prologueComplete: false,
     playerName: "",
     playerAddress: "会长阁下",
@@ -1365,6 +1475,7 @@ export function createInitialGame(pathwayId: PathwayId = "seer", origin?: Pick<P
     abilityJournal: [],
     hiddenWorldFacts: opening.hiddenWorldFacts,
     activeAbilityScene: null,
+    activeParticipationScene: null,
     formulaKnowledge: 100,
     materials: materialsFor(pathwayId, 8),
     advancementProcess: null,
@@ -1400,6 +1511,9 @@ export function createInitialGame(pathwayId: PathwayId = "seer", origin?: Pick<P
     worldSignals: [],
     worldSnapshots: [],
     worldKernel,
+    worldLedger: createWorldLedger(),
+    worldAgents: createAutonomousWorldState(worldKernel),
+    factionStrategy: createFactionStrategyState(management, worldKernel),
     memory: emptyMemoryState(),
     abilityResolutions: [],
     fate: createInitialFateState(),
@@ -1432,5 +1546,9 @@ export function createInitialGame(pathwayId: PathwayId = "seer", origin?: Pick<P
     councilTopics: [],
     routeHypotheses: [],
     spatialContext: [],
-  };
+    management,
+    highSequenceLedger: createHighSequenceLedger(),
+    campaignWorld: createCampaignWorldState(),
+  } satisfies GameState;
+  return { ...initialState, worldLedger: createWorldLedger(initialState) };
 }

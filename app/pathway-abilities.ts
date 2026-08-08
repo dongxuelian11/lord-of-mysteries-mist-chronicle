@@ -1,4 +1,6 @@
 import type { Ability, AbilityContextKind, PathwayId } from "./game-model.ts";
+import { PATHWAY_OPENING_DOSSIERS } from "./pathway-catalog.ts";
+import { PATHWAY_SEQUENCE_LEDGER } from "./pathway-sequence-ledger.ts";
 
 const ALL: AbilityContextKind[] = ["council", "dialogue", "district", "organization", "self", "dream", "spirit"];
 const WORLD: AbilityContextKind[] = ["district", "organization", "self", "spirit"];
@@ -12,7 +14,7 @@ function a(
   return { id, unlockRank, name, verb, description, cost, mode, scope, duration, risk, contexts, ruleTags, constraints: constraints.length ? constraints : ["只能产生能力定义范围内的效果，不能越权生成未知事实"], passive, sceneLayer };
 }
 
-export const PATHWAY_ABILITIES: Record<PathwayId, Ability[]> = {
+export const PATHWAY_ABILITIES: Partial<Record<PathwayId, Ability[]>> = {
   seer: [
     a("spirit-vision", 9, "灵视", "观察灵性痕迹", "直接观察灵体、情绪色彩、污染残留与仪式痕迹；只能描述可见现象。", 1, "感知", "视野内单一目标或小型现场", "集中期间", "未知存在可能沿注视反向感知使用者。", ALL, ["reveal", "occult"], ["不能读取思想或幕后身份"]),
     a("divination", 9, "媒介占卜", "取得象征性启示", "围绕一个明确问题和媒介取得象征、方向与危险倾向。", 2, "感知", "一个问题", "一次解读", "反占卜会制造矛盾象征，接近高位存在时可能遭到注视。", ALL, ["reveal", "occult"], ["问题必须明确", "结果不是公开证据"]),
@@ -109,7 +111,7 @@ function h(
   return { id, unlockRank, name, verb, description, cost, mode, scope, duration, risk, contexts, ruleTags, constraints, authorityTier, requirements, consequences };
 }
 
-const HIGH_SEQUENCE_ABILITIES: Record<PathwayId, Ability[]> = {
+const HIGH_SEQUENCE_ABILITIES: Partial<Record<PathwayId, Ability[]>> = {
   seer: [
     h("bizarro-swap",4,"秘偶互换","与秘偶交换位置和状态","在有效灵体之线连接内瞬间与指定秘偶交换位置，并把一次锁定转移给它。",6,"移动","同城且连接未被切断的一具秘偶","瞬间","强封锁会让交换停在错误边界。",ALL,["access","covert","reality"],["必须已有秘偶","不能把死亡结算转移给无关者"],["稳定灵体之线","明确交换对象"],["秘偶损毁会反冲本体","交换留下圣者级痕迹"]),
     h("bizarro-domain",4,"诡法领域","让局部规则呈现诡异错位","围绕已准备秘偶与媒介制造一处逻辑自洽的诡异领域，扭曲距离、身份线索和攻击落点。",7,"影响","一座建筑或街区节点","最多一小时","领域越复杂，越容易引来同层存在校正。",ALL,["covert","reality","defense"],["必须写明三条领域规则","不能篡改已确认历史"],["至少两具秘偶或等价媒介","现实锚点"],["领域崩解会增加污染","周边普通人可能留下异常记忆"]),
@@ -197,8 +199,39 @@ const HIGH_SEQUENCE_ABILITIES: Record<PathwayId, Ability[]> = {
   ],
 };
 
-export function abilitiesFor(pathwayId: PathwayId, currentSequence: number) {
-  return [...PATHWAY_ABILITIES[pathwayId], ...HIGH_SEQUENCE_ABILITIES[pathwayId]].filter((ability) => (ability.unlockRank ?? 9) >= currentSequence);
+export function abilitiesFor(pathwayId: PathwayId, currentSequence: number): Ability[] {
+  const opening = PATHWAY_OPENING_DOSSIERS[pathwayId].openingAbilities.map((item): Ability => ({
+    ...item,
+    cost: item.passive ? 0 : 1,
+    mode: "感知" as const,
+    scope: "当前场景内的合法目标",
+    duration: item.passive ? "持续被动" : "一次行动",
+    contexts: ALL,
+    constraints: ["只能产生知识库确认的当前序列效果", "不能凭空生成玩家无权得知的世界事实"],
+    ruleTags: ["lore-gated", "opening"],
+    unlockRank: 9,
+  }));
+  const ledgerAbilities: Ability[] = PATHWAY_SEQUENCE_LEDGER[pathwayId].sequences.map((entry) => ({
+    id: `${pathwayId}-sequence-${entry.sequence}-free-authority`,
+    name: `${entry.name}·自由运用`,
+    verb: `以序列${entry.sequence}的知识边界执行自由意图`,
+    description: `${entry.operationalEnvelope[0]} 玩家只需描述想做什么，模型必须在知识库证据、场景和序列尺度内判定具体表现。`,
+    cost: entry.sequence >= 8 ? 1 : entry.sequence >= 5 ? 2 : entry.sequence >= 3 ? 4 : entry.sequence === 2 ? 7 : entry.sequence === 1 ? 11 : 16,
+    risk: entry.lossOfControlRisk,
+    mode: entry.sequence >= 3 ? "影响" as const : "仪式" as const,
+    scope: entry.operationalEnvelope[1],
+    duration: entry.sequence >= 3 ? "一次行动或持续场景" : "由权柄行动与世界反制共同决定",
+    contexts: ALL,
+    constraints: [...entry.operationalEnvelope.slice(2), "不得复制唯一性、源质或已经由其他持有者占据的高位资产"],
+    ruleTags: ["lore-gated", "sequence-ledger", ...entry.themes.slice(0, 4)],
+    unlockRank: entry.sequence,
+    authorityTier: entry.sequence === 0 ? "真神" as const : entry.sequence === 1 ? "天使之王" as const : entry.sequence === 2 ? "天使" as const : entry.sequence <= 4 ? "圣者" as const : undefined,
+    requirements: entry.sequence <= 4 ? ["高位资产必须登记在全局唯一账本", ...entry.loreEvidenceIds] : entry.loreEvidenceIds,
+    consequences: [entry.organizationEffect, entry.lossOfControlRisk],
+  }));
+  const authored = PATHWAY_ABILITIES[pathwayId];
+  const base = authored ? authored : [...opening, ...ledgerAbilities];
+  return [...base, ...(HIGH_SEQUENCE_ABILITIES[pathwayId] ?? [])].filter((ability) => (ability.unlockRank ?? 9) >= currentSequence);
 }
 
 export function freeTravelAbility(pathwayId: PathwayId, currentSequence: number, layer: "dream" | "spirit") {

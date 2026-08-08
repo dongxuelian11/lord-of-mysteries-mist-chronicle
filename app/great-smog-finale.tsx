@@ -47,16 +47,16 @@ export default function GreatSmogFinale({ game, busy, onDoctrine, onAssign, onAu
       <header className="smog-command-header">
         <div className="smog-mark"><CloudFog size={24} /></div>
         <div>
-          <p>贝克兰德终局窗口 · 第 {campaign.stage} 阶段</p>
+          <p>贝克兰德重大事件 · 第 {campaign.stage} 阶段</p>
           <h1 id="smog-title">{campaign.stageTitle}</h1>
           <span>{campaign.stageBrief}</span>
         </div>
-        <div className="smog-stage-track" aria-label={`终局第${campaign.stage}阶段，后续长度由世界状态决定`}>
+        <div className="smog-stage-track" aria-label={`大雾霾第${campaign.stage}阶段，后续长度由世界状态决定`}>
           {Array.from({ length: Math.max(campaign.totalStages ?? 3, campaign.stage) }, (_, index) => index + 1).map((stage) => <i key={stage} className={stage <= campaign.stage ? "active" : ""}>{stage}</i>)}
         </div>
       </header>
 
-      <section className="smog-metrics" aria-label="终局态势">
+      <section className="smog-metrics" aria-label="大雾霾态势">
         <article><small>我方势头</small><strong>{campaign.momentum}</strong><span>由已完成部署累积</span></article>
         <article className="enemy"><small>敌方进度</small><strong>{campaign.enemyProgress}%</strong><span>降至越低越有利</span></article>
         <article><small>已撤离</small><strong>{campaign.rescued.toLocaleString()}</strong><span>已离开危险区域</span></article>
@@ -125,7 +125,7 @@ export default function GreatSmogFinale({ game, busy, onDoctrine, onAssign, onAu
         </section>
 
         <footer className="smog-resolve-bar">
-          <div><strong>{ready ? "部署已经形成可执行方案" : "仍有危机没有执行者"}</strong><span>结算后城市与敌对势力会继续行动，不能撤回。</span></div>
+          <div><strong>{ready ? "部署已经形成可执行方案" : "仍有危机没有执行者"}</strong><span>结算后城市与敌对势力会继续行动；完成大雾霾后仍会回到长期世界推演。</span></div>
           <button disabled={!ready || busy} onClick={onResolve}>{busy ? "正在写入历史…" : `结算第${campaign.stage}阶段`}</button>
         </footer>
       </>}

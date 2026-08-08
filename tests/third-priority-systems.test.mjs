@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { autoDeployFinale, chooseFinaleDoctrine, createFinaleCampaign, refreshFinaleFronts, resolveFinalePhase } from "../app/finale-system.ts";
 import { createInitialGame } from "../app/game-model.ts";
+import { continueAsSuccessor } from "../app/succession-system.ts";
 import { createSaveEnvelope, parseSaveEnvelope, savePreview } from "../app/save-system.ts";
 import { buildSpatialIntelligence, estimateRoute } from "../app/spatial-intelligence.ts";
 
@@ -21,7 +22,7 @@ test("a save export validates checksum and contains no AI credentials", () => {
   game.prologueComplete = true;
   const envelope = createSaveEnvelope(game);
   const parsed = parseSaveEnvelope(JSON.stringify(envelope));
-  assert.equal(parsed.game.version, 15);
+  assert.equal(parsed.game.version, 21);
   assert.equal(savePreview(parsed).week, game.week);
   assert.doesNotMatch(JSON.stringify(envelope), /apiKey|session-ai-key/);
   envelope.game.organizationName = "被修改";
@@ -48,4 +49,30 @@ test("a resolved finale stage exposes concrete action contracts to the AI world 
   assert.ok(chapter.results.every((result) => result.contract.redLines.includes("死亡")));
   const refreshed = refreshFinaleFronts(resolved);
   if (refreshed.ending.phase === "finale") assert.ok(refreshed.ending.campaign.crises.every((crisis) => crisis.sourceFactIds?.length));
+});
+
+test("the Great Smog resolves as a major stage and returns to the living world", () => {
+  const base = createInitialGame("spectator");
+  let state = { ...base, ending: { ...base.ending, phase: "major-event", campaign: createFinaleCampaign(base) } };
+  state = chooseFinaleDoctrine(state, "改变");
+  for (let index = 0; index < 8 && state.ending.phase === "major-event"; index += 1) {
+    state = resolveFinalePhase(autoDeployFinale(state));
+  }
+  assert.equal(state.ending.phase, "running");
+  assert.equal(state.ending.campaign, undefined);
+  assert.ok(state.timeline.find((event) => event.id === "tl-great-smog").status !== "upcoming");
+  assert.ok(state.facts.some((fact) => fact.subject === "贝克兰德大雾霾" && fact.statement.includes("世界在余波中继续推演")));
+});
+
+test("player death offers a named Beyonder successor without resetting the world", () => {
+  const base = createInitialGame("seer");
+  const successor = base.members.find((member) => member.pathway);
+  const dead = { ...base, week: 19, deviation: 17, playerCondition: { ...base.playerCondition, alive: false, health: 0 }, ending: { phase: "ended", title: "负责人死亡", sandboxUnlocked: false } };
+  const resumed = continueAsSuccessor(dead, successor.id);
+  assert.equal(resumed.ending.phase, "running");
+  assert.equal(resumed.playerName, successor.name);
+  assert.equal(resumed.week, 19);
+  assert.equal(resumed.deviation, 17);
+  assert.ok(!resumed.members.some((member) => member.id === successor.id));
+  assert.ok(resumed.facts.some((fact) => fact.subject === "组织继任"));
 });

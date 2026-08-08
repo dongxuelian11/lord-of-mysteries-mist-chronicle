@@ -482,9 +482,9 @@ export function deriveMemoryFromWorldState(
   memory: DynamicMemoryState,
   worldKernel: {
     events: { id: string; week: number; title: string; detail: string; locationId?: string; actorIds: string[]; factionIds: string[]; visibility: string }[];
-    knowledge: { id: string; subject: string; statement: string; truth: string; visibility: string; holderIds: string[]; sourceEventId?: string; acquiredWeek: number }[];
+    knowledge: { id: string; subject: string; statement: string; truth: string; visibility: string; holderIds: string[]; holderRefs?: string[]; sourceEventId?: string; acquiredWeek: number }[];
     projects: { id: string; ownerId: string; title: string; stage: string; progress: number; secrecy: number; nextMilestone: string; blockers: string[]; status: string; updatedWeek: number }[];
-    observations: { eventId: string; holderIds: string[]; visibility: string }[];
+    observations: { eventId: string; holderIds: string[]; holderRefs?: string[]; visibility: string }[];
   },
   week: number
 ): DynamicMemoryState {
@@ -493,7 +493,10 @@ export function deriveMemoryFromWorldState(
     if (event.week !== week) continue;
     const observers = worldKernel.observations
       .filter((observation) => observation.eventId === event.id)
-      .flatMap((observation) => observation.holderIds);
+      .flatMap((observation) => [
+        ...observation.holderIds,
+        ...(observation.holderRefs ?? []).flatMap((reference) => reference === "player" ? ["player"] : reference.startsWith("actor:") ? [reference.slice(6)] : []),
+      ]);
     seeds.push({
       kind: "event",
       sourceEventId: event.id,
@@ -514,7 +517,11 @@ export function deriveMemoryFromWorldState(
     const truthStatus =
       node.truth === "confirmed" ? "true" : node.truth === "false" ? "false" : node.truth === "unknown" ? "unknown" : "uncertain";
     const secrecy = node.visibility === "public" ? "public" : node.visibility === "world" ? "secret" : "restricted";
-    for (const holder of node.holderIds) {
+    const beliefHolders = [...new Set([
+      ...node.holderIds,
+      ...(node.holderRefs ?? []).flatMap((reference) => reference === "player" ? ["player"] : reference.startsWith("actor:") ? [reference.slice(6)] : []),
+    ])];
+    for (const holder of beliefHolders) {
       seeds.push({
         kind: "belief",
         characterId: holder,

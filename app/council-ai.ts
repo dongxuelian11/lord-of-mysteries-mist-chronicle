@@ -21,7 +21,7 @@ export async function generateCouncilReplies(config: AiConfig, game: GameState, 
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
   const members = relevantCouncilMembers(game, topicText, 3);
   const speakerLore = Object.fromEntries(await Promise.all(members.map(async (member) => {
-    const knownLoreIds = [...new Set((game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes(member.id)).flatMap((node) => node.loreRecordIds ?? []))];
+    const knownLoreIds = [...new Set((game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes(member.id) || node.holderRefs?.includes(`actor:${member.id}`)).flatMap((node) => node.loreRecordIds ?? []))];
     const specialty = `${member.role} ${member.specialty} ${member.background ?? ""}`;
     const topicGrants = [...(member.pathway ? ["pathways", "beyonder-system"] : []), ...(/神秘|仪式|封印|灵界|梦境|非凡/.test(specialty) ? ["rituals", "spirit-world", "sealed-artifacts"] : []), ...(/情报|调查|警|外交|教会/.test(specialty) ? ["factions"] : [])];
     const horizon = game.worldKernel?.canon?.knowledgeHorizon ?? {
@@ -52,7 +52,7 @@ export async function generateCouncilReplies(config: AiConfig, game: GameState, 
     speakerDynamicMemory: Object.fromEntries(
       members.map((member) => [member.id, speakerMemory[member.id].text])
     ),
-    authorizedKnowledge: Object.fromEntries(members.map((member) => [member.id, (game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes(member.id)).slice(-12)])),
+    authorizedKnowledge: Object.fromEntries(members.map((member) => [member.id, (game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes(member.id) || node.holderRefs?.includes(`actor:${member.id}`)).slice(-12)])),
     lastWeek: game.chronicle[0] ? { summary: game.chronicle[0].summary, results: game.chronicle[0].results.map((item) => ({ title: item.title, outcome: item.outcome, findings: item.findings })) } : null,
     activePressure: game.missions.find((item) => item.state === "active") ?? null,
     scheduled: game.schedule.map((item) => ({ title: item.title, rawIntent: item.rawIntent, risk: item.risk })),

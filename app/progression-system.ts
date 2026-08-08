@@ -1,6 +1,8 @@
-import { ADVANCEMENT_RITUALS, type Ability, type AbilityUseRecord, type ActionContract, type ActionResult, type ActingMark, type AdvancementProcess, type GameState, PATHWAYS } from "./game-model.ts";
+import type { Ability, AbilityUseRecord, ActionContract, ActionResult, ActingMark, AdvancementProcess, GameState } from "./game-model.ts";
+import { PATHWAY_OPENING_DOSSIERS } from "./pathway-catalog.ts";
+import { sequenceLedgerFor } from "./pathway-sequence-ledger.ts";
 
-const ACTING_PRINCIPLES: Record<GameState["pathwayId"], Record<number, string[]>> = {
+const ACTING_PRINCIPLES: Partial<Record<GameState["pathwayId"], Record<number, string[]>>> = {
   seer: {
     9: ["给出启示，但不替别人决定命运", "用可复核的征兆校正直觉", "面对未知时承认占卜边界"],
     8: ["用笑容承受命运的荒诞", "在失衡中保持精确控制", "把危险化作一场不伤人的表演"],
@@ -64,21 +66,22 @@ const ACTING_PRINCIPLES: Record<GameState["pathwayId"], Record<number, string[]>
 };
 
 export function actingPrinciplesFor(game: Pick<GameState, "pathwayId" | "currentSequence">) {
-  return ACTING_PRINCIPLES[game.pathwayId][game.currentSequence] ?? [PATHWAYS[game.pathwayId].sequences.find((item) => item.rank === game.currentSequence)?.acting ?? "保持自我锚点"];
+  const ledger = sequenceLedgerFor(game.pathwayId, game.currentSequence);
+  return ACTING_PRINCIPLES[game.pathwayId]?.[game.currentSequence] ?? [ledger?.actingReminder ?? PATHWAY_OPENING_DOSSIERS[game.pathwayId].personalStyle, `让${ledger?.organizationEffect ?? PATHWAY_OPENING_DOSSIERS[game.pathwayId].managementContribution}落实为真实后果`, `主动处理风险：${ledger?.lossOfControlRisk ?? PATHWAY_OPENING_DOSSIERS[game.pathwayId].knownRisk}`];
 }
 
 export function evaluateActing(game: GameState, contract: ActionContract, outcome: ActionResult["outcome"]): ActingMark | null {
   if (contract.leaderId !== "player") return null;
   const principles = actingPrinciplesFor(game);
   const source = `${contract.rawIntent} ${contract.desiredOutcome} ${contract.approach} ${contract.redLines} ${contract.retreat}`;
-  const tokens: Record<GameState["pathwayId"], RegExp[]> = {
+  const tokens: Partial<Record<GameState["pathwayId"], RegExp[]>> = {
     seer: [/启示|占卜|预兆|验证|退路|替身|伪装|操纵/],
     spectator: [/观察|情绪|心理|拒绝|边界|治疗|暗示|梦境/],
     apprentice: [/边界|入口|坐标|撤离|返回|记录|空间|灵界/],
     hunter: [/追踪|陷阱|挑衅|冲突|火焰|战术|弱点|终止/],
     mystery: [/识别|知识|验证|仪式|术式|记录|卷轴|星象/],
   };
-  const index = tokens[game.pathwayId].findIndex((pattern) => pattern.test(source));
+  const index = (tokens[game.pathwayId] ?? [/验证|证据|边界/, /撤离|保护|风险/, /组织|成员|资源/]).findIndex((pattern) => pattern.test(source));
   const principle = principles[index < 0 ? game.week % principles.length : index % principles.length];
   const repeated = game.actingMarks.slice(-5).filter((item) => item.sequence === game.currentSequence && item.principle === principle).length >= 2;
   const base = outcome === "成功" ? 8 : outcome === "部分成功" ? 6 : 3;
@@ -89,14 +92,14 @@ export function evaluateActing(game: GameState, contract: ActionContract, outcom
 export function evaluateImmediateActing(game: GameState, ability: Ability, intent: string, record: AbilityUseRecord): ActingMark | null {
   const principles = actingPrinciplesFor(game);
   const source = `${ability.name} ${ability.verb} ${ability.description} ${intent} ${record.observation} ${record.interpretation}`;
-  const principleSignals: Record<GameState["pathwayId"], RegExp[]> = {
+  const principleSignals: Partial<Record<GameState["pathwayId"], RegExp[]>> = {
     seer: [/启示|占卜|预兆|征兆|命运/, /复核|验证|校正|判断/, /边界|未知|无法确认|不替|停止/],
     spectator: [/观察|旁观|微表情|行为/, /事实|推断|情绪|判断|无法确认/, /矛盾|画像|验证|细微/],
     apprentice: [/边界|封闭|入口|脱困/, /归路|返回|撤离|坐标/, /技巧|开锁|通路|空间/],
     hunter: [/追踪|反追踪|猎物/, /环境|弱点|冲突|战术/, /陷阱|避免|替代|收束/],
     mystery: [/识别|命名|辨认/, /未知|层次|验证|复核/, /污染|边界|停止|不使用/],
   };
-  const scores = principleSignals[game.pathwayId].map((signals) => signals.test(source) ? 1 : 0);
+  const scores = (principleSignals[game.pathwayId] ?? [/能力|途径/, /验证|证据|判断/, /污染|边界|停止/]).map((signals) => signals.test(source) ? 1 : 0);
   const index = scores.findIndex((score) => score === Math.max(...scores));
   if (index < 0 || Math.max(...scores) === 0) return null;
   const principle = principles[index % principles.length];
@@ -165,7 +168,7 @@ export function advanceAdvancementStage(game: GameState): GameState {
     if (game.ritualReadiness < 70) throw new Error("仪式尚未形成足够完整的现实条件。继续推进相关经历即可；当前准备不会被清空。 ");
     const integrity = Math.min(100, Math.round(game.ritualReadiness * .72 + game.stability * .18 + game.influence * .1));
     if (integrity < 85) flaws.push("仪式完成，但现实见证与自我锚点偏弱。 ");
-    safeguards.push(`仪式文本已锁定：${ADVANCEMENT_RITUALS[game.pathwayId][process.targetRank]}`);
+    safeguards.push("仪式条件必须由当前知识权限内的知识库证据确认，不允许自动生成或跳过核验。");
     log.push(`晋升仪式完成，规则认可度${integrity}%；仪式结果已经发生，不能靠重试抹去。`);
     return { ...game, advancementProcess: { ...process, stage: "精神稳定", ritualIntegrity: integrity, flaws, safeguards, log } };
   }

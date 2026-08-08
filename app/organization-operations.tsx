@@ -1,24 +1,35 @@
 "use client";
 
-import { useState } from "react";
-import { Building2, CircleDollarSign, GitMerge, MapPin, Network, RefreshCcw, Scale, Scissors, ShieldAlert, TrendingDown, TrendingUp, UsersRound } from "lucide-react";
-import { DISTRICTS, GameState } from "./game-model";
+import { Building2, ShieldAlert, TrendingDown, TrendingUp, UsersRound } from "lucide-react";
+import type { GameState } from "./game-model";
 
-export default function OrganizationOperations({ game, onTransform, onMemberEvent }: { game: GameState; onTransform: (action: "rename" | "move" | "legalize" | "satellite" | "split" | "merge" | "rebuild", value: string) => void; onMemberEvent: (memberId: string) => void }) {
-  const [name, setName] = useState(game.organizationName);
-  const [district, setDistrict] = useState(game.organizationProfile.headquartersDistrictId);
-  const latest = game.economyHistory[0];
-  const projectedIncome = 48 + Math.floor(game.influence / 5);
-  const facilityCost = game.facilities.filter((item) => item.status === "运转中").reduce((sum, item) => sum + (item.maintenance ?? Math.max(2, item.level * 3)), 0);
-  const departmentCost = game.departments.reduce((sum, item) => sum + item.budget, 0);
-  const forecast = projectedIncome - facilityCost - departmentCost;
+type Props = {
+  game: GameState;
+  onTransform: (action: "rename" | "move" | "legalize" | "satellite" | "split" | "merge" | "rebuild", value: string) => void;
+  onMemberEvent: (memberId: string) => void;
+};
+
+const FACTION_LABELS: Record<string, string> = { official: "官方体系", local: "地方利益网络", hidden: "隐秘非凡势力" };
+
+export default function OrganizationOperations({ game, onMemberEvent }: Props) {
+  const management = game.management;
+  const activeBranches = management.branches.filter((branch) => branch.status !== "lost");
+  const strongestHostility = management.factionHostility.slice().sort((left, right) => right.hostility - left.hostility)[0];
+  const favorable = management.reputation.score >= management.exposure;
+
   return <section className="organization-operations complete-card">
-    <header><div><small>组织经营态势</small><strong>每项资产都产生能力、成本与风险</strong></div><span className={forecast >= 0 ? "positive" : "negative"}>{forecast >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}下周基础结余 {forecast >= 0 ? "+" : ""}£{forecast}</span></header>
-    <div className="operation-metrics"><article><CircleDollarSign size={15} /><span><small>掩护业务收入</small><strong>£{projectedIncome}/周</strong></span></article><article><Building2 size={15} /><span><small>设施维护</small><strong>£{facilityCost}/周</strong></span></article><article><UsersRound size={15} /><span><small>部门预算</small><strong>£{departmentCost}/周</strong></span></article><article><CircleDollarSign size={15} /><span><small>当前现金</small><strong>£{game.money}</strong></span></article></div>
-    <div className="organization-condition-list">{game.organizationConditions.map((condition) => <span key={condition}><ShieldAlert size={12} />{condition}</span>)}</div>
-    {latest && <footer><span>上周账目</span><p>掩护收入 £{latest.coverIncome} + 委托收入 £{latest.contractIncome} − 行动 £{latest.actionCost} − 设施 £{latest.facilityCost} − 部门 £{latest.departmentCost}</p><strong>期末 £{latest.balance}</strong></footer>}
-    <div className="member-alignment"><header><UsersRound size={14} /><strong>成员留下的理由</strong><small>命令与章程会分别改变信任、利益和理念</small></header>{game.members.map((member) => <article key={member.id}><span>{member.name}</span><label>信任 <b>{member.trust ?? member.loyalty}</b></label><label>利益 <b>{member.interest ?? member.loyalty}</b></label><label>理念 <b>{member.ideology ?? member.loyalty}</b></label></article>)}</div>
-    {game.members.some((member) => member.personalEventState === "active") && <div className="member-events"><header><ShieldAlert size={14} /><strong>需要负责人处理的人物事件</strong></header>{game.members.filter((member) => member.personalEventState === "active").map((member) => <article key={member.id}><div><strong>{member.name}</strong><p>{member.personalEvent}</p></div><button onClick={() => onMemberEvent(member.id)}>安排谈话</button></article>)}</div>}
-    <div className="organization-transform"><header><Network size={14} /><strong>组织形态</strong><small>变更不会自动带走全部成员与资产</small></header><div className="transform-fields"><label><span>组织名称</span><input value={name} onChange={(event) => setName(event.target.value)} /><button onClick={() => onTransform("rename", name)}>更名</button></label><label><span>目标区域</span><select value={district} onChange={(event) => setDistrict(event.target.value)}>{DISTRICTS.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><button onClick={() => onTransform("move", district)}><MapPin size={12} />迁址 £120</button><button onClick={() => onTransform("satellite", district)}><Network size={12} />建外围点 £160</button></label></div><div className="transform-actions"><button onClick={() => onTransform("legalize", "")}><Scale size={13} />申请合法化</button><button onClick={() => onTransform("split", "")}><Scissors size={13} />允许分裂</button><button onClick={() => onTransform("merge", `${name}联合会`)}><GitMerge size={13} />与盟友合并</button><button onClick={() => onTransform("rebuild", `${name}新社`)}><RefreshCcw size={13} />退出并重建</button></div><footer><span>当前：{game.organizationProfile.legalStatus}</span><p>主据点：{DISTRICTS.find((item) => item.id === game.organizationProfile.headquartersDistrictId)?.name} · 外围据点 {game.organizationProfile.satellites.length}</p></footer></div>
+    <header><div><small>组织经营态势</small><strong>议会定方向，下属按职务持续执行</strong></div><span className={favorable ? "positive" : "negative"}>{favorable ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{favorable ? "影响正在积累" : "痕迹正在反噬"}</span></header>
+    <div className="management-resource-strip" aria-label="组织三项基础资源"><article><small>普通人力</small><strong>{management.resources.manpower}</strong><span>宏观调配；提拔后永久减一</span></article><article><small>金钱</small><strong>£{management.resources.money}</strong><span>行动、维持与掩护成本</span></article><article><small>非凡材料</small><strong>{management.resources.extraordinaryMaterials}</strong><span>魔药、仪式与封印物维护</span></article></div>
+    <div className="management-office-grid" aria-label="四项治理职责">{management.offices.map((office) => { const incumbent = game.members.find((member) => member.id === office.incumbentId); const report = management.lastGovernanceReport?.offices.find((item) => item.officeId === office.id); return <article key={office.id}><small>{office.name}{report ? ` · 贡献${report.effective}` : ""}</small><strong>{incumbent?.name ?? "尚未任命"}</strong><span>{report?.availability === "away" ? "本周外出，治理效能降至30%" : report?.effect ?? office.responsibility}</span></article>; })}</div>
+    <div className="management-state-row"><span>声望：{management.reputation.tier} · {management.reputation.score}</span><span>暴露：{management.exposure} · {management.exposureEvidence.length}条可追查证据</span><span>分部：{activeBranches.length}</span><span>配方：{management.formulas.filter((formula) => formula.status === "verified").length}已验证 / {management.formulas.length}总记录</span><span>封印物：{management.sealedArtifacts.length}</span></div>
+    {management.lastConsequenceReport && <details className="management-consequence-report" open><summary>本周态势值产生的实际影响</summary>{management.lastConsequenceReport.effects.map((effect) => <p key={effect}>{effect}</p>)}</details>}
+
+    <div className="management-causality-grid">
+      <article><header><ShieldAlert size={14} /><strong>当前主要反制</strong></header>{strongestHostility ? <><b>{FACTION_LABELS[strongestHostility.factionId] ?? strongestHostility.factionId} · 敌意 {strongestHostility.hostility}</b><p>{strongestHostility.responseStyle}</p><small>怨恨{strongestHostility.grievance} · 利益冲突{strongestHostility.interestConflict} · 威胁判断{strongestHostility.perceivedThreat}</small></> : <p>尚无势力形成明确敌意档案。</p>}</article>
+      <article><header><Building2 size={14} /><strong>分部回报</strong></header>{activeBranches.length ? activeBranches.map((branch) => <p key={branch.id}><b>{branch.name}</b><span>{branch.status} · 人力{branch.stationedManpower} · {branch.policy}</span></p>) : <p>尚未建立分部。先在地图争夺战略点，把区块控制力提升到60。</p>}</article>
+      <article><header><ShieldAlert size={14} /><strong>暴露来源</strong></header>{management.exposureEvidence.filter((item) => item.expiresWeek === undefined || item.expiresWeek >= game.week).slice(-3).map((evidence) => <p key={evidence.id}><b>{evidence.kind} · {evidence.severity}</b><span>{evidence.summary}</span></p>)}{!management.exposureEvidence.length && <p>目前没有可追查证据；高风险与非凡行动会留下具体痕迹。</p>}</article>
+    </div>
+
+    {game.members.some((member) => member.personalEventState === "active") && <div className="member-events"><header><UsersRound size={14} /><strong>需要负责人裁决的人物事务</strong></header>{game.members.filter((member) => member.personalEventState === "active").map((member) => <article key={member.id}><div><strong>{member.name}</strong><p>{member.personalEvent}</p></div><button onClick={() => onMemberEvent(member.id)}>通过对话处理</button></article>)}</div>}
   </section>;
 }

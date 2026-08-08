@@ -1,0 +1,75 @@
+.management-console { margin-top: 14px; }
+.management-console-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.management-command-card { padding: 13px; border: 1px solid rgba(169,135,76,.19); border-radius: 9px; background: rgba(11,13,11,.36); }
+.management-command-card > header { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; color: #d4bc8b; }
+.management-command-card > header small { margin-left: auto; color: #958c7a; }
+.management-command-card button, .management-command-card select, .management-command-card input { min-height: 36px; border: 1px solid rgba(169,135,76,.25); border-radius: 7px; background: #171914; color: #d8ceb9; }
+.management-command-card button { padding: 7px 10px; cursor: pointer; }
+.management-command-card button:hover:not(:disabled) { border-color: rgba(211,177,108,.65); background: rgba(169,135,76,.13); }
+.management-command-card button:disabled { opacity: .45; cursor: not-allowed; }
+.management-allocation-list, .management-office-controls { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; margin-bottom: 9px; }
+.management-allocation-list label, .management-office-controls label, .management-screening-controls label, .management-branch-controls label { display: grid; gap: 4px; color: #a79d8b; font-size: 11px; }
+.management-allocation-list input, .management-screening-controls input, .management-branch-controls input { width: 100%; padding: 0 8px; }
+.management-office-controls select, .management-branch-controls select, .management-promotion select { width: 100%; padding: 0 8px; }
+.management-screening-controls { display: grid; grid-template-columns: 1fr 1fr auto; gap: 7px; align-items: end; }
+.management-inline-status { min-height: 44px; margin: 0; padding: 10px; border-radius: 7px; background: rgba(169,135,76,.07); color: #b7aa93; display: flex; gap: 6px; align-items: center; }
+.management-candidate-list { display: grid; gap: 6px; margin-top: 9px; }
+.management-candidate-list > button { height: auto; text-align: left; display: grid; gap: 2px; }
+.management-candidate-list > button.selected { border-color: #b79659; background: rgba(169,135,76,.16); }
+.management-candidate-list span, .management-candidate-list small { color: #a79d8b; }
+.management-promotion { display: grid; grid-template-columns: 1fr auto; gap: 7px; margin-top: 9px; }
+.management-text-action { width: 100%; margin-top: 9px; }
+.managed-beyonder-list { display: grid; gap: 7px; margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(169,135,76,.16); }
+.managed-beyonder-list > header { display: flex; align-items: center; gap: 6px; color: #d4bc8b; }
+.managed-beyonder-list > article { display: grid; gap: 8px; padding: 9px; border: 1px solid rgba(169,135,76,.14); border-radius: 7px; background: rgba(0,0,0,.12); }
+.managed-beyonder-list > article > div { display: grid; gap: 3px; }
+.managed-beyonder-list span, .managed-beyonder-list small { color: #a79d8b; font-size: 11px; }
+.managed-beyonder-list footer { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+.managed-beyonder-list select { width: 100%; padding: 0 8px; }
+.management-branch-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.management-branch-controls > button { grid-column: 1 / 3; }
+.branch-management-list { display: grid; gap: 8px; margin-top: 12px; }
+.branch-management-list > article { display: grid; gap: 8px; padding: 10px; border: 1px solid rgba(169,135,76,.16); border-radius: 8px; background: rgba(0,0,0,.12); }
+.branch-management-list header, .branch-management-list footer { display: flex; align-items: center; gap: 7px; }
+.branch-management-list header span { display: grid; flex: 1; gap: 2px; }
+.branch-management-list header small, .branch-management-list footer > span { color: #a79d8b; font-size: 11px; }
+.branch-management-list header b { padding: 3px 6px; border-radius: 5px; background: rgba(169,135,76,.13); color: #d4bc8b; font-size: 10px; }
+.branch-management-list header b.threatened { background: rgba(153,67,48,.2); color: #dc9b86; }
+.branch-management-list > article > div { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.branch-management-list label { display: grid; gap: 3px; color: #a79d8b; font-size: 10px; }
+.branch-management-list select { width: 100%; padding: 0 7px; }
+.branch-management-list footer { flex-wrap: wrap; }
+.branch-management-list footer > span { margin-right: auto; }
+@media (max-width: 760px) {
+  .management-console-grid, .management-allocation-list, .management-office-controls { grid-template-columns: 1fr; }
+  .management-screening-controls, .management-branch-controls, .management-promotion { grid-template-columns: 1fr; }
+  .management-branch-controls > button { grid-column: auto; }
+}
+.ability-console-simple { width: min(720px, calc(100vw - 28px)); }
+.ability-free-command { display: grid; gap: 12px; padding: 18px; }
+.ability-free-command > label { display: grid; gap: 7px; color: #c9b78f; }
+.ability-free-command textarea { min-height: 150px; padding: 13px; border: 1px solid rgba(169,135,76,.3); border-radius: 8px; background: #131611; color: #e2d7bf; resize: vertical; }
+.ability-free-command > small { color: #9d9482; line-height: 1.55; }
+.ability-command-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.ability-command-tags button { min-height: 30px; padding: 5px 9px; border: 1px solid rgba(169,135,76,.27); border-radius: 999px; background: rgba(169,135,76,.08); color: #d4c097; cursor: pointer; }
+.ability-command-tags button:hover { border-color: #b79659; background: rgba(169,135,76,.16); }
+.management-causality-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; margin-top: 12px; }
+.management-consequence-report { margin: 10px 0; padding: 10px 12px; border: 1px solid rgba(169,135,76,.16); border-radius: 8px; background: rgba(169,135,76,.05); }
+.management-consequence-report summary { color: #d3b574; cursor: pointer; font-size: 12px; }
+.management-consequence-report p { margin: 6px 0 0; color: #aaa08d; font-size: 11px; line-height: 1.5; }
+.management-causality-grid > article { padding: 11px; border: 1px solid rgba(169,135,76,.17); border-radius: 8px; background: rgba(0,0,0,.12); }
+.management-causality-grid header { display: flex; align-items: center; gap: 6px; color: #d0b77f; margin-bottom: 8px; }
+.management-causality-grid p { display: grid; gap: 2px; margin: 6px 0; color: #aaa08d; }
+.management-causality-grid b { color: #d3c3a4; }
+.organization-page > .economy-governance, .organization-page > .organization-grid, .organization-page > .departments, .organization-page > .recruit-pool { display: none; }
+@media (max-width: 760px) { .management-causality-grid { grid-template-columns: 1fr; } }
+.succession-choice { margin: 14px 0; }
+.succession-choice > header { display: flex; gap: 9px; align-items: center; margin-bottom: 10px; color: #d3b574; }
+.succession-choice > header div { display: grid; gap: 2px; }
+.succession-choice > header small { color: #a69b88; }
+.succession-choice > div { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.succession-choice button { min-height: 72px; padding: 10px; border: 1px solid rgba(169,135,76,.22); border-radius: 8px; background: rgba(169,135,76,.07); color: #d8c9ac; text-align: left; display: grid; gap: 2px; cursor: pointer; }
+.succession-choice button span, .succession-choice button small { color: #9f9583; }
+.map-branch-dossier p { margin: 5px 0; color: #c3b69d; font-size: 11px; line-height: 1.5; }
+.map-branch-dossier > div { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 9px; }
+.map-branch-dossier button { min-height: 34px; border: 1px solid rgba(169,135,76,.25); border-radius: 7px; background: rgba(169,135,76,.08); color: #d6c39b; cursor: pointer; }

@@ -14,7 +14,9 @@ test("council masthead and long-form copy keep readable contrast and scale", asy
 
 test("free ability use defaults to player intent and reports rule rejection inline", async () => {
   const [consoleSource, gameSource] = await Promise.all([read("app/ability-console.tsx"), read("app/complete-game.tsx")]);
-  assert.match(consoleSource, /!props\.selectedId \|\| props\.selectedId === "free-intent"/);
+  assert.match(consoleSource, /props\.onSelect\("free-intent"\)/);
+  assert.match(consoleSource, /ability-command-tags/);
+  assert.match(consoleSource, /不需要先选择能力/);
   assert.match(consoleSource, /ability-inline-feedback" role="alert"/);
   assert.match(consoleSource, /aria-label="关闭即时能力反馈"/);
   assert.match(gameSource, /setAbilityError\(error instanceof Error/);
@@ -27,7 +29,7 @@ test("NPC speech is AI generated and a quiet week still requires AI world simula
     read("app/council-ai.ts"),
   ]);
   assert.match(game, /自由人物对话需要先连接AI模型/);
-  assert.match(game, /本周没有结算，你可以检查接口后原样重试/);
+  assert.match(game, /本周没有完成世界推演，你可以检查接口后从已锁定事实继续/);
   assert.match(game, /本地规则不会伪造世界事件/);
   assert.doesNotMatch(game, /我分四层讲|亲历、下属报告、个人推断与未知分别说清/);
   assert.match(engine, /playerIssuedNoOrders/);

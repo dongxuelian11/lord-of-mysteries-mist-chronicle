@@ -146,7 +146,7 @@ function extractJson(raw: string) {
 export async function generateAbilityDraft(config: AiConfig, game: GameState, ability: Ability, intent: string, context: AbilityContext): Promise<AbilityDraft> {
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
   const relevantHidden = game.hiddenWorldFacts.filter((item) => item.subjectKey === context.targetId || item.subjectKey === context.label).slice(-3);
-  const knownLoreIds = [...new Set((game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes("player")).flatMap((node) => node.loreRecordIds ?? []))];
+  const knownLoreIds = [...new Set((game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes("player") || node.holderRefs?.includes("player")).flatMap((node) => node.loreRecordIds ?? []))];
   const horizon = game.worldKernel?.canon?.knowledgeHorizon ?? {
     work: "LOTM" as const,
     maxVolume: 1,
@@ -172,7 +172,7 @@ export async function generateAbilityDraft(config: AiConfig, game: GameState, ab
     knownFacts: game.facts.slice(-14),
     authorizedLore: lore.context,
     dynamicMemory: abilityMemoryView.text,
-    authorizedWorldKnowledge: (game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes("player")).slice(-12),
+    authorizedWorldKnowledge: (game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes("player") || node.holderRefs?.includes("player")).slice(-12),
     lockedHiddenFacts: relevantHidden,
     recentUses: game.abilityJournal.slice(-6),
   };

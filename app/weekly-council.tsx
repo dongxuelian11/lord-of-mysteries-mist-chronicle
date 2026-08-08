@@ -6,7 +6,7 @@ import {
   FileText, Gavel, Map as MapIcon, MessageSquareText, Newspaper, Pin, Plus, RadioTower, ShieldAlert, Sparkles, Target,
   UsersRound, WandSparkles, X,
 } from "lucide-react";
-import CityMapWorkspace from "./city-map-workspace";
+import BacklundControlMap from "./backlund-control-map";
 import { COUNCIL_PORTFOLIOS, portfolioOwner, portfoliosForMember } from "./council-system";
 import { AbilityContext, ChronicleChapter, DISTRICTS, GameState, PATHWAYS, ViewId } from "./game-model";
 
@@ -62,7 +62,7 @@ export default function WeeklyCouncil(props: Props) {
   const [activeTopicId, setActiveTopicId] = useState(game.councilTopics.find((item) => item.status === "open")?.id ?? "");
   const [mapOpen, setMapOpen] = useState(false);
   const messagesRef = useRef<HTMLDivElement | null>(null);
-  const [showScribeGuide, setShowScribeGuide] = useState(() => game.week === 1 && game.prologueComplete && typeof window !== "undefined" && window.localStorage.getItem("mist-chronicle-scribe-guide") !== "1");
+  const [showScribeGuide, setShowScribeGuide] = useState(() => game.week <= 4 && game.prologueComplete && typeof window !== "undefined" && window.localStorage.getItem(`mist-chronicle-foundation-guide-${game.week}`) !== "1");
   const activeMission = game.missions.find((mission) => mission.state === "active");
   const currentSequence = PATHWAYS[game.pathwayId].sequences.find((item) => item.rank === game.currentSequence)!;
   const formalCouncil = game.members.filter((member) => member.pathway).slice(0, 8);
@@ -70,6 +70,11 @@ export default function WeeklyCouncil(props: Props) {
   const activeTopic = game.councilTopics.find((item) => item.id === activeTopicId) ?? game.councilTopics[0];
   const pinnedTopics = game.councilTopics.filter((item) => item.pinned).slice(0, 3);
   const latestDiscussionTopic = game.councilTopics.find((topic) => topic.messages.length > 0);
+  const playerLed = /我亲自|亲自参与|亲自前往|由我带队/.test(props.intentText);
+  const selectExecutionMode = (mode: "delegated" | "player-led") => {
+    const withoutMarker = props.intentText.replace(/^我亲自参与这项行动[：:]\s*/, "");
+    props.onIntentText(mode === "player-led" ? `我亲自参与这项行动：${withoutMarker}` : withoutMarker);
+  };
   useEffect(() => {
     const element = messagesRef.current;
     if (element) element.scrollTop = element.scrollHeight;
@@ -82,9 +87,15 @@ export default function WeeklyCouncil(props: Props) {
   const worldSignals = (game.worldSignals ?? []).filter((signal) => signal.week === reportWeek).slice(0, 6);
   const urgentOrganizationIssues = game.organizationIssues.filter((issue) => issue.state === "待裁决" || issue.state === "已逾期").sort((a, b) => b.urgency - a.urgency).slice(0, 3);
   const currentDepartmentReports = game.departmentReports.filter((report) => report.week === game.week).slice(0, 6);
+  const foundationSteps = [
+    { label: "形成并执行第一项正式决议", done: game.chronicle.length > 0 || game.schedule.length > 0, hint: "可委派下属，也可使用本周唯一亲自行程。" },
+    { label: "让一条情报落到地图战略点", done: game.management.map.districts.some((district) => district.blocks.some((block) => block.strategicPoints.some((point) => point.intelligenceIds.length > 0 || (point.influenceByFaction.player ?? 0) >= 30))), hint: "报纸、线人、占卜与行动结果都可以成为地图情报。" },
+    { label: "启动候选筛选或取得配方线索", done: game.management.screeningProjects.length > 0 || game.management.candidates.length > 0 || game.management.formulas.length > 0, hint: "普通人力只有经筛选、玩家选中并服用已验证序列9配方后才成为具名成员。" },
+    { label: "形成首个稳定区块支点", done: game.management.branches.length > 0 || game.management.map.districts.some((district) => district.blocks.some((block) => block.control >= 35)), hint: "先争夺关键战略点；区块控制60后才适合建立分部。" },
+  ];
   const bringToDecision = (text: string, districtId?: string) => { props.onUseSuggestion(text, districtId); setStage("orders"); setPanelModal("orders"); };
   const openPanel = (panel: CouncilStage) => { setStage(panel); setPanelModal(panel); };
-  const dismissGuide = () => { setShowScribeGuide(false); if (typeof window !== "undefined") window.localStorage.setItem("mist-chronicle-scribe-guide", "1"); };
+  const dismissGuide = () => { setShowScribeGuide(false); if (typeof window !== "undefined") window.localStorage.setItem(`mist-chronicle-foundation-guide-${game.week}`, "1"); };
 
   const governanceOwners = useMemo(() => {
     const grouped = new Map<string, { member: GameState["members"][number]; portfolios: typeof COUNCIL_PORTFOLIOS }>();
@@ -100,7 +111,7 @@ export default function WeeklyCouncil(props: Props) {
       .slice(0, 4);
   }, [game]);
   const freshMapSignals = (game.worldSignals ?? []).filter((signal) => signal.week === reportWeek && signal.districtId).length
-    + (game.worldKernel?.observations ?? []).filter((observation) => observation.week === reportWeek && (observation.visibility === "player" || observation.holderIds.includes("player"))).length;
+    + (game.worldKernel?.observations ?? []).filter((observation) => observation.week === reportWeek && (observation.visibility === "public" || observation.visibility === "player" || observation.holderIds.includes("player") || observation.holderRefs?.includes("player"))).length;
 
   async function startDiscussion(seed?: string) {
     const text = (seed ?? discussionText).trim();
@@ -115,7 +126,7 @@ export default function WeeklyCouncil(props: Props) {
   }
 
   return <div className={`council-page page-enter ${props.generationStage ? "council-simulating" : ""}`}>
-    {showScribeGuide && <aside className="scribe-guide" role="note"><header><BookOpen size={16} /><strong>书记员引导 · 第一周怎么玩</strong><button onClick={dismissGuide} aria-label="关闭引导"><X size={15} /></button></header><ol><li>在「形成决议」写一句命令，确认契约后写入本周日程</li><li>在「自由讨论」提出问题，让最相关的成员回应</li><li>随时用右下角能力盘发动非凡能力</li><li>即使不下命令也可以直接闭会，世界仍会继续前进</li></ol><footer><button onClick={dismissGuide}>知道了</button><button onClick={dismissGuide}>跳过引导</button></footer></aside>}
+    {showScribeGuide && <aside className="scribe-guide" role="note"><header><BookOpen size={16} /><strong>组织奠基 · 第{game.week}周自适应引导</strong><button onClick={dismissGuide} aria-label="关闭引导"><X size={15} /></button></header><ol>{foundationSteps.map((item) => <li key={item.label} className={item.done ? "done" : ""}><b>{item.done ? "已完成" : "待推进"}</b><span>{item.label}<small>{item.hint}</small></span></li>)}</ol><footer><button onClick={dismissGuide}>本周收起</button><button onClick={dismissGuide}>我自由行动</button></footer></aside>}
     <header className="council-masthead">
       <div><p>第 {game.week} 周 · {game.date}</p><h1>{game.playerAddress}主持的最高议会</h1><span>内圈席位只属于非凡者；内部主管在外圈述职。所有事务由明确负责人汇总，最后方向只由你拍板。</span></div>
       <div className="council-rule"><UsersRound size={17} /><span><strong>{formalCouncil.length}/8 正式参席</strong><small>{supervisors.length}名内部主管列席 · 外部人士不得进入会议</small></span></div>
@@ -185,14 +196,14 @@ export default function WeeklyCouncil(props: Props) {
 
     {stage === "orders" && <section className="council-panel orders-panel">
       <header className="free-order-heading"><div><p>轮到{game.playerAddress}拍板</p><h2>你希望组织朝什么方向推进？</h2><span>直接写目标、手段、限制与停止条件；也可以让书记员根据桌面的自由讨论整理一份草稿。</span></div>{latestDiscussionTopic ? <button className="complete-secondary" onClick={() => props.onFormDecision(latestDiscussionTopic.id)} disabled={props.decisionLoading}>{props.decisionLoading ? "书记员正在整理…" : "从最近讨论生成决议"}</button> : <Command size={24} />}</header>
-      <article className="council-composer"><textarea value={props.intentText} onChange={(event) => props.onIntentText(event.target.value)} placeholder="例如：先核对失踪工人的共同活动地点。不要接触教会，不盘问诊所；若对方察觉调查，立刻中止。" maxLength={1200} /><div className="intent-context-row"><span>空间上下文：{DISTRICTS.find((item) => item.id === props.selectedDistrictId)?.name}</span><span>{props.intentText.length}/1200</span></div><footer><span><Gavel size={13} />只整理你的原意，不生成预设道路</span><button className="complete-primary" onClick={props.onPrepare} disabled={!props.intentText.trim() || props.contractLoading}>{props.contractLoading ? <><Sparkles size={15} />负责人正在复述</> : <>形成行动契约 <ArrowRight size={16} /></>}</button></footer></article>
-      <article className="decision-ledger"><header><span><CalendarDays size={15} /><strong>本周已拍板的决议</strong></span><small>{game.schedule.length}项 · 不设僵硬行动次数</small></header>{game.schedule.length ? <div>{game.schedule.map((action) => <article key={action.id}><span className={`schedule-risk ${riskClass(action.risk)}`}>{action.risk}</span><div><strong>{action.title}</strong><p>{DISTRICTS.find((district) => district.id === action.districtId)?.name} · {action.days}天 · £{action.budget}</p></div><button onClick={() => props.onRemoveAction(action.id)} aria-label="撤回这项决议"><X size={15} /></button></article>)}</div> : <div className="empty-decision"><Gavel size={21} /><span>没有决议也可以散会；世界仍会自行前进。</span></div>}<div className="week-strip">{DAY_NAMES.map((day, index) => <div key={day}><span>{day}</span>{game.schedule.filter((action) => index + 1 >= action.startDay && index + 1 < action.startDay + action.days).map((action) => <i key={action.id} className={riskClass(action.risk)} />)}</div>)}</div><footer><div><span><CircleDollarSign size={13} />£{game.money}</span><span><Sparkles size={13} />{game.spirituality}/{game.spiritualityMax}</span><span><Target size={13} />偏转 {game.deviation.toFixed(1)}%</span></div><button className="adjourn-button" onClick={props.onEndWeek} disabled={Boolean(props.generationStage) || Boolean(game.fatalSituation) || game.ending.phase !== "running"}><Gavel size={15} />{props.generationStage || (game.schedule.length ? "闭会并进入推演" : "无决议闭会，世界继续")}</button></footer></article>
+      <article className="council-composer"><div className="execution-mode" role="group" aria-label="行动执行方式"><button className={!playerLed ? "active" : ""} onClick={() => selectExecutionMode("delegated")}><strong>委派执行</strong><small>由最合适的下属负责，占用该成员本周行动容量</small></button><button className={playerLed ? "active" : ""} onClick={() => selectExecutionMode("player-led")}><strong>亲自参与</strong><small>占用玩家本周唯一亲自行程，重点写成现场连续场景</small></button></div><textarea value={props.intentText} onChange={(event) => props.onIntentText(event.target.value)} placeholder="例如：先核对失踪工人的共同活动地点。不要接触教会，不盘问诊所；若对方察觉调查，立刻中止。" maxLength={1200} /><div className="intent-context-row"><span>空间上下文：{DISTRICTS.find((item) => item.id === props.selectedDistrictId)?.name}</span><span>{props.intentText.length}/1200</span></div><footer><span><Gavel size={13} />只整理你的原意，不生成预设道路</span><button className="complete-primary" onClick={props.onPrepare} disabled={!props.intentText.trim() || props.contractLoading}>{props.contractLoading ? <><Sparkles size={15} />负责人正在复述</> : <>形成行动契约 <ArrowRight size={16} /></>}</button></footer></article>
+      <article className="decision-ledger"><header><span><CalendarDays size={15} /><strong>本周已拍板的决议</strong></span><small>{game.schedule.length}项 · 每名具名成员一项正式行动</small></header>{game.schedule.length ? <div>{game.schedule.map((action) => <article key={action.id}><span className={`schedule-risk ${riskClass(action.risk)}`}>{action.risk}</span><div><strong>{action.title}</strong><p>{action.executionMode === "player-led" || action.leaderId === "player" ? "亲自参与" : `委派：${game.members.find((member) => member.id === action.leaderId)?.name ?? "负责人"}`} · {DISTRICTS.find((district) => district.id === action.districtId)?.name} · {action.days}天 · £{action.budget}</p></div><button onClick={() => props.onRemoveAction(action.id)} aria-label="撤回这项决议"><X size={15} /></button></article>)}</div> : <div className="empty-decision"><Gavel size={21} /><span>没有决议也可以散会；世界仍会自行前进。</span></div>}<div className="week-strip">{DAY_NAMES.map((day, index) => <div key={day}><span>{day}</span>{game.schedule.filter((action) => index + 1 >= action.startDay && index + 1 < action.startDay + action.days).map((action) => <i key={action.id} className={riskClass(action.risk)} />)}</div>)}</div><footer><div><span><CircleDollarSign size={13} />£{game.money}</span><span><Sparkles size={13} />{game.spirituality}/{game.spiritualityMax}</span><span><Target size={13} />偏转 {game.deviation.toFixed(1)}%</span></div><button className="adjourn-button" onClick={props.onEndWeek} disabled={Boolean(props.generationStage) || Boolean(game.fatalSituation) || game.ending.phase !== "running"}><Gavel size={15} />{props.generationStage || (game.schedule.length ? "闭会并进入推演" : "无决议闭会，世界继续")}</button></footer></article>
     </section>}
     </div>
     </section>
     </div>}
 
     <aside className="council-side-notes"><button onClick={() => props.onView("progression")} disabled={Boolean(props.generationStage)}><WandSparkles size={15} /><span><small>自身与非凡能力</small><strong>序列{game.currentSequence} · 消化{game.digestion}%</strong></span><ChevronRight size={14} /></button><button onClick={() => props.onView("organization")} disabled={Boolean(props.generationStage)}><UsersRound size={15} /><span><small>组织状态</small><strong>{game.members.length}名具名成员 · 稳定{game.stability}</strong></span><ChevronRight size={14} /></button><button onClick={() => props.onView("archive")} disabled={Boolean(props.generationStage)}><BookOpen size={15} /><span><small>会议纪事</small><strong>{game.chronicle.length}篇周报可反复阅读</strong></span><ChevronRight size={14} /></button></aside>
-    {mapOpen && <div className="council-map-backdrop" onMouseDown={() => setMapOpen(false)}><section className="council-map-modal" role="dialog" aria-modal="true" aria-label="贝克兰德城市地图" onMouseDown={(event) => event.stopPropagation()}><header><div><p>议桌城市测绘图</p><h2>贝克兰德 · 城市地图</h2><span>地图只在议桌上展开；带回讨论与决议时自动收卷。</span></div><button onClick={() => setMapOpen(false)} aria-label="关闭地图"><X size={18} /></button></header><CityMapWorkspace game={game} selectedDistrictId={props.selectedDistrictId} onDistrict={props.onDistrict} onOpenDiscussion={(seed) => { setMapOpen(false); setDiscussionText(seed); void startDiscussion(seed); }} onFormDirection={(seed, districtId) => { setMapOpen(false); bringToDecision(seed, districtId); }} onUseAbility={props.onUseAbility} onAddHypothesis={props.onAddRouteHypothesis} /></section></div>}
+    {mapOpen && <div className="council-map-backdrop" onMouseDown={() => setMapOpen(false)}><section className="council-map-modal" role="dialog" aria-modal="true" aria-label="贝克兰德城市地图" onMouseDown={(event) => event.stopPropagation()}><header><div><p>议桌城市测绘图</p><h2>贝克兰德 · 区域控制图</h2><span>区域 → 区块 → 战略点；控制持续变化，建立分部也不会阻止其他势力反击。</span></div><button onClick={() => setMapOpen(false)} aria-label="关闭地图"><X size={18} /></button></header><BacklundControlMap game={game} selectedDistrictId={props.selectedDistrictId} onDistrict={props.onDistrict} onOpenDiscussion={(seed) => { setMapOpen(false); setDiscussionText(seed); void startDiscussion(seed); }} onFormDirection={(seed, districtId) => { setMapOpen(false); bringToDecision(seed, districtId); }} /></section></div>}
   </div>;
 }

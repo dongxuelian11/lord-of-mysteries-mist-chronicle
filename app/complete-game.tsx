@@ -9,17 +9,19 @@ import {
   UsersRound, WandSparkles, X, Zap,
 } from "lucide-react";
 import {
-  ActionContract, ADVANCEMENT_RITUALS, ChronicleChapter, createInitialGame, DISTRICTS, Facility, FIXED_RECRUIT_POOL, GameState, INITIAL_MEMBERS, initializeWorldKernel, organizationKindById, PATHWAYS,
+  ActionContract, ADVANCEMENT_RITUALS, ChronicleChapter, createInitialGame, DISTRICTS, Facility, FIXED_RECRUIT_POOL, FOUNDING_SITUATIONS, GameState, INITIAL_MEMBERS, initializeWorldKernel, materialsFor, organizationKindById, PATHWAYS,
   Ability, AbilityContext, AbilityUseRecord, PathwayId, PlayerOrigin, RiskLevel, ViewId,
 } from "./game-model";
 import {
   advanceSequence, availableAbilities, beginAdvancement, canAdvance, generateAiWorldDelta, generateLiteraryChapter, generateNpcDialogue, generateSituationBrief, progressAdvancement,
-  connectEvidence, enterSandbox, interpretIntentWithAi, resolveFatalSituation,
+  generateParticipationSceneBeat,
+  enterSandbox, interpretIntentWithAi, resolveFatalSituation,
   resolveWeek, scheduleContract, SituationBrief, transformOrganization,
 } from "./game-engine";
 import { assignFinaleResource, autoDeployFinale, chooseFinaleDoctrine, refreshFinaleFronts, resolveFinalePhase } from "./finale-system";
-import InvestigationBoard from "./investigation-board";
 import OrganizationOperations from "./organization-operations";
+import OrganizationManagementConsole from "./organization-management-console";
+import { advanceManagedBeyonder, migrateOrganizationManagementState, promoteCandidate, type OrganizationManagementState } from "./organization-management";
 import GreatSmogFinale from "./great-smog-finale";
 import AiSettings from "./ai-settings";
 import { AiConfig, DEEPSEEK_FLASH_PRESET, testModelConnection } from "./ai-client";
@@ -31,10 +33,19 @@ import { abilityForFreeIntent, continueAbilityScene, generateAbilityDraft, gener
 import { generateCouncilReplies, generateCouncilSummary, generateDecisionDraft } from "./council-ai";
 import { actingPrinciplesFor, advancementStatus } from "./progression-system";
 import { abilitiesFor } from "./pathway-abilities";
-import { ACTIVE_SAVE_KEY, createRecoveryCheckpoint, downloadSave, parseSaveEnvelope, savePreview } from "./save-system";
+import { ACTIVE_SAVE_KEY, LEGACY_ACTIVE_SAVE_KEYS, createRecoveryCheckpoint, downloadSave, parseSaveEnvelope, savePreview } from "./save-system";
+import { continueAsSuccessor } from "./succession-system";
+import { createWorldLedger } from "./world-ledger.ts";
+import { createAutonomousWorldState } from "./autonomous-agents.ts";
+import { createFactionStrategyState, ensureFactionStrategyState } from "./faction-strategy.ts";
+import ParticipationSceneOverlay from "./participation-scene-overlay";
+import { createParticipationScene, resolveParticipationSceneTurn } from "./participation-scene";
+import { ensureHighSequenceLedger } from "./high-sequence-ledger.ts";
+import { ensureCampaignWorldState } from "./campaign-world.ts";
+import CampaignWorldConsole from "./campaign-world-console";
 
 const SAVE_KEY = ACTIVE_SAVE_KEY;
-const LEGACY_SAVE_KEYS = ["mist-chronicle-complete-v14", "mist-chronicle-complete-v13", "mist-chronicle-complete-v12", "mist-chronicle-complete-v11", "mist-chronicle-complete-v10", "mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
+const LEGACY_SAVE_KEYS = [...LEGACY_ACTIVE_SAVE_KEYS, "mist-chronicle-complete-v15", "mist-chronicle-complete-v14", "mist-chronicle-complete-v13", "mist-chronicle-complete-v12", "mist-chronicle-complete-v11", "mist-chronicle-complete-v10", "mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
 const AI_KEY = "mist-chronicle-save-v3-ai";
 const AI_SESSION_KEY = "mist-chronicle-session-ai-key";
 const DEV_MODE = typeof window !== "undefined" && window.localStorage.getItem("mist-chronicle-dev-mode") === "1";
@@ -46,9 +57,9 @@ function displayNarrative(text: string) {
 
 function normalizeNarrativeGame(game: GameState): GameState {
   const fresh = createInitialGame(game.pathwayId ?? "seer");
-  return {
+  const normalized: GameState = {
     ...game,
-    version: 15,
+    version: 21,
     playerOrigin: {
       ...fresh.playerOrigin,
       ...(game.playerOrigin ?? {}),
@@ -58,8 +69,10 @@ function normalizeNarrativeGame(game: GameState): GameState {
       organizationKind: game.playerOrigin?.organizationKind ?? "detective",
       organizationKindLabel: game.playerOrigin?.organizationKindLabel ?? "侦探事务所",
       organizationCharter: game.playerOrigin?.organizationCharter || game.charter || fresh.playerOrigin.organizationCharter,
+      foundingSituationId: game.playerOrigin?.foundingSituationId ?? "scratch",
     },
     actingMarks: game.actingMarks ?? [],
+    activeParticipationScene: game.activeParticipationScene ?? null,
     advancementProcess: game.advancementProcess ?? null,
     materials: (game.materials ?? fresh.materials).map((item) => ({ authenticity: item.obtained ? "已确认" : "未知", purity: item.obtained ? 80 : 0, freshness: item.obtained ? 75 : 0, contamination: 0, traceRisk: 0, storage: item.obtained ? "组织材料柜" : "尚未入库", provenance: item.obtained ? item.source : "尚未建立来源链", ...item })),
     members: (game.members ?? fresh.members).map((item) => ({ relationshipMomentum: 0, personalPressure: 8, personalEventSignals: [], promises: [], lastRelationshipChangeWeek: 0, ...item })),
@@ -70,16 +83,23 @@ function normalizeNarrativeGame(game: GameState): GameState {
     worldSignals: game.worldSignals ?? [],
     worldSnapshots: game.worldSnapshots ?? [],
     worldKernel: game.worldKernel ?? initializeWorldKernel(game),
+    worldAgents: game.worldAgents ?? createAutonomousWorldState(game.worldKernel ?? initializeWorldKernel(game)),
+    factionStrategy: game.factionStrategy ?? createFactionStrategyState(game.management ?? fresh.management, game.worldKernel ?? initializeWorldKernel(game)),
     routeHypotheses: game.routeHypotheses ?? [],
     spatialContext: game.spatialContext ?? [],
+    management: migrateOrganizationManagementState(game.management),
+    highSequenceLedger: ensureHighSequenceLedger(game.highSequenceLedger),
+    campaignWorld: ensureCampaignWorldState(game.campaignWorld),
     chronicle: (game.chronicle ?? []).map((chapter) => ({ ...chapter, sections: chapter.sections.map((section) => ({ ...section, paragraphs: section.paragraphs.map(displayNarrative) })) })),
   };
+  normalized.factionStrategy = ensureFactionStrategyState(game.factionStrategy, normalized.management, normalized.worldKernel);
+  return { ...normalized, worldLedger: game.worldLedger ?? createWorldLedger(normalized) };
 }
 
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Command }[] = [
-  { id: "intent", label: "集会", icon: Command },
+  { id: "intent", label: "议会", icon: Command },
   { id: "organization", label: "组织", icon: Building2 },
-  { id: "progression", label: "自身", icon: WandSparkles },
+  { id: "archive", label: "纪事", icon: BookOpen },
 ];
 
 function riskClass(risk: RiskLevel) { return risk === "致命" ? "fatal" : risk === "高" ? "high" : risk === "中" ? "medium" : "low"; }
@@ -139,6 +159,8 @@ export default function CompleteGame() {
   const [chatLoading, setChatLoading] = useState(false);
   const [dialogueDecisionLoading, setDialogueDecisionLoading] = useState(false);
   const [chatContext, setChatContext] = useState<"council" | "private">("council");
+  const [participationLoading, setParticipationLoading] = useState(false);
+  const [participationError, setParticipationError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -147,15 +169,17 @@ export default function CompleteGame() {
       const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
-        try { const value = JSON.parse(saved) as GameState; if (value.version === 15) { setGame(normalizeNarrativeGame(value)); setHasSave(Boolean(value.prologueComplete)); } }
+        try { const value = JSON.parse(saved) as GameState; if (value.version === 21) { setGame(normalizeNarrativeGame(value)); setHasSave(Boolean(value.prologueComplete)); } }
         catch { window.localStorage.removeItem(SAVE_KEY); }
       } else if (legacySaved) {
         try {
           const legacy = JSON.parse(legacySaved) as Partial<GameState>;
           setHasSave(Boolean(legacy.prologueComplete ?? true));
           const fresh = createInitialGame(legacy.pathwayId ?? "seer");
-          const abilityFields = { version: 15, spirituality: Math.max(12, legacy.spirituality ?? 12), spiritualityMax: 18, mentalLoad: legacy.mentalLoad ?? 0, lastMeditationWeek: legacy.lastMeditationWeek ?? 0, abilityJournal: legacy.abilityJournal ?? [], hiddenWorldFacts: legacy.hiddenWorldFacts ?? fresh.hiddenWorldFacts, activeAbilityScene: legacy.activeAbilityScene ?? null, playerOrigin: legacy.playerOrigin ?? fresh.playerOrigin, councilTopics: legacy.councilTopics ?? [], worldSignals: legacy.worldSignals ?? [], worldSnapshots: legacy.worldSnapshots ?? [], worldKernel: initializeWorldKernel(legacy) };
-          if ([10, 11, 12, 13, 14].includes(legacy.version ?? 0)) setGame(normalizeNarrativeGame({ ...(legacy as GameState), ...abilityFields }));
+          const migratedWorldKernel = legacy.worldKernel ?? initializeWorldKernel(legacy);
+          const migratedManagement = migrateOrganizationManagementState(legacy.management ?? fresh.management);
+          const abilityFields = { version: 21, spirituality: Math.max(12, legacy.spirituality ?? 12), spiritualityMax: 18, mentalLoad: legacy.mentalLoad ?? 0, lastMeditationWeek: legacy.lastMeditationWeek ?? 0, abilityJournal: legacy.abilityJournal ?? [], hiddenWorldFacts: legacy.hiddenWorldFacts ?? fresh.hiddenWorldFacts, activeAbilityScene: legacy.activeAbilityScene ?? null, activeParticipationScene: legacy.activeParticipationScene ?? null, playerOrigin: legacy.playerOrigin ?? fresh.playerOrigin, councilTopics: legacy.councilTopics ?? [], worldSignals: legacy.worldSignals ?? [], worldSnapshots: legacy.worldSnapshots ?? [], worldKernel: migratedWorldKernel, worldAgents: legacy.worldAgents ?? createAutonomousWorldState(migratedWorldKernel), factionStrategy: legacy.factionStrategy ?? createFactionStrategyState(migratedManagement, migratedWorldKernel), management: migratedManagement, highSequenceLedger: ensureHighSequenceLedger(legacy.highSequenceLedger), campaignWorld: ensureCampaignWorldState(legacy.campaignWorld) };
+          if ([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].includes(legacy.version ?? 0)) setGame(normalizeNarrativeGame({ ...(legacy as GameState), ...abilityFields }));
           else if (legacy.version === 9) setGame({ ...(legacy as GameState), ...abilityFields, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [] });
           else if (legacy.version === 8) setGame({ ...(legacy as GameState), ...abilityFields, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [], dialogueThreads: [], councilRecords: [{ week: legacy.week ?? 1, status: "convened", decisions: [] }] });
           else if ([5, 6, 7].includes(legacy.version ?? 0) && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));
@@ -209,7 +233,9 @@ export default function CompleteGame() {
     if (!freeIntent || contractLoading) return;
     if (!aiReady) { setShowSettings(true); setToast("自由决议必须先连接 AI；本地规则不会代替模型理解你的意图"); return; }
     setContractLoading(true); setGenerationError("");
-    const args = { intent: freeIntent, game, leaderId: "organization", districtId: selectedDistrictId, abilityIds: [] as string[] };
+    const playerExplicitlyJoins = /我亲自|亲自参与|亲自前往|由我带队/.test(freeIntent);
+    const leaderId = playerExplicitlyJoins ? "player" : "organization";
+    const args = { intent: freeIntent, game, leaderId, districtId: selectedDistrictId, abilityIds: [] as string[] };
     try {
       const next = await interpretIntentWithAi(aiConfig, args);
       setContract(next);
@@ -268,9 +294,42 @@ export default function CompleteGame() {
 
   function removeAction(id: string) { setGame((current) => ({ ...current, schedule: current.schedule.filter((item) => item.id !== id), councilRecords: current.councilRecords.map((record) => record.week === current.week ? { ...record, decisions: record.decisions.filter((decision) => decision.id !== `decision-${id}`) } : record) })); }
 
+  async function finishWeekGeneration(councilState: GameState, resolvedChapter: ChronicleChapter) {
+    setGenerationError("");
+    setTurnChapter(resolvedChapter);
+    setStreamPreview("");
+    setView("intent");
+    let simulatedState: GameState;
+    const worldStartedAt = performance.now();
+    try {
+      simulatedState = await generateAiWorldDelta(aiConfig, councilState, resolvedChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
+      setTurnStages([{ name: "世界推演", ms: Math.round(performance.now() - worldStartedAt), status: "ok" }]);
+    } catch (error) {
+      setTurnStages([{ name: "世界推演", ms: Math.round(performance.now() - worldStartedAt), status: "error" }]);
+      setGenerationError(`${error instanceof Error ? error.message : "AI 世界推演失败"}；本周没有完成世界推演，你可以检查接口后从已锁定事实继续。`);
+      setGenerationStage("");
+      setStreamPreview("");
+      return;
+    }
+    const enrichedChapter = simulatedState.chronicle.find((chapter) => chapter.id === resolvedChapter.id) ?? resolvedChapter;
+    setCouncilDecisionSignal(0);
+    setTurnChapter(enrichedChapter);
+    setGame(simulatedState);
+    const literaryStartedAt = performance.now();
+    try {
+      const literary = await generateLiteraryChapter(aiConfig, simulatedState, enrichedChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
+      setTurnStages((prev) => [...prev, { name: "文学章节", ms: Math.round(performance.now() - literaryStartedAt), status: "ok" }]);
+      setTurnChapter(literary);
+      setGame((current) => ({ ...current, chronicle: current.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) }));
+    } catch (error) {
+      setTurnStages((prev) => [...prev, { name: "文学章节", ms: Math.round(performance.now() - literaryStartedAt), status: "error" }]);
+      setGenerationError(`${error instanceof Error ? error.message : "文学章节生成失败"}；世界事实与本周结算已经安全保存，可稍后只重试文学章节。`);
+    } finally { setGenerationStage(""); setStreamPreview(""); }
+  }
+
   async function endWeek() {
     if (generationStage) return;
-    if (game.fatalSituation || game.ending.phase === "finale" || game.ending.phase === "ended") return;
+    if (game.fatalSituation || game.ending.phase === "major-event" || game.ending.phase === "finale" || game.ending.phase === "ended") return;
     if (!aiReady) {
       setGenerationError("这是 AI 推演游戏。请先配置人物／叙事模型；每一周都必须由模型完成独立世界推演后才能结算。");
       setToast("尚未配置模型，世界推演没有开始");
@@ -286,37 +345,38 @@ export default function CompleteGame() {
         ...(resolved.state.councilRecords.some((record) => record.week === resolved.state.week) ? [] : [{ week: resolved.state.week, status: "convened" as const, decisions: [] }]),
       ],
     };
-    setGenerationError("");
-    setTurnChapter(resolved.chapter);
-    setStreamPreview("");
-    setView("intent");
-    let simulatedState: GameState;
-    const worldStartedAt = performance.now();
-    try {
-      simulatedState = await generateAiWorldDelta(aiConfig, councilState, resolved.chapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
-      setTurnStages([{ name: "世界推演", ms: Math.round(performance.now() - worldStartedAt), status: "ok" }]);
-    } catch (error) {
-      setTurnStages([{ name: "世界推演", ms: Math.round(performance.now() - worldStartedAt), status: "error" }]);
-      setGenerationError(`${error instanceof Error ? error.message : "AI 世界推演失败"}；本周没有结算，你可以检查接口后原样重试。`);
-      setGenerationStage("");
-      setStreamPreview("");
+    const playerResult = resolved.chapter.results.find((result) => result.contract.leaderId === "player" || result.contract.executionMode === "player-led");
+    if (playerResult) {
+      setGenerationError("");
+      setTurnChapter(null);
+      setView("intent");
+      setGame({ ...councilState, activeParticipationScene: createParticipationScene(resolved.chapter.id, game.week, playerResult) });
+      setToast("本周事实已在后台锁定；亲历场景结束前不会公开结果，也不能切换界面");
       return;
     }
+    await finishWeekGeneration(councilState, resolved.chapter);
+  }
 
-    const enrichedChapter = simulatedState.chronicle.find((chapter) => chapter.id === resolved.chapter.id) ?? resolved.chapter;
-    setCouncilDecisionSignal(0);
-    setTurnChapter(enrichedChapter);
-    setGame(simulatedState);
-    const literaryStartedAt = performance.now();
+  async function continueParticipationScene(intent: string) {
+    const scene = game.activeParticipationScene;
+    if (!scene || scene.status === "complete" || participationLoading) return;
+    setParticipationLoading(true);
+    setParticipationError("");
     try {
-      const literary = await generateLiteraryChapter(aiConfig, simulatedState, enrichedChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
-      setTurnStages((prev) => [...prev, { name: "文学章节", ms: Math.round(performance.now() - literaryStartedAt), status: "ok" }]);
-      setTurnChapter(literary);
-      setGame((current) => ({ ...current, chronicle: current.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) }));
+      const narrative = await generateParticipationSceneBeat(aiConfig, game, scene, intent);
+      setGame((current) => current.activeParticipationScene ? { ...current, activeParticipationScene: resolveParticipationSceneTurn(current.activeParticipationScene, intent, narrative) } : current);
     } catch (error) {
-      setTurnStages((prev) => [...prev, { name: "文学章节", ms: Math.round(performance.now() - literaryStartedAt), status: "error" }]);
-      setGenerationError(`${error instanceof Error ? error.message : "文学章节生成失败"}；世界事实与本周结算已经安全保存，可稍后只重试文学章节。`);
-    } finally { setGenerationStage(""); setStreamPreview(""); }
+      setParticipationError(`${error instanceof Error ? error.message : "亲历场景生成失败"}；这是模型接入错误，没有生成降级文本，也没有重掷事实。`);
+    } finally { setParticipationLoading(false); }
+  }
+
+  async function resumeAfterParticipation() {
+    const scene = game.activeParticipationScene;
+    if (!scene || scene.status !== "complete" || generationStage) return;
+    const chapter = game.chronicle.find((item) => item.id === scene.chapterId);
+    if (!chapter) { setParticipationError("已锁定章节不存在，无法继续世界推演"); return; }
+    const resumed = { ...game, activeParticipationScene: null };
+    await finishWeekGeneration(resumed, chapter);
   }
 
   async function retryLiteraryChapter(chapter: ChronicleChapter) {
@@ -346,6 +406,16 @@ export default function CompleteGame() {
     setToast(next.playerCondition.alive ? "致命处境已由规则引擎完成最终检定" : "负责人死亡，本局结束");
   }
 
+  function chooseSuccessor(memberId: string) {
+    try {
+      const next = continueAsSuccessor(game, memberId);
+      setGame(next);
+      setTurnChapter(null);
+      setView("intent");
+      setToast(`${next.playerName}已接过议会席位；原有组织、地图、敌意与世界历史全部保留`);
+    } catch (error) { setToast(error instanceof Error ? error.message : "继任程序无法完成"); }
+  }
+
   async function resolveFinaleStage() {
     if (generationStage) return;
     if (game.ending.campaign?.stage === 1 && !game.ending.campaign.reports.length) createRecoveryCheckpoint(game, "finale");
@@ -362,19 +432,19 @@ export default function CompleteGame() {
     try {
       const worldSimulated = await generateAiWorldDelta(aiConfig, next, localChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
       finaleWorldFailed = false;
-      setTurnStages([{ name: "终局世界推演", ms: Math.round(performance.now() - finaleWorldStartedAt), status: "ok" }]);
+      setTurnStages([{ name: "重大事件世界推演", ms: Math.round(performance.now() - finaleWorldStartedAt), status: "ok" }]);
       const simulated = refreshFinaleFronts(worldSimulated);
       const enrichedChapter = simulated.chronicle.find((chapter) => chapter.id === localChapter.id) ?? localChapter;
       setGame(simulated); setTurnChapter(enrichedChapter);
       finaleLiteraryStartedAt = performance.now();
       const literary = await generateLiteraryChapter(aiConfig, simulated, enrichedChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
-      setTurnStages((prev) => [...prev, { name: "终局文学章节", ms: Math.round(performance.now() - finaleLiteraryStartedAt), status: "ok" }]);
+      setTurnStages((prev) => [...prev, { name: "重大事件文学章节", ms: Math.round(performance.now() - finaleLiteraryStartedAt), status: "ok" }]);
       setTurnChapter(literary);
       setGame((current) => ({ ...current, chronicle: current.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter), ending: current.ending.phase === "ended" ? { ...current.ending, epilogue: literary.sections.flatMap((section) => section.paragraphs) } : current.ending }));
     } catch (error) {
       const stageMs = Math.round(performance.now() - (finaleWorldFailed ? finaleWorldStartedAt : finaleLiteraryStartedAt));
-      setTurnStages((prev) => [...prev, { name: finaleWorldFailed ? "终局世界推演" : "终局文学章节", ms: stageMs, status: "error" }]);
-      setGenerationError(`${error instanceof Error ? error.message : "终局世界推演或文学模式失败"}；规则战报已经保留，失败阶段不会伪造本地替代世界。`);
+      setTurnStages((prev) => [...prev, { name: finaleWorldFailed ? "重大事件世界推演" : "重大事件文学章节", ms: stageMs, status: "error" }]);
+      setGenerationError(`${error instanceof Error ? error.message : "重大事件世界推演或文学模式失败"}；规则战报已经保留，失败阶段不会伪造本地替代世界。`);
     } finally { setGenerationStage(""); setStreamPreview(""); }
   }
 
@@ -382,6 +452,61 @@ export default function CompleteGame() {
     const next = transformOrganization(game, action, value);
     if (next === game) { setToast(action === "legalize" ? "合法化需要官方或教会信任35、组织影响25" : action === "merge" ? "合并需要至少一个信任55的盟友" : "资金、目标或组织条件尚不满足"); return; }
     setGame(next); setToast("组织形态已改变；成员、资金、据点与关系按规则重新结算");
+  }
+
+  function applyManagementChange(management: OrganizationManagementState, message: string) {
+    setGame((current) => ({ ...current, management, money: management.resources.money }));
+    setToast(message);
+  }
+
+  function promoteOrganizationCandidate(candidateId: string, formulaId: string, costs: { money: number; extraordinaryMaterials: number }) {
+    try {
+      const candidate = game.management.candidates.find((item) => item.id === candidateId);
+      const formula = game.management.formulas.find((item) => item.id === formulaId && item.status === "verified");
+      if (!candidate || !formula) throw new Error("候选人或已验证配方不存在");
+      const management = promoteCandidate(game.management, candidateId, formulaId, costs);
+      const memberId = `promoted-${candidate.id}`;
+      const pathway = PATHWAYS[formula.pathwayId as PathwayId];
+      setGame((current) => ({
+        ...current,
+        management,
+        money: management.resources.money,
+        members: [...current.members, {
+          id: memberId,
+          name: candidate.name,
+          role: "新晋外勤成员",
+          pathway: pathway.name,
+          sequence: formula.sequence,
+          specialty: candidate.aptitude,
+          loyalty: 56,
+          trust: 45,
+          interest: 50,
+          ideology: 50,
+          fatigue: 12,
+          status: "适应魔药中",
+          background: `${candidate.background}；${candidate.sourceTrait}`,
+          core: candidate.experienceTrait,
+          personalEvent: candidate.predicamentTrait,
+          personalEventState: "dormant",
+        }],
+        dialogueThreads: [...current.dialogueThreads, { memberId, messages: [], memories: [candidate.background, candidate.predicamentTrait], lastMood: "紧张而郑重", lastUpdatedWeek: current.week }],
+      }));
+      setToast(`${candidate.name}已从基层人力转化为具名的序列${formula.sequence}非凡者；魔药适应风险会继续进入周结算`);
+    } catch (error) { setToast(error instanceof Error ? error.message : "提拔失败"); }
+  }
+
+  function advanceOrganizationMember(memberId: string, formulaId: string) {
+    try {
+      const management = advanceManagedBeyonder(game.management, memberId, formulaId, game.week);
+      const development = management.beyonderDevelopment.find((item) => item.memberId === memberId)!;
+      setGame((current) => ({
+        ...current,
+        management,
+        money: management.resources.money,
+        members: current.members.map((member) => member.id === memberId ? { ...member, sequence: development.sequence, status: "适应魔药中", fatigue: Math.min(100, member.fatigue + 12) } : member),
+      }));
+      setToast(`成员已晋升序列${development.sequence}；资源已结算并重新进入监护期`);
+    } catch (error) { setToast(error instanceof Error ? error.message : "成员晋升失败"); }
   }
 
   function applySuggestion(text: string, districtId = selectedDistrictId) { setIntentText(text); setSelectedDistrictId(districtId); setCouncilDecisionSignal((value) => value + 1); setView("intent"); window.scrollTo({ top: 0, behavior: "smooth" }); }
@@ -507,9 +632,10 @@ export default function CompleteGame() {
   function completePrologue(name: string, address: string, pathwayId: PathwayId, origin: PlayerOrigin) {
     const base = game.pathwayId === pathwayId && game.playerOrigin.organizationKind === origin.organizationKind ? game : createInitialGame(pathwayId, origin);
     const kind = organizationKindById(origin.organizationKind);
-    const allCandidates = [...INITIAL_MEMBERS, ...FIXED_RECRUIT_POOL];
+    const foundingSituation = FOUNDING_SITUATIONS.find((item) => item.id === origin.foundingSituationId) ?? FOUNDING_SITUATIONS[0];
+    const allCandidates = origin.foundingMembers?.length ? origin.foundingMembers : [...INITIAL_MEMBERS, ...FIXED_RECRUIT_POOL];
     const chosen = allCandidates.filter((member) => origin.foundingMemberIds.includes(member.id)).map((member) => ({ ...member, status: "可安排", relationshipStage: "正式成员" as const }));
-    const reserve = allCandidates.filter((member) => !origin.foundingMemberIds.includes(member.id)).map((member) => ({ ...member, status: "尚未接触", relationshipStage: "接触" as const }));
+    const reserve = FIXED_RECRUIT_POOL.map((member) => ({ ...member, status: "尚未接触", relationshipStage: "接触" as const }));
     const fieldLead = chosen.find((member) => /追踪|调查|警|码头|路线/.test(`${member.specialty}${member.role}`)) ?? chosen[0];
     const supportLead = chosen.find((member) => member.id !== fieldLead?.id && /账|档案|机械|研究|身份/.test(`${member.specialty}${member.role}`)) ?? chosen.find((member) => member.id !== fieldLead?.id) ?? chosen[0];
     const next: GameState = {
@@ -518,12 +644,40 @@ export default function CompleteGame() {
       playerName: name,
       playerAddress: address,
       playerOrigin: origin,
+      currentSequence: origin.startingSequence ?? 9,
+      digestion: origin.startingSequence === 8 ? 18 : base.digestion,
+      materials: materialsFor(pathwayId, Math.max(0, (origin.startingSequence ?? 9) - 1)),
       organizationName: origin.organizationName || kind.cover,
       coverIdentity: kind.cover,
       charter: origin.organizationCharter || base.charter,
       knownAliases: [name],
       members: chosen,
       recruitPool: reserve,
+      management: {
+        ...base.management,
+        resources: foundingSituation.id === "remnant" ? { manpower: 20, money: 320, extraordinaryMaterials: 10 } : foundingSituation.id === "patronage" ? { manpower: 28, money: 560, extraordinaryMaterials: 4 } : { manpower: 24, money: 420, extraordinaryMaterials: 6 },
+        manpowerAllocation: foundingSituation.id === "remnant" ? { headquarters: 8, intelligence: 4, resources: 3, security: 5, branches: 0 } : foundingSituation.id === "patronage" ? { headquarters: 12, intelligence: 5, resources: 5, security: 6, branches: 0 } : base.management.manpowerAllocation,
+        formulas: foundingSituation.id === "remnant" ? [{ id: "remnant-formula-lead", pathwayId, sequence: 9, name: "旧组织留下的序列9配方线索", status: "lead", reliability: 35, sourceRefs: ["founding:remnant-ledger"], loreEvidenceIds: [] }] : [],
+        exposureEvidence: foundingSituation.id === "remnant" ? [{ id: "remnant-old-records", kind: "record", summary: "旧组织遗留的出入记录仍可能被敌对者取得。", severity: 10, locationId: "backlund", detectableByFactionIds: ["police", "night-church", "aurora-order"], createdWeek: base.week }] : [],
+        exposure: foundingSituation.id === "remnant" ? 10 : foundingSituation.id === "patronage" ? 5 : 0,
+        reputation: foundingSituation.id === "patronage" ? { tier: "local-name", score: 14, tags: { 受资助: 20 }, propagationRefs: ["founding:patronage"] } : base.management.reputation,
+        factionHostility: base.management.factionHostility.map((relation) => foundingSituation.id === "remnant" && ["aurora-order", "witch-sect", "black-market"].includes(relation.factionId) ? { ...relation, grievance: relation.grievance + 18, perceivedThreat: relation.perceivedThreat + 10, hostility: Math.min(100, relation.hostility + 12), lastCauseRefs: [...relation.lastCauseRefs, "founding:remnant"] } : foundingSituation.id === "patronage" && ["royal-project", "police"].includes(relation.factionId) ? { ...relation, interestConflict: relation.interestConflict + 12, leverageAgainstPlayer: relation.leverageAgainstPlayer + 24, perceivedThreat: relation.perceivedThreat + 8, hostility: Math.min(100, relation.hostility + 6), lastCauseRefs: [...relation.lastCauseRefs, "founding:patronage"] } : relation),
+        offices: base.management.offices.map((office, index) => ({ ...office, incumbentId: chosen[index]?.id })),
+        beyonderDevelopment: chosen.filter((member) => member.pathway && member.sequence !== undefined).map((member) => ({
+          memberId: member.id,
+          pathwayId: Object.entries(PATHWAYS).find(([, candidatePathway]) => candidatePathway.name === member.pathway)?.[0] ?? "seer",
+          sequence: member.sequence!,
+          formulaId: `opening-${member.id}-formula`,
+          digestion: member.sequence === 9 ? 35 : member.sequence === 8 ? 22 : 10,
+          instability: member.sequence === 7 ? 28 : member.sequence === 8 ? 18 : 10,
+          supervision: 55,
+          status: "digesting" as const,
+          lastUpdateWeek: base.week,
+          log: [`创立档案确认其序列${member.sequence}来源；后续晋升仍需知识库证据核验的新配方。`],
+        })),
+      },
+      money: foundingSituation.id === "remnant" ? 320 : foundingSituation.id === "patronage" ? 560 : 420,
+      missions: base.missions.map((mission, index) => index === 0 ? { ...mission, premise: `${mission.premise} ${foundingSituation.openingPressure}`, urgency: Math.min(100, mission.urgency + (foundingSituation.id === "scratch" ? 0 : 6)) } : mission),
       facilities: base.facilities.map((facility) => ({ ...facility, assignedMemberId: chosen.some((member) => member.id === facility.assignedMemberId) ? facility.assignedMemberId : undefined })),
       departments: base.departments.map((department) => ({ ...department, leadMemberId: department.id === "field" ? fieldLead?.id ?? chosen[0].id : supportLead?.id ?? chosen[0].id, memberIds: department.id === "field" ? chosen.filter((member) => /追踪|调查|灵体|警|路线|急救/.test(`${member.specialty}${member.role}`)).map((member) => member.id) : chosen.filter((member) => !/追踪|调查|灵体|警|路线|急救/.test(`${member.specialty}${member.role}`)).map((member) => member.id) })),
       facts: [...base.facts,
@@ -531,6 +685,7 @@ export default function CompleteGame() {
         { id: `fact-player-origin-${Date.now()}`, subject: "组织负责人", statement: `公开身份为${origin.identityLabel}；关键经历是${origin.experienceLabel}${origin.experienceDetail ? `：${origin.experienceDetail}` : ""}。`, certainty: "确认" as const, source: "创立档案", week: base.week },
         { id: `fact-player-persona-${Date.now()}`, subject: "组织负责人", statement: `性别${origin.gender || "未公开"}，年龄${origin.age || "未公开"}。`, certainty: "确认" as const, source: "创立档案", week: base.week },
         { id: `fact-organization-${Date.now()}`, subject: "组织", statement: `组织定名为“${origin.organizationName || kind.cover}”，类型为${origin.organizationKindLabel}；章程：${origin.organizationCharter || base.charter}。`, certainty: "确认" as const, source: "创立档案", week: base.week },
+        { id: `fact-founding-situation-${Date.now()}`, subject: "组织", statement: `建会局面为“${foundingSituation.name}”：${foundingSituation.description} ${foundingSituation.openingPressure}`, certainty: "确认" as const, source: "创立档案", week: base.week },
       ],
     };
     setGame(next);
@@ -747,15 +902,15 @@ export default function CompleteGame() {
       <div className="complete-brand"><div><Eye size={19} /></div><span><small>BEYONDER ORGANIZATION SIMULATION</small><strong>灰雾纪事</strong></span></div>
       <div className="complete-date"><small>第 {game.week} 周 · {game.playerAddress}</small><strong>{game.date}</strong><span>历史偏转 {game.deviation.toFixed(1)}%</span></div>
       <div className="top-resources">
-        <span><CircleDollarSign size={14} /><small>资金</small><strong>£{game.money}</strong></span>
-        <span><LockKeyhole size={14} /><small>隐秘</small><strong>{game.secrecy}</strong></span>
-        <span><Sparkles size={14} /><small>灵性</small><strong>{game.spirituality}/{game.spiritualityMax}</strong></span>
+        <span><UsersRound size={14} /><small>人力</small><strong>{game.management.resources.manpower}</strong></span>
+        <span><CircleDollarSign size={14} /><small>金钱</small><strong>£{game.management.resources.money}</strong></span>
+        <span><Sparkles size={14} /><small>非凡材料</small><strong>{game.management.resources.extraordinaryMaterials}</strong></span>
       </div>
       <button className="complete-icon-button" onClick={() => { if (generationStage) { setToast("世界推演进行中，请等待完成"); return; } setShowSettings(true); }} aria-label="游戏与AI设置"><Settings size={18} /></button>
     </header>
 
     <nav className={`complete-sidebar ${showMobileNav ? "open" : ""}`} aria-label="游戏主导航">
-      {NAV_ITEMS.map((item) => { const Icon = item.icon; const badge = item.id === "progression" ? game.currentSequence : null; return <button type="button" key={item.id} className={view === item.id ? "active" : ""} aria-current={view === item.id ? "page" : undefined} onClick={() => { if (generationStage) { setToast("世界推演进行中，请等待当前阶段完成"); return; } setView(item.id); setShowMobileNav(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}><Icon size={18} /><span>{item.label}</span>{badge !== null && <i>{badge}</i>}</button>; })}
+      {NAV_ITEMS.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={view === item.id ? "active" : ""} aria-current={view === item.id ? "page" : undefined} onClick={() => { if (generationStage) { setToast("世界推演进行中，请等待当前阶段完成"); return; } setView(item.id); setShowMobileNav(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}><Icon size={18} /><span>{item.label}</span></button>; })}
       <div className="sidebar-spacer" />
       <button onClick={() => { if (generationStage) { setToast("世界推演进行中，请等待完成"); return; } setShowSettings(true); }}><Settings size={18} /><span>设置</span></button>
     </nav>
@@ -766,7 +921,6 @@ export default function CompleteGame() {
 
       {view === "intent" && <WeeklyCouncil key={`${game.week}:${councilDecisionSignal}`} game={game} intentText={intentText} selectedDistrictId={selectedDistrictId} contractLoading={contractLoading} generationStage={generationStage} decisionSignal={councilDecisionSignal} latestChapter={latestChapter} onIntentText={setIntentText} onDistrict={setSelectedDistrictId} onInspectDistrict={setSelectedDistrictDetail} onPrepare={() => void prepareContract()} onRemoveAction={removeAction} onEndWeek={() => void endWeek()} onQuestionMember={(memberId, seed) => openMemberChat(memberId, seed, "council")} onReadChapter={setSelectedChapter} onUseSuggestion={(text, districtId) => { applySuggestion(text, districtId); }} onView={setView} onUseAbility={(context, prompt) => openAbility(context, "free-intent", prompt)} onStartDiscussion={startCouncilDiscussion} onSummarizeTopic={summarizeCouncilTopic} onPinTopic={pinCouncilTopic} onFormDecision={(topicId) => void formDecisionFromDiscussion(topicId)} decisionLoading={decisionLoading} onAddRouteHypothesis={(fromDistrictId, toDistrictId, statement) => { setGame((current) => ({ ...current, routeHypotheses: [...(current.routeHypotheses ?? []), { id: `route-hypothesis-${Date.now()}`, createdWeek: current.week, fromDistrictId, toDistrictId, statement, status: "玩家假设" as const }].slice(-30) })); setToast("空间假设已记录；它不会在核验前成为世界事实"); }} />}
 
-      {view === "investigation" && <InvestigationBoard game={game} onConnectEvidence={(from, to, label) => setGame((current) => connectEvidence(current, from, to, label))} onUseOpportunity={(opportunity) => { setIntentText(opportunity.suggestedIntent); setSelectedDistrictId(opportunity.districtId); setView("intent"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
 
       {view === "city" && <div className="city-page page-enter">
         <header className="page-title row"><div><p>贝克兰德 · 城市情报图</p><h1>地图提供空间，议桌决定行动</h1><span>点击区域查看背景与已知痕迹；选中地点后可以把任何调查意图带回每周密议，不必沿着现有线索走。</span></div><button className="complete-secondary" onClick={() => setView("intent")}><Command size={15} />回到每周密议</button></header>
@@ -777,6 +931,8 @@ export default function CompleteGame() {
       {view === "organization" && <div className="organization-page page-enter" aria-label="组织建设与部门授权">
         <header className="page-title row"><div><p>地点 · 人员 · 制度</p><h1>{game.organizationName}</h1><span>{game.coverIdentity}</span></div><button className="complete-primary compact" onClick={() => applySuggestion("把空置后室改造成一间隐蔽的炼金实验室，优先隔绝气味与灵性波动。", "cherwood")}><Hammer size={15} />提出建设方案</button></header>
         <OrganizationOperations game={game} onTransform={applyOrganizationChange} onMemberEvent={(memberId) => { const member = game.members.find((item) => item.id === memberId); if (member) applySuggestion(`与${member.name}处理其个人事件：${member.personalEvent}。先听取诉求，再决定组织承担多少风险。`, "cherwood"); }} />
+        <OrganizationManagementConsole game={game} onChange={applyManagementChange} onPromote={promoteOrganizationCandidate} onAdvanceMember={advanceOrganizationMember} onPropose={(intent, districtId) => applySuggestion(intent, districtId ?? selectedDistrictId)} />
+        <CampaignWorldConsole game={game} onPropose={(intent) => applySuggestion(intent, selectedDistrictId)} />
         {(() => { const ledger = game.economyHistory[0]; const weeklyCommitment = ledger?.commitments?.reduce((sum, item) => sum + item.amount, 0) ?? game.departments.reduce((sum, item) => sum + item.budget, 0) + game.facilities.filter((item) => item.status === "运转中").reduce((sum, item) => sum + (item.maintenance ?? item.level * 3), 0) + game.members.reduce((sum, item) => sum + (item.pathway ? 5 : 3), 0); const runway = weeklyCommitment > 0 ? Math.max(0, Math.floor(game.money / weeklyCommitment)) : 99; return <section className="economy-governance complete-card"><header><span><CircleDollarSign size={15} /><strong>组织成本与未来承诺</strong></span><b>现金余量约 {runway} 周</b></header><div><article><small>当前资金</small><strong>£{game.money}</strong><span>不含接口费用</span></article><article><small>下周已承诺</small><strong>£{weeklyCommitment}</strong><span>设施、部门与人员支持</span></article><article><small>上周行动</small><strong>£{ledger?.actionCost ?? 0}</strong><span>按行动契约结算</span></article><article><small>预计下周余额</small><strong>£{ledger?.expectedBalance ?? game.money - weeklyCommitment}</strong><span>不凭空补足缺口</span></article></div><details><summary>展开承诺明细</summary>{ledger?.commitments?.length ? ledger.commitments.map((item) => <p key={item.id}><span>{item.kind} · {item.label}</span><b>£{item.amount} · 第{item.dueWeek}周</b></p>) : <p><span>尚无已结算周账；当前仅显示规则估算。</span></p>}</details></section>; })()}
         <div className="organization-grid">
           <section className="hq-card complete-card"><header className="section-heading"><span><Building2 size={15} /><strong>乔伍德主据点</strong></span><small>临街三层事务所 · 地下一层</small></header><div className="floor-plan">{game.facilities.map((facility) => <button key={facility.id} className={`room room-${facility.id} ${facility.status === "闲置" ? "idle" : ""}`} onClick={() => setSelectedFacility(facility)}><span>{facility.name}</span><small>{facility.type} · Lv.{facility.level}</small>{facility.assignedMemberId && <i>{game.members.find((member) => member.id === facility.assignedMemberId)?.name.slice(0, 1)}</i>}</button>)}</div><footer><span><ShieldAlert size={13} />据点风险</span><p>固定出入规律与连续仪式正在积累可观察痕迹。扩张前应建设外围安全屋。</p></footer></section>
@@ -813,7 +969,7 @@ export default function CompleteGame() {
               <div className="advancement-meter"><div><span>魔药消化</span><strong>{game.digestion}%</strong></div><span><i style={{ width: `${game.digestion}%` }} /></span><p>{currentSequence.acting}</p></div>
               <details className="acting-principles" open><summary>扮演原则与真实经历</summary><div>{actingPrinciplesFor(game).map((principle) => <article key={principle}><strong>{principle}</strong><small>{game.actingMarks.filter((mark) => mark.sequence === game.currentSequence && mark.principle === principle).reduce((sum, mark) => sum + mark.gain, 0)} 点理解</small></article>)}</div>{game.actingMarks.filter((mark) => mark.sequence === game.currentSequence).slice(-3).reverse().map((mark) => <p key={mark.id}><b>第{mark.week}周 +{mark.gain}</b>{mark.evidence}{mark.repeated ? " · 相似经历收益递减" : ""}</p>)}</details>
               <div className="advancement-meter"><div><span>配方知识</span><strong>{game.formulaKnowledge}%</strong></div><span><i style={{ width: `${game.formulaKnowledge}%` }} /></span><p>{game.formulaKnowledge >= 100 ? "完整配方已核验，材料清单可以用于行动契约。" : "需要研究、交易或从其他势力获取更多配方知识。"}</p></div>
-              <div className="advancement-meter"><div><span>仪式准备</span><strong>{game.ritualReadiness}%</strong></div><span><i style={{ width: `${game.ritualReadiness}%` }} /></span><p>{ADVANCEMENT_RITUALS[game.pathwayId][nextSequence.rank]}</p><button className="ritual-plan" onClick={() => applySuggestion(`为晋升序列${nextSequence.rank}·${nextSequence.name}准备并执行仪式：${ADVANCEMENT_RITUALS[game.pathwayId][nextSequence.rank]}。先拆分条件、验证安全措施，不在条件不足时服食魔药。`, "cherwood")}>把仪式写入自由行动</button></div>
+               <div className="advancement-meter"><div><span>仪式准备</span><strong>{game.ritualReadiness}%</strong></div><span><i style={{ width: `${game.ritualReadiness}%` }} /></span><p>{ADVANCEMENT_RITUALS[game.pathwayId]?.[nextSequence.rank] ?? "仪式条件尚未由知识库证据确认。必须先获取并验证，系统不会自动编造。"}</p><button className="ritual-plan" onClick={() => applySuggestion(`为晋升序列${nextSequence.rank}·${nextSequence.name}核验并准备仪式：${ADVANCEMENT_RITUALS[game.pathwayId]?.[nextSequence.rank] ?? "先从可靠来源取得仪式条件并完成知识库核验"}。先拆分条件、验证安全措施，不在条件不足时服食魔药。`, "cherwood")}>把仪式写入自由行动</button></div>
               <div className={`instability-strip ${game.instability >= 55 ? "danger" : ""}`}><span>失控风险</span><strong>{game.instability}/100</strong><small>{game.instability >= 70 ? "当前禁止晋升：先处理污染、锚点或精神状态。" : "晋升和高位能力会提高风险，休整与成员关系可提供锚点。"}</small></div>
               <div className="material-list"><header><span>晋升材料</span><small>{game.materials.filter((item) => item.obtained).length}/{game.materials.length}</small></header>{game.materials.map((material) => <button key={material.id} onClick={() => !material.obtained && applySuggestion(`寻找并取得${material.known ? material.name : `序列${nextSequence.rank}配方中缺失的${material.kind}`}。必须记录来源、真伪、纯度、鲜度、污染和追踪风险；不接受来源不明的替代品。`, material.source.includes("码头") ? "dock" : material.source.includes("北区") || material.source.includes("大学") ? "north" : "bridge")}><span className={material.obtained ? "done" : material.known ? "known" : "unknown"}>{material.obtained ? <Check size={13} /> : material.known ? <Search size={13} /> : <LockKeyhole size={13} />}</span><div><strong>{material.known ? material.name : "尚未确认的材料"}</strong><small>{material.kind} · {material.obtained ? `${material.authenticity} · 纯度${material.purity} · 鲜度${material.freshness} · 污染${material.contamination}` : material.source}</small>{material.obtained && <small>{material.storage} · 追踪风险{material.traceRisk} · {material.provenance}</small>}</div><ChevronRight size={13} /></button>)}</div>
               {game.advancementProcess && <details className="advancement-process" open><summary>晋升档案 · {game.advancementProcess.stage}</summary><div className="advancement-stages">{["配方核验", "魔药调制", "仪式执行", "精神稳定", "可以晋升"].map((stage) => <span key={stage} className={stage === game.advancementProcess?.stage ? "current" : ""}>{stage}</span>)}</div>{game.advancementProcess.log.slice().reverse().map((entry) => <p key={entry}>{entry}</p>)}{game.advancementProcess.flaws.map((flaw) => <p className="flaw" key={flaw}>疑点：{flaw}</p>)}</details>}
@@ -827,7 +983,8 @@ export default function CompleteGame() {
         <header className="ending-hero"><CloudFog size={28} /><p>本局结算</p><h1>{game.ending.title ?? "终局尚未完成"}</h1><span>{game.ending.route ? `你的选择：${game.ending.route}` : "负责人的故事在这里停止。"}</span></header>
         {game.ending.epilogue && <article className="ending-prose complete-card">{game.ending.epilogue.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</article>}
         {game.ending.grades && <section className="ending-grades">{Object.entries({ organization: "组织存续", members: "成员命运", advancement: "非凡晋升", relations: "势力关系", history: "历史偏转" }).map(([key, label]) => <article className="complete-card" key={key}><small>{label}</small><strong>{game.ending.grades![key as keyof typeof game.ending.grades]}</strong></article>)}</section>}
-        <div className="ending-actions"><button onClick={() => setView("archive")}><BookOpen size={15} />重读整局纪事</button>{game.ending.sandboxUnlocked && game.ending.phase !== "sandbox" && <button className="complete-primary" onClick={() => { setGame((current) => enterSandbox(current)); setView("intent"); }}><GitBranch size={15} />进入无限沙盒</button>}{game.ending.phase === "sandbox" && <button className="complete-primary" onClick={() => setView("intent")}><Command size={15} />继续书写偏转世界</button>}</div>
+        {!game.playerCondition.alive && game.members.some((member) => member.status !== "阵亡" && member.pathway) && <section className="succession-choice complete-card"><header><GitBranch size={16} /><div><strong>组织仍可能继续</strong><small>选择一名存活的非凡者成为新玩家角色，或让本局在此结束。</small></div></header><div>{game.members.filter((member) => member.status !== "阵亡" && member.pathway).map((member) => <button key={member.id} onClick={() => chooseSuccessor(member.id)}><strong>{member.name}</strong><span>序列{member.sequence} · {member.pathway}</span><small>{member.specialty}</small></button>)}</div></section>}
+        <div className="ending-actions"><button onClick={() => setView("archive")}><BookOpen size={15} />重读整局纪事</button>{!game.playerCondition.alive && <button onClick={() => void startNewGame()}><Sparkles size={15} />放弃继任，重新开始</button>}{game.ending.sandboxUnlocked && game.ending.phase !== "sandbox" && <button className="complete-primary" onClick={() => { setGame((current) => enterSandbox(current)); setView("intent"); }}><GitBranch size={15} />进入无限沙盒</button>}{game.ending.phase === "sandbox" && <button className="complete-primary" onClick={() => setView("intent")}><Command size={15} />继续书写偏转世界</button>}</div>
       </div>}
 
       {view === "archive" && <div className="archive-page page-enter">
@@ -838,7 +995,7 @@ export default function CompleteGame() {
 
     {DEV_MODE && streamPreview && <div className="reader-stream-overlay" role="status" aria-live="polite"><div><Sparkles size={14} />模型正在生成，完成后自动排版</div><pre>{streamPreview}</pre></div>}
 
-    {game.ending.phase === "finale" && <GreatSmogFinale game={game} busy={Boolean(generationStage)} onDoctrine={(doctrine) => setGame((current) => chooseFinaleDoctrine(current, doctrine))} onAssign={(crisisId, kind, id) => setGame((current) => assignFinaleResource(current, crisisId, kind, id))} onAutoDeploy={() => setGame((current) => autoDeployFinale(current))} onResolve={() => void resolveFinaleStage()} />}
+    {(game.ending.phase === "major-event" || game.ending.phase === "finale") && <GreatSmogFinale game={game} busy={Boolean(generationStage)} onDoctrine={(doctrine) => setGame((current) => chooseFinaleDoctrine(current, doctrine))} onAssign={(crisisId, kind, id) => setGame((current) => assignFinaleResource(current, crisisId, kind, id))} onAutoDeploy={() => setGame((current) => autoDeployFinale(current))} onResolve={() => void resolveFinaleStage()} />}
 
     {game.fatalSituation && <div className="complete-sheet-backdrop fatal-backdrop"><section className="fatal-sheet" role="alertdialog" aria-modal="true" aria-labelledby="fatal-title"><header><ShieldAlert size={24} /><small>明确的高危局面</small><h2 id="fatal-title">{game.fatalSituation.title}</h2><p>{game.fatalSituation.threat}</p></header><div className="known-threats"><strong>目前已知</strong>{game.fatalSituation.knownThreats.map((threat) => <p key={threat}>{threat}</p>)}</div><div className="fatal-choices"><button onClick={() => chooseFatal("retreat")}><strong>立即撤退</strong><span>安全阈值 {game.fatalSituation.odds.retreat}%</span><small>放弃现场成果，优先保命。</small></button><button onClick={() => chooseFatal("help")}><strong>请求支援</strong><span>安全阈值 {game.fatalSituation.odds.help}%</span><small>消耗关系并暴露部分情报。</small></button><button className="continue" onClick={() => chooseFatal("continue")}><strong>继续深入</strong><span>安全阈值 {game.fatalSituation.odds.continue}%</span><small>可能获得更多成果；失败可导致死亡并结束本局。</small></button></div><footer>死亡只会在你选择后由最终检定产生；叙事模型无权越过这一步。</footer></section></div>}
 
@@ -864,12 +1021,14 @@ export default function CompleteGame() {
           <div className="dialogue-rule"><MessageSquareText size={14} /><span><strong>这是自由对话，不是关键词菜单</strong><small>成员会尊重你的领导身份，也会以正式方式陈述异议、隐瞒、误判或请求澄清；普通谈话不会自动消耗行动。</small></span></div>
           <div className="dialogue-rule"><WandSparkles size={14} /><span><strong>被动直觉不会再输出固定答案</strong><small>选择下方任一能力并写明你要观察什么，结果会由当前人物、地点、世界状态和已知事实即时生成。</small></span></div>
           <div className="character-dialogue" aria-live="polite">{thread?.messages.map((message) => <p key={message.id} className={message.role}><strong>{message.role === "player" ? game.playerAddress : message.role === "ability" ? "非凡感知" : member.name}</strong><span>{message.text}</span>{message.mood && <small>{message.mood}</small>}</p>)}{chatLoading && <p className="member pending"><strong>{member.name}</strong><span>油灯安静地烧着。他正在斟酌怎样准确而恭敬地回应……</span></p>}</div>
-          <div className="dialogue-ability-strip"><span><WandSparkles size={13} />即时使用，不打断谈话</span>{abilities.slice(0, 3).map((ability) => <button key={ability.id} onClick={() => openAbility({ kind: "dialogue", targetId: member.id, label: member.name }, ability.id, `我在不惊动${member.name}的前提下使用${ability.name}，重点观察刚才谈话中的矛盾、情绪变化或非自然影响；只记录可感知现象。`)}><Eye size={12} />{ability.name}</button>)}</div>
+          <div className="dialogue-ability-strip"><span><WandSparkles size={13} />能力与仪式标签 · 点击加入自由命令</span>{abilities.slice(0, 5).map((ability) => <button key={ability.id} onClick={() => setChatInput((current) => `${current}${current.trim() ? "；" : ""}使用${ability.name}：`)} title={ability.description}><Eye size={12} />{ability.name}</button>)}</div>
           <label className="chat-input"><span>直接说任何话。Enter发送，Shift+Enter换行；你也可以把输入框中的最终说法直接形成决议。</span><textarea value={chatInput} onChange={(event) => setChatInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendChat(); } }} placeholder={`向${member.name}询问、解释或写下你希望他复述的最终决议……`} maxLength={1200} /><button className="complete-secondary" onClick={() => void sendChat()} disabled={!chatInput.trim() || chatLoading}><Send size={15} />继续交谈</button></label>
           <footer className="dialogue-decision-bar"><span><Gavel size={14} /><b>领导决议</b><small>按你的原话写入本周计划，并由{member.name}尊敬地复述确认。</small></span><button className="complete-primary" onClick={() => void formDialogueDecision()} disabled={!hasDecisionText || dialogueDecisionLoading || chatLoading}>{dialogueDecisionLoading ? "正在整理并复述" : "按我的方式形成决议"}</button></footer>
         </section>
       </div>;
     })()}
+
+    {game.activeParticipationScene && <ParticipationSceneOverlay scene={game.activeParticipationScene} loading={participationLoading} error={participationError} onDecision={(intent) => void continueParticipationScene(intent)} onResume={() => void resumeAfterParticipation()} />}
 
     <AbilityConsole game={game} abilities={abilities} open={abilityPanelOpen} context={abilityContext} selectedId={abilitySelectedId} supportIds={abilitySupportIds} assistId={abilityAssistId} intent={abilityIntent} loading={abilityLoading} error={abilityError} result={abilityResult} onOpen={() => openAbility()} onClose={() => { setAbilityPanelOpen(false); setAbilityResult(null); setAbilityError(""); setAbilitySupportIds([]); }} onSelect={(id) => { setAbilitySelectedId(id); setAbilitySupportIds([]); setAbilityError(""); }} onToggleSupport={(id) => setAbilitySupportIds((current) => current.includes(id) ? current.filter((item) => item !== id) : current.length < 3 ? [...current, id] : current)} onAssist={setAbilityAssistId} onIntent={(value) => { setAbilityIntent(value); if (abilityError) setAbilityError(""); }} onUse={() => void castAbility()} onContinueScene={(intent) => void deepenAbilityScene(intent)} onExitScene={() => setGame((current) => ({ ...current, activeAbilityScene: null }))} />
 

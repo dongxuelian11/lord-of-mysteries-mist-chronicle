@@ -166,7 +166,7 @@ export function createFinaleCampaign(game: GameState): FinaleCampaign {
 
 export function refreshFinaleFronts(game: GameState) {
   const campaign = game.ending.campaign;
-  if (game.ending.phase !== "finale" || !campaign || game.fatalSituation) return game;
+  if ((game.ending.phase !== "finale" && game.ending.phase !== "major-event") || !campaign || game.fatalSituation) return game;
   const refreshed: FinaleCampaign = {
     ...campaign,
     stageTitle: stageHeading(game, campaign.stage),
@@ -177,13 +177,13 @@ export function refreshFinaleFronts(game: GameState) {
 }
 
 export function chooseFinaleDoctrine(game: GameState, doctrine: FinaleDoctrine) {
-  if (game.ending.phase !== "finale" || !game.ending.campaign) return game;
+  if ((game.ending.phase !== "finale" && game.ending.phase !== "major-event") || !game.ending.campaign) return game;
   return { ...game, ending: { ...game.ending, route: doctrine, campaign: { ...game.ending.campaign, doctrine } } };
 }
 
 export function assignFinaleResource(game: GameState, crisisId: string, kind: "member" | "faction" | "facility", id: string) {
   const campaign = game.ending.campaign;
-  if (!campaign || game.ending.phase !== "finale") return game;
+  if (!campaign || (game.ending.phase !== "finale" && game.ending.phase !== "major-event")) return game;
   const key = kind === "member" ? "assignedMemberId" : kind === "faction" ? "assignedFactionId" : "assignedFacilityId";
   const crises = campaign.crises.map((item) => {
     const cleared = id && item.id !== crisisId && item[key] === id ? { ...item, [key]: undefined } : item;
@@ -256,26 +256,26 @@ function completeCampaign(game: GameState, campaign: FinaleCampaign) {
   const tier = score >= 70 ? "决定性偏转" : score >= 15 ? "代价沉重的偏转" : "未能压倒世界惯性";
   const aftermath = aftermathLedger(game, campaign);
   const aliveMembers = game.members.filter((item) => item.status !== "阵亡");
-  const finalCampaign = { ...campaign, aftermath };
   return {
     ...game,
     deviation: clamp(game.deviation + (score >= 70 ? 22 : score >= 15 ? 12 : 5)),
     ending: {
-      phase: "ended" as const,
+      phase: "running" as const,
       route: doctrine,
-      title: tier,
-      campaign: finalCampaign,
-      epilogue: [],
+      title: `大雾霾阶段结算 · ${tier}`,
+      campaign: undefined,
+      epilogue: [...aftermath.organization, ...aftermath.city],
       grades: {
-        organization: game.stability >= 45 ? "存续并进入余波治理" : "在余波中面临分裂",
+        organization: game.stability >= 45 ? "存续并进入余波治理" : "在余波中面临分裂，但世界仍继续",
         members: `${aliveMembers.length}/${game.members.length}名核心成员存活`,
         advancement: `序列${game.currentSequence}·${PATHWAYS[game.pathwayId].sequences.find((item) => item.rank === game.currentSequence)?.name}`,
         relations: game.factions.filter((item) => item.trust >= 35).length >= 2 ? "形成战后合作网" : "仍然孤立",
         history: tier,
       },
-      sandboxUnlocked: true,
+      sandboxUnlocked: false,
     },
-    timeline: game.timeline.map((event) => event.kind === "终局" ? { ...event, status: score >= 70 ? "diverted" as const : "resolved" as const, summary: `由世界状态结算：${tier}` } : event),
+    facts: [...game.facts, { id: `major-event-smog-${game.week}`, subject: "贝克兰德大雾霾", statement: `${tier}；组织选择${doctrine}，世界在余波中继续推演。`, certainty: "确认" as const, source: "重大阶段事件规则账本", week: game.week }],
+    timeline: game.timeline.map((event) => event.id === "tl-great-smog" ? { ...event, status: score >= 70 ? "diverted" as const : "resolved" as const, summary: `重大阶段事件已结算：${tier}；这不是世界终局。` } : event),
   };
 }
 
@@ -313,10 +313,10 @@ export function resolveFinalePhase(game: GameState) {
   });
 
   const report: FinaleReport = { stage: campaign.stage, title: campaign.stageTitle, summary: `${results.filter((item) => item.outcome === "成功").length}项成功，${results.filter((item) => item.outcome === "部分成功").length}项部分成功，${results.filter((item) => item.outcome === "失败").length}项失败。`, paragraphs: results.map((item) => item.detail), results };
-  const chapter: ChronicleChapter = { id: `finale-chapter-${campaign.stage}-${Date.now()}`, week: game.week, date: game.date, title: `终局 · ${campaign.stageTitle}`, source: "local", sections: [], results: finaleActionResults(game, campaign, crises, report), summary: report.summary };
+  const chapter: ChronicleChapter = { id: `finale-chapter-${campaign.stage}-${Date.now()}`, week: game.week, date: game.date, title: `重大事件 · ${campaign.stageTitle}`, source: "local", sections: [], results: finaleActionResults(game, campaign, crises, report), summary: report.summary };
   const resolvedFrontIds = [...new Set([...(campaign.resolvedFrontIds ?? []), ...crises.filter((item) => item.outcome === "成功").map((item) => item.id)])];
   const updatedCampaign: FinaleCampaign = { ...campaign, crises, reports: [report, ...campaign.reports], momentum, enemyProgress, rescued, casualties, exposedTruth, resolvedFrontIds };
-  const facts: WorldFact[] = [...game.facts, { id: `finale-fact-${campaign.stage}-${Date.now()}`, subject: `终局第${campaign.stage}阶段`, statement: report.summary, certainty: "确认", source: "终局规则账本", week: game.week }];
+  const facts: WorldFact[] = [...game.facts, { id: `finale-fact-${campaign.stage}-${Date.now()}`, subject: `大雾霾第${campaign.stage}阶段`, statement: report.summary, certainty: "确认", source: "重大阶段事件规则账本", week: game.week }];
   const updated = { ...game, members, facilities, fatalSituation, chronicle: [chapter, ...game.chronicle], facts, ending: { ...game.ending, campaign: updatedCampaign } };
   const shouldEnd = enemyProgress <= 18 || momentum >= 78 || campaign.stage >= 6 || (campaign.stage >= (campaign.totalStages ?? 3) && crisisCandidates(updated).filter((item) => !resolvedFrontIds.includes(item.id)).length < 2);
   if (shouldEnd) return completeCampaign(updated, updatedCampaign);

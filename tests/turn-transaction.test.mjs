@@ -76,6 +76,12 @@ test("closing a council week commits an independently advanced world snapshot", 
     assert.equal(committed.worldSnapshots[0].eventIds.length, 3);
     assert.ok(committed.worldKernel.events.some((event) => event.title === "临时停工"));
     assert.equal(committed.worldSignals.length, 3);
+    assert.ok(committed.worldLedger.events.some((event) => event.kind === "week-committed"));
+    assert.equal(committed.worldLedger.snapshots.at(-1).week, committed.week);
+    assert.equal(committed.worldAgents.lastPlannedWeek, resolved.chapter.week);
+    assert.ok(committed.worldAgents.profiles.length >= committed.worldKernel.actors.length + committed.worldKernel.factions.length);
+    assert.equal(committed.factionStrategy.lastResolvedWeek, resolved.chapter.week);
+    assert.ok(committed.factionStrategy.outcomes.length > 0);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) delete globalThis.window;
@@ -151,6 +157,34 @@ test("AI action reports replace provisional rule notes with world-specific obser
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;
   }
+});
+
+test("a named Beyonder and the player can each lead only one formal action per week", async () => {
+  const { engine, model } = await loadGameModules();
+  const { localContract, scheduleContract } = engine;
+  const { createInitialGame } = model;
+  const game = createInitialGame("seer");
+  const first = localContract({ intent: "整理公开报纸", game, leaderId: "organization", districtId: "cherwood", abilityIds: [] });
+  const occupied = { ...game, schedule: [scheduleContract(game, first)] };
+  const second = localContract({ intent: "继续核对另一份报纸", game: occupied, leaderId: first.leaderId, districtId: "east", abilityIds: [] });
+  assert.throws(() => scheduleContract(occupied, second), /每名具名非凡者每周只能承担一项正式行动/);
+
+  const playerFirst = localContract({ intent: "我亲自查看街区", game, leaderId: "player", districtId: "cherwood", abilityIds: [] });
+  const playerGame = { ...game, schedule: [scheduleContract(game, playerFirst)] };
+  const playerSecond = localContract({ intent: "我亲自参加另一项行动", game: playerGame, leaderId: "player", districtId: "east", abilityIds: [] });
+  assert.throws(() => scheduleContract(playerGame, playerSecond), /每名具名非凡者每周只能承担一项正式行动/);
+  assert.equal(playerFirst.executionMode, "player-led");
+});
+
+test("a branch supervisor cannot also take a headquarters formal action", async () => {
+  const { engine, model } = await loadGameModules();
+  const { localContract, scheduleContract } = engine;
+  const { createInitialGame } = model;
+  const game = createInitialGame("seer");
+  const supervisor = game.members.find((member) => member.pathway) ?? game.members[0];
+  const withBranch = { ...game, management: { ...game.management, branches: [{ id: "branch", name: "测试分部", districtId: "cherwood", blockId: "block", supervisorId: supervisor.id, stationedManpower: 4, stationedBeyonderIds: [supervisor.id], policy: "intelligence", status: "active", controlSupport: 3, warningRefs: [] }] } };
+  const contract = localContract({ intent: `让${supervisor.name}核对公开档案`, game: withBranch, leaderId: "organization", districtId: "cherwood", abilityIds: [] });
+  assert.throws(() => scheduleContract(withBranch, contract), /正驻守“测试分部”/);
 });
 
 test("player scope and explicit bans survive contract parsing and reject narrative overreach", async () => {

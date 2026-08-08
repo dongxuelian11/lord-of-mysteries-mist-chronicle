@@ -1,203 +1,95 @@
-# Design System Master File
+# 《灰雾纪事》设计系统
 
-> **LOGIC:** When building a specific page, first check `design-system/pages/[page-name].md`.
-> If that file exists, its rules **override** this Master file.
-> If not, strictly follow the rules below.
+> 本文件是贝克兰德经营重构的视觉与交互基线。页面级规范可以补充细节，但不得把游戏改造成现代 SaaS 仪表盘，也不得削弱议会治理的沉浸感。
 
----
+## 设计目标
 
-**Project:** 灰雾纪事
-**Generated:** 2026-08-02 14:57:22
-**Category:** Spatial Computing OS / App
+- 议会是治理主场景：玩家通过桌上的议程、地图、档案和成员发言管理组织。
+- 地图铺在议会桌上，而不是独立的现代导航页；情报、部署、控制力和分部都回到地图表达。
+- 私聊是会间快速管理抽屉；亲自参与任务时切换为全屏小说化场景。
+- 只保留三个顶层空间：议会、组织、纪事。高级细节按需展开。
+- 一屏先回答“发生了什么、为什么重要、现在能做什么”，避免迫使玩家逐项检查数值。
 
----
+## 美术方向
 
-## Global Rules
+关键词：鲁恩王国、贝克兰德、维多利亚工业都市、黑木议事桌、煤气灯、黄铜、旧城市规划图、档案、蜡封、电报、克制的神秘学痕迹。
 
-### Color Palette
+禁止：紫色霓虹、玻璃拟态、浅色企业后台、大面积渐变、发光科技 HUD、现代社交软件外壳、直接复制原著或改编作品的官方美术。
 
-| Role | Hex | CSS Variable |
-|------|-----|--------------|
-| Primary | `#0F172A` | `--color-primary` |
-| Secondary | `#334155` | `--color-secondary` |
-| CTA/Accent | `#0369A1` | `--color-cta` |
-| Background | `#F8FAFC` | `--color-background` |
-| Text | `#020617` | `--color-text` |
+## 色彩
 
-**Color Notes:** High contrast navy + blue
+| 角色 | 色值 | 用途 |
+|---|---:|---|
+| 夜雾底色 | `#111312` | 全局背景、推演锁屏 |
+| 深木 | `#211914` | 议会桌、主要容器 |
+| 旧纸 | `#D5C6A3` | 地图、档案、正文高对比表面 |
+| 墨色 | `#27231E` | 纸面正文 |
+| 黄铜 | `#A9874F` | 边框、选中态、重要操作 |
+| 煤气灯 | `#D7B86A` | 聚焦、可交互提示 |
+| 暗红蜡封 | `#753D38` | 危险、不可逆决定、敌意 |
+| 苔绿 | `#556653` | 稳定、已控制、安全收益 |
+| 雾灰 | `#8E918A` | 次要文字、未知信息 |
 
-### Typography
+正文与背景对比度至少 4.5:1。颜色不能单独承担状态表达，必须同时使用文字、图形或纹理。
 
-- **Heading Font:** Cormorant
-- **Body Font:** Montserrat
-- **Mood:** luxury, high-end, fashion, elegant, refined, premium
-- **Google Fonts:** [Cormorant + Montserrat](https://fonts.google.com/share?selection.family=Cormorant:wght@400;500;600;700|Montserrat:wght@300;400;500;600;700)
+## 字体与排版
 
-**CSS Import:**
-```css
-@import url('https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&family=Montserrat:wght@300;400;500;600;700&display=swap');
-```
+- 中文标题优先使用宋体气质的系统字体栈；正文使用清晰的系统无衬线字体栈。
+- 数值采用等宽数字，但不使用现代数据看板式超大 KPI。
+- 正文最小 `16px`，辅助信息最小 `13px`；小说化文本行高约 `1.8`。
+- 议程标题、人物姓名、地点名称形成三级层次；避免卡片里继续嵌套卡片。
 
-### Spacing Variables
+## 核心场景
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--space-xs` | `4px` / `0.25rem` | Tight gaps |
-| `--space-sm` | `8px` / `0.5rem` | Icon gaps, inline spacing |
-| `--space-md` | `16px` / `1rem` | Standard padding |
-| `--space-lg` | `24px` / `1.5rem` | Section padding |
-| `--space-xl` | `32px` / `2rem` | Large gaps |
-| `--space-2xl` | `48px` / `3rem` | Section margins |
-| `--space-3xl` | `64px` / `4rem` | Hero padding |
+### 议会
 
-### Shadow Depths
+- 中央是桌面与当前议程；成员根据职责与情境发言。
+- 紧急档案、部门报告、地图标记直接成为可处理的议题。
+- 自由命令输入始终可达；只有涉及资源、派遣或不可逆后果时才出现简洁确认卡。
+- 结束本周后进入全屏“正在推演中”，事实先结算但不展示；禁止切换其他页面。
 
-| Level | Value | Usage |
-|-------|-------|-------|
-| `--shadow-sm` | `0 1px 2px rgba(0,0,0,0.05)` | Subtle lift |
-| `--shadow-md` | `0 4px 6px rgba(0,0,0,0.1)` | Cards, buttons |
-| `--shadow-lg` | `0 10px 15px rgba(0,0,0,0.1)` | Modals, dropdowns |
-| `--shadow-xl` | `0 20px 25px rgba(0,0,0,0.15)` | Hero images, featured cards |
+### 议会地图
 
----
+- 层级为贝克兰德 → 区域 → 区块 → 战略点。
+- 默认仅展示玩家确实掌握的情报；不确定信息标明来源、可信度和时效。
+- 每个战略点显示多方影响、控制基础、当前争夺和可执行方向，不使用复杂路线系统。
+- 通知可直接定位对应区域、区块或战略点。
 
-## Component Specs
+### 组织
 
-### Buttons
+- 顶部只常驻人力、金钱、非凡材料三种资源。
+- 展示四个治理职责、具名非凡者、普通人力分配、配方、封印物和分部。
+- 普通人是宏观人力；经筛选后才成为具名候选人，服用魔药后转为具名非凡者。
+- 高级信息折叠；主界面强调本周变化、容量瓶颈和下一步收益。
 
-```css
-/* Primary Button */
-.btn-primary {
-  background: #0369A1;
-  color: white;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  transition: all 200ms ease;
-  cursor: pointer;
-}
+### 私聊与任务
 
-.btn-primary:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
-}
+- 私聊采用单一联系人列表、消息流和自由文本框；能力与仪式是可点击插入文本的标签，不是独立技能按钮。
+- 玩家参与任务时使用全屏连续小说场景；只在需要真实决断或自由指令时停下。
+- 生成失败直接显示模型接入错误，保留已结算事实与已生成文本，只允许重试或打开 AI 设置，不做降级叙事。
 
-/* Secondary Button */
-.btn-secondary {
-  background: transparent;
-  color: #0F172A;
-  border: 2px solid #0F172A;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  transition: all 200ms ease;
-  cursor: pointer;
-}
-```
+## 交互规范
 
-### Cards
+- 所有点击目标至少 `44 × 44px`，具有明显悬停、按下和键盘焦点状态。
+- 动效 150–240ms，以淡入、揭纸、轻微位移为主；禁止改变布局尺寸的 hover 动效。
+- 支持 `prefers-reduced-motion`；流式叙事的逐字效果允许关闭但不改变结算顺序。
+- 操作应在一到两次点击内完成；批量分配提供增减、预设与直接输入。
+- 永远解释数值变化的原因。声望、暴露、敌意、控制力必须能追溯到事件或证据。
 
-```css
-.card {
-  background: #F8FAFC;
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: var(--shadow-md);
-  transition: all 200ms ease;
-  cursor: pointer;
-}
+## 响应式
 
-.card:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
-}
-```
+- 桌面：议会桌和侧边档案可并列，地图可占据主桌面。
+- 平板：侧边档案改为抽屉，核心议程不离开视口。
+- 手机：单列议程流；地图可缩放与分层进入；底部固定自由命令入口，但不能遮挡内容。
+- 需验证宽度：375、768、1024、1440。
 
-### Inputs
+## 交付检查
 
-```css
-.input {
-  padding: 12px 16px;
-  border: 1px solid #E2E8F0;
-  border-radius: 8px;
-  font-size: 16px;
-  transition: border-color 200ms ease;
-}
-
-.input:focus {
-  border-color: #0F172A;
-  outline: none;
-  box-shadow: 0 0 0 3px #0F172A20;
-}
-```
-
-### Modals
-
-```css
-.modal-overlay {
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-}
-
-.modal {
-  background: white;
-  border-radius: 16px;
-  padding: 32px;
-  box-shadow: var(--shadow-xl);
-  max-width: 500px;
-  width: 90%;
-}
-```
-
----
-
-## Style Guidelines
-
-**Style:** Spatial UI (VisionOS)
-
-**Keywords:** Glass, depth, immersion, spatial, translucent, gaze, gesture, apple, vision-pro
-
-**Best For:** Spatial computing apps, VR/AR interfaces, immersive media, futuristic dashboards
-
-**Key Effects:** Parallax depth, dynamic lighting response, gaze-hover effects, smooth scale on focus
-
-### Page Pattern
-
-**Pattern Name:** Scroll-Triggered Storytelling
-
-- **Conversion Strategy:** Narrative increases time-on-page 3x. Use progress indicator. Mobile: simplify animations.
-- **CTA Placement:** End of each chapter (mini) + Final climax CTA
-- **Section Order:** 1. Intro hook, 2. Chapter 1 (problem), 3. Chapter 2 (journey), 4. Chapter 3 (solution), 5. Climax CTA
-
----
-
-## Anti-Patterns (Do NOT Use)
-
-- ❌ 2D design
-- ❌ No spatial depth
-
-### Additional Forbidden Patterns
-
-- ❌ **Emojis as icons** — Use SVG icons (Heroicons, Lucide, Simple Icons)
-- ❌ **Missing cursor:pointer** — All clickable elements must have cursor:pointer
-- ❌ **Layout-shifting hovers** — Avoid scale transforms that shift layout
-- ❌ **Low contrast text** — Maintain 4.5:1 minimum contrast ratio
-- ❌ **Instant state changes** — Always use transitions (150-300ms)
-- ❌ **Invisible focus states** — Focus states must be visible for a11y
-
----
-
-## Pre-Delivery Checklist
-
-Before delivering any UI code, verify:
-
-- [ ] No emojis used as icons (use SVG instead)
-- [ ] All icons from consistent icon set (Heroicons/Lucide)
-- [ ] `cursor-pointer` on all clickable elements
-- [ ] Hover states with smooth transitions (150-300ms)
-- [ ] Light mode: text contrast 4.5:1 minimum
-- [ ] Focus states visible for keyboard navigation
-- [ ] `prefers-reduced-motion` respected
-- [ ] Responsive: 375px, 768px, 1024px, 1440px
-- [ ] No content hidden behind fixed navbars
-- [ ] No horizontal scroll on mobile
+- [ ] 议会仍是治理主场景，地图与报告没有变成独立后台页面
+- [ ] 顶层导航仅有议会、组织、纪事
+- [ ] 普通操作不超过两次点击，高级信息默认折叠
+- [ ] 键盘导航、可见焦点、语义标签与 4.5:1 对比度通过
+- [ ] 支持减少动态效果，无布局位移悬停
+- [ ] 不用表情符号代替图标；图标保持同一套线性黄铜风格
+- [ ] 推演期间全屏锁定，错误时不产生降级文本
+- [ ] 375、768、1024、1440 宽度无横向溢出

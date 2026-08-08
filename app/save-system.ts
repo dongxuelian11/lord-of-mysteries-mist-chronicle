@@ -2,14 +2,22 @@ import type { GameState } from "./game-model.ts";
 import { emptyMemoryState, ensureAudienceStates } from "./memory/index.ts";
 import { createInitialFateState, type FateAberrationState } from "./fate/index.ts";
 import { createInitialControlState, type ControlState } from "./loss-of-control/index.ts";
+import { migrateOrganizationManagementState, type OrganizationManagementState } from "./organization-management.ts";
+import { createWorldLedger, type WorldLedger } from "./world-ledger.ts";
+import { ensureAutonomousWorldState, type AutonomousWorldState } from "./autonomous-agents.ts";
+import { ensureFactionStrategyState, type FactionStrategyState } from "./faction-strategy.ts";
+import { ensureHighSequenceLedger, type HighSequenceLedger } from "./high-sequence-ledger.ts";
+import { ensureCampaignWorldState, type CampaignWorldState } from "./campaign-world.ts";
 
-export const ACTIVE_SAVE_KEY = "mist-chronicle-complete-v15";
-export const RECOVERY_KEY = "mist-chronicle-recovery-v15";
-export const SAVE_SCHEMA_VERSION = 15;
+export const ACTIVE_SAVE_KEY = "mist-chronicle-complete-v21";
+export const LEGACY_ACTIVE_SAVE_KEYS = ["mist-chronicle-complete-v20", "mist-chronicle-complete-v19", "mist-chronicle-complete-v18", "mist-chronicle-complete-v17", "mist-chronicle-complete-v16"] as const;
+export const RECOVERY_KEY = "mist-chronicle-recovery-v21";
+export const LEGACY_RECOVERY_KEYS = ["mist-chronicle-recovery-v20", "mist-chronicle-recovery-v19", "mist-chronicle-recovery-v18", "mist-chronicle-recovery-v17", "mist-chronicle-recovery-v16"] as const;
+export const SAVE_SCHEMA_VERSION = 21;
 
 export type SaveEnvelope = {
   format: "mist-chronicle-save";
-  schemaVersion: 15;
+  schemaVersion: 21;
   exportedAt: string;
   loreVersion: string;
   knowledgePermission: { unlockedRecords: number; highestSequence: number };
@@ -128,6 +136,55 @@ export function ensureControlState(game: { control?: unknown }): void {
   };
 }
 
+export function ensureOrganizationManagement(game: { management?: unknown }): void {
+  const current = game.management as Partial<OrganizationManagementState> | undefined;
+  (game as { management: OrganizationManagementState }).management = migrateOrganizationManagementState(current);
+}
+
+export function ensureWorldLedger(game: GameState): void {
+  const factionIds = new Set(game.worldKernel.factions.map((faction) => faction.id));
+  const legacyHolderRef = (id: string) => id === "player" ? "player" : factionIds.has(id) ? `faction:${id}` : `actor:${id}`;
+  for (const event of game.worldKernel.events) {
+    event.witnessRefs = [...new Set([
+      ...(event.witnessRefs ?? []),
+      ...event.actorIds.map((id) => `actor:${id}`),
+      ...event.factionIds.map((id) => `faction:${id}`),
+    ])];
+  }
+  for (const observation of game.worldKernel.observations) {
+    observation.holderRefs = [...new Set([
+      ...(observation.holderRefs ?? []),
+      ...observation.holderIds.map(legacyHolderRef),
+    ])];
+  }
+  for (const node of game.worldKernel.knowledge) {
+    node.holderRefs = [...new Set([
+      ...(node.holderRefs ?? []),
+      ...node.holderIds.map(legacyHolderRef),
+    ])];
+  }
+  const current = game.worldLedger as WorldLedger | undefined;
+  if (!current || current.version !== 1 || !Array.isArray(current.events) || !Array.isArray(current.snapshots) || !Number.isFinite(current.nextSequence)) {
+    game.worldLedger = createWorldLedger(game);
+  }
+}
+
+export function ensureWorldAgents(game: GameState): void {
+  game.worldAgents = ensureAutonomousWorldState(game.worldAgents as AutonomousWorldState | undefined, game.worldKernel);
+}
+
+export function ensureFactionStrategy(game: GameState): void {
+  game.factionStrategy = ensureFactionStrategyState(game.factionStrategy as FactionStrategyState | undefined, game.management, game.worldKernel);
+}
+
+export function ensureHighSequenceState(game: { highSequenceLedger?: unknown }): void {
+  (game as { highSequenceLedger: HighSequenceLedger }).highSequenceLedger = ensureHighSequenceLedger(game.highSequenceLedger as Partial<HighSequenceLedger> | undefined);
+}
+
+export function ensureCampaignState(game: { campaignWorld?: unknown }): void {
+  (game as { campaignWorld: CampaignWorldState }).campaignWorld = ensureCampaignWorldState(game.campaignWorld as Partial<CampaignWorldState> | undefined);
+}
+
 function stableHash(text: string) {
   let hash = 2166136261;
   for (let index = 0; index < text.length; index += 1) {
@@ -151,14 +208,23 @@ export function createSaveEnvelope(game: GameState): SaveEnvelope {
 }
 
 export function parseSaveEnvelope(raw: string) {
-  const value = JSON.parse(raw) as Partial<SaveEnvelope>;
-  if (value.format !== "mist-chronicle-save" || value.schemaVersion !== SAVE_SCHEMA_VERSION || !value.game) throw new Error("这不是当前版本的《灰雾纪事》存档文件");
+  const value = JSON.parse(raw) as Partial<SaveEnvelope> & { schemaVersion?: number };
+  if (value.format !== "mist-chronicle-save" || ![15, 16, 17, 18, 19, 20, SAVE_SCHEMA_VERSION].includes(value.schemaVersion ?? -1) || !value.game) throw new Error("这不是可迁移的《灰雾纪事》存档文件");
   if (stableHash(JSON.stringify(value.game)) !== value.checksum) throw new Error("存档校验失败：文件不完整或被修改");
   if (!value.game.prologueComplete || !value.game.worldKernel || !Array.isArray(value.game.chronicle)) throw new Error("存档缺少世界状态或开局记录，未覆盖当前游戏");
   ensureKnowledgeHorizon(value.game);
   ensureDynamicMemory(value.game);
   ensureFateState(value.game);
   ensureControlState(value.game);
+  ensureOrganizationManagement(value.game);
+  ensureWorldAgents(value.game);
+  ensureFactionStrategy(value.game);
+  ensureWorldLedger(value.game);
+  ensureHighSequenceState(value.game);
+  ensureCampaignState(value.game);
+  value.game.activeParticipationScene = value.game.activeParticipationScene ?? null;
+  value.game.version = 21;
+  value.schemaVersion = SAVE_SCHEMA_VERSION;
   return value as SaveEnvelope;
 }
 
@@ -194,7 +260,8 @@ export function createRecoveryCheckpoint(game: GameState, reason: RecoveryCheckp
 
 export function readRecoveryCheckpoints(): RecoveryCheckpoint[] {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(RECOVERY_KEY) ?? "[]") as RecoveryCheckpoint[];
+    const raw = window.localStorage.getItem(RECOVERY_KEY) ?? LEGACY_RECOVERY_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean) ?? "[]";
+    const parsed = JSON.parse(raw) as RecoveryCheckpoint[];
     return Array.isArray(parsed) ? parsed.filter((item) => item?.game?.worldKernel).slice(0, 3) : [];
   } catch {
     return [];

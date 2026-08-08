@@ -56,6 +56,7 @@ export type PersistentWorldEvent = {
   factionIds: string[];
   causeIds: string[];
   visibility: WorldVisibility;
+  witnessRefs?: string[];
 };
 
 export type WorldObservation = {
@@ -66,6 +67,7 @@ export type WorldObservation = {
   text: string;
   visibility: Exclude<WorldVisibility, "world">;
   holderIds: string[];
+  holderRefs?: string[];
 };
 
 export type WorldKnowledgeNode = {
@@ -75,10 +77,17 @@ export type WorldKnowledgeNode = {
   truth: "confirmed" | "likely" | "false" | "unknown";
   visibility: WorldVisibility;
   holderIds: string[];
+  holderRefs?: string[];
   loreRecordIds: string[];
   sourceEventId?: string;
   acquiredWeek: number;
 };
+
+export type WorldAudience =
+  | { kind: "world"; holderId?: string }
+  | { kind: "player"; holderId: "player" }
+  | { kind: "actor"; holderId: string }
+  | { kind: "faction"; holderId: string };
 
 export type WorldKernel = {
   schemaVersion: 1;
@@ -201,7 +210,15 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
     if (!update) return { ...location, actorIds, factionIds, updatedWeek: locationEvents.length ? delta.week : location.updatedWeek };
     return { ...location, risk: clamp(location.risk + (update.riskDelta ?? 0)), stability: clamp(location.stability + (update.stabilityDelta ?? 0)), publicMood: update.publicMood ?? location.publicMood, conditions: update.condition && !location.conditions.includes(update.condition) ? [...location.conditions, update.condition].slice(-8) : location.conditions, actorIds, factionIds, updatedWeek: delta.week };
   });
-  const events = [...kernel.events, ...delta.events.map((event) => ({ ...event, week: delta.week }))].slice(-240);
+  const events = [...kernel.events, ...delta.events.map((event) => ({
+    ...event,
+    week: delta.week,
+    witnessRefs: [...new Set([
+      ...(event.witnessRefs ?? []),
+      ...event.actorIds.map((id) => `actor:${id}`),
+      ...event.factionIds.map((id) => `faction:${id}`),
+    ])],
+  }))].slice(-240);
   const eventIds = new Set(events.map((event) => event.id));
   const observations = [...kernel.observations, ...delta.observations.filter((observation) => eventIds.has(observation.eventId)).map((observation) => ({ ...observation, week: delta.week }))].slice(-320);
   const knowledge = [...kernel.knowledge, ...(delta.knowledge ?? []).filter((node) => !node.sourceEventId || eventIds.has(node.sourceEventId)).map((node) => ({ ...node, loreRecordIds: node.loreRecordIds ?? [], acquiredWeek: delta.week }))].slice(-400);
@@ -225,25 +242,36 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
   };
 }
 
-function canSee(visibility: WorldVisibility, holderIds: string[], audience: { kind: "world" | "player" | "actor"; holderId: string }) {
+function audienceRef(audience: WorldAudience) {
+  if (audience.kind === "world") return "world";
+  return audience.kind === "player" ? "player" : `${audience.kind}:${audience.holderId}`;
+}
+
+function canSee(visibility: WorldVisibility, holderIds: string[], holderRefs: string[] | undefined, audience: WorldAudience) {
   if (audience.kind === "world") return true;
   if (visibility === "public") return true;
-  if (visibility === "player") return audience.kind === "player" || holderIds.includes(audience.holderId);
-  if (visibility === "actors") return holderIds.includes(audience.holderId);
+  const directlyHeld = holderIds.includes(audience.holderId) || (holderRefs ?? []).includes(audienceRef(audience));
+  if (visibility === "player") return audience.kind === "player" || directlyHeld;
+  if (visibility === "actors") return directlyHeld;
   return false;
 }
 
-export function projectWorldForAudience(kernel: WorldKernel, audience: { kind: "world" | "player" | "actor"; holderId: string }) {
+export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudience) {
   if (audience.kind === "world") return kernel;
-  const visibleObservations = kernel.observations.filter((observation) => canSee(observation.visibility, observation.holderIds, audience));
+  const visibleObservations = kernel.observations.filter((observation) => canSee(observation.visibility, observation.holderIds, observation.holderRefs, audience));
   const observableEventIds = new Set(visibleObservations.map((observation) => observation.eventId));
+  const reference = audienceRef(audience);
   return {
     ...kernel,
     actors: [],
     factions: [],
     projects: [],
-    events: kernel.events.filter((event) => event.visibility !== "world" && (event.visibility === "public" || observableEventIds.has(event.id))),
+    events: kernel.events.filter((event) => event.visibility !== "world" && (event.visibility === "public" || observableEventIds.has(event.id) || event.witnessRefs?.includes(reference))),
     observations: visibleObservations,
-    knowledge: kernel.knowledge.filter((node) => canSee(node.visibility, node.holderIds, audience)),
+    knowledge: kernel.knowledge.filter((node) => canSee(node.visibility, node.holderIds, node.holderRefs, audience)),
   };
+}
+
+export function deliverWorldPerceptions(kernel: WorldKernel, audiences: WorldAudience[]) {
+  return Object.fromEntries(audiences.map((audience) => [audienceRef(audience), projectWorldForAudience(kernel, audience)]));
 }

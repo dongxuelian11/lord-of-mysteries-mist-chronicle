@@ -120,7 +120,7 @@ export default function CityMapWorkspace(props: Props) {
     const kernel = props.game.worldKernel;
     const result: MapProjection[] = [];
     for (const observation of kernel?.observations ?? []) {
-      if (observation.visibility !== "player" && !observation.holderIds.includes("player")) continue;
+      if (observation.visibility !== "player" && observation.visibility !== "public" && !observation.holderIds.includes("player") && !observation.holderRefs?.includes("player")) continue;
       const event = kernel.events.find((item) => item.id === observation.eventId);
       if (!event?.locationId || !DISTRICTS.some((item) => item.id === event.locationId)) continue;
       const districtIds = mentionedDistrictIds(observation.text);

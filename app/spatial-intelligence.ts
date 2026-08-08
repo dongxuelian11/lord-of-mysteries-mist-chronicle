@@ -92,7 +92,7 @@ export function buildSpatialIntelligence(game: GameState, playbackWeek = game.we
   const addRoute = (route: Omit<SpatialRouteClaim, "conflictIds">) => routes.push({ ...route, conflictIds: [] });
 
   for (const observation of game.worldKernel?.observations ?? []) {
-    if (observation.week > visibleThrough || (observation.visibility !== "player" && !observation.holderIds.includes("player"))) continue;
+    if (observation.week > visibleThrough || (observation.visibility !== "player" && observation.visibility !== "public" && !observation.holderIds.includes("player") && !observation.holderRefs?.includes("player"))) continue;
     const event = game.worldKernel.events.find((item) => item.id === observation.eventId);
     const ids = mentionedDistricts(observation.text);
     if (event?.locationId && !ids.includes(event.locationId)) ids.push(event.locationId);
