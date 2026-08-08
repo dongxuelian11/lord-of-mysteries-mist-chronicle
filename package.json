@@ -28,6 +28,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "postinstall": "node scripts/patch-vinext-windows.mjs",
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
@@ -98,7 +99,7 @@
     "electron:build": "electron-builder --win nsis --publish never",
     "predev": "node scripts/prepare-lore.mjs",
     "prebuild": "node scripts/prepare-lore.mjs",
-    "prestart": "node scripts/prepare-lore.mjs",
+    "prestart": "node scripts/patch-vinext-windows.mjs && node scripts/prepare-lore.mjs",
     "electron:dev": "electron .",
     "predist:win": "npm run release:verify:seed",
     "dist:win": "electron-builder --win nsis --publish never"
