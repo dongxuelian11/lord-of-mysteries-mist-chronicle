@@ -56,7 +56,7 @@ function sourceLabel(game: GameState, memberId: string) {
 export default function WeeklyCouncil(props: Props) {
   const { game, latestChapter } = props;
   const [stage, setStage] = useState<CouncilStage>(props.decisionSignal > 0 ? "orders" : latestChapter ? "reports" : "agenda");
-  const [panelModal, setPanelModal] = useState<CouncilStage | null>(null);
+  const [panelModal, setPanelModal] = useState<CouncilStage | null>(props.decisionSignal > 0 ? "orders" : null);
   const [discussionText, setDiscussionText] = useState("");
   const [discussionLoading, setDiscussionLoading] = useState(false);
   const [activeTopicId, setActiveTopicId] = useState(game.councilTopics.find((item) => item.status === "open")?.id ?? "");
