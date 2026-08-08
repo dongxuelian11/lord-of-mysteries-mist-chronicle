@@ -11,6 +11,7 @@
    npm run typecheck
    npm run lint
    npm test
+   npm run bundle:budget
    ```
 
 3. 通过 Pull Request 提交，说明改动动机与验证方式（附截图更好）。
@@ -32,7 +33,13 @@
 npm install
 npm run build     # prebuild 会自动准备知识库（本地有 private/ 用完整版，否则用空壳）
 npm run dev       # 打开开发服务器
+npm run start     # 生产模式；prestart 会校正 Windows 下 vinext 静态资源路径
 ```
+
+`postinstall` 会幂等执行 `scripts/patch-vinext-windows.mjs`。这是当前 vinext
+版本在 Windows 生产服务器上的兼容补丁；升级 vinext 时应先运行
+`tests/release-runtime.regression-1.test.mjs`，确认上游是否已经修复，再决定
+是否删除补丁。
 
 首次游玩需要在游戏内“模型与世界资料”填写兼容 OpenAI 格式的 API Key。
 

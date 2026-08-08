@@ -2,8 +2,9 @@
 
 《灰雾纪事》（Lord of Mysteries: Mist Chronicle）是一款由 AI 驱动的
 《诡秘之主》（LOTM）非官方同人组织经营、世界推演与 RAG 互动叙事游戏。
-玩家将在贝克兰德建立隐秘组织，通过自然语言命令、议会决策、调查、能力
-使用与持续世界模拟改变原有历史。
+玩家将从贝克兰德建立隐秘组织，通过自然语言命令、议会决策、调查、能力
+使用与持续世界模拟改变原有历史，并逐步扩展到跨城网络、末日前奏、成神与
+成神后的长期世界治理。
 
 > 本项目是**非官方、非商业**同人作品，与《诡秘之主》作者及出版方无隶属
 > 关系。原著设定版权归原作者及版权方所有；如有版权方要求，项目将立即
@@ -17,7 +18,14 @@ Chronicle · AI 叙事游戏 · RAG 游戏 · 组织经营 · 世界推演 · �
 - **全 AI 叙事**：对话、推演、小说章节全部由大模型生成，必须配置 API Key
 - **议桌集会**：地图与文书集成在一张议会桌上，点击纸张打开述职、议题、
   自由讨论与决议
-- **城市地图**：贝克兰德分区钻取、图层筛选、动态世界投射、历史回放
+- **组织经营**：以人力、金钱、非凡材料和四项治理职责驱动分部、配方、
+  人员提拔与封印物循环
+- **动态地图**：贝克兰德区块与战略点持续争夺；声望、暴露、势力敌意和
+  控制力都会改变成本、收益、情报与反击
+- **跨城战役**：廷根、拜亚姆、班西、白银城、特里尔、科尔杜可以调查和
+  建立分部，大雾霾后世界仍继续推演
+- **全途径长线**：22 条标准途径、220 个序列档案、22 份唯一性和 9 份源质
+  进入权威账本，支持序列 0 与成神后治理
 - **角色对话**：与成员自由对话，能力可在对话中即时使用
 - **动态长期记忆**：承诺、背叛、救助、误会与长期计划以结构化记忆保存，
   不依赖模型上下文压缩；角色只看到自己有权知道的历史
@@ -94,12 +102,26 @@ embedding 接口也不影响游玩。桌面版由 Electron RAG Worker 在本地�
 
 ### 存档兼容范围
 
-支持当前 schema（v15）下缺少 `knowledgeHorizon` 字段的早期存档自动补
-保守默认（第一卷边界）；缺少动态记忆（`memory`）字段的早期存档同样补空
-安全默认。不承诺自动迁移其他历史 schema 的存档；读取不兼容 schema 的
-存档会明确报错而不是静默改写。
+当前存档 schema 为 v21。v15 至 v20 存档会自动补齐知识边界、动态记忆、
+组织经营、自治主体、势力战略、高位资产账本和跨城战役状态，并保留原有
+世界内核。校验和失败、缺少关键世界状态或不在支持范围内的存档会明确报错，
+不会静默改写。
 
 动态记忆系统详见 [docs/memory.md](./docs/memory.md)。
+
+## 组织经营与长期世界
+
+第一阶段的贝克兰德经营规格见
+[docs/BACKLUND_MANAGEMENT_REFACTOR.md](./docs/BACKLUND_MANAGEMENT_REFACTOR.md)，
+自治角色与势力见
+[docs/AUTONOMOUS_WORLD_PHASE_2.md](./docs/AUTONOMOUS_WORLD_PHASE_2.md)，
+多势力战略竞争见
+[docs/FACTION_STRATEGY_PHASE_3.md](./docs/FACTION_STRATEGY_PHASE_3.md)，
+经营闭环与亲历任务见
+[docs/MANAGEMENT_AND_PARTICIPATION_PHASE_4.md](./docs/MANAGEMENT_AND_PARTICIPATION_PHASE_4.md)。
+
+22 条途径完整账本、七城战役、重大历史阶段、成神后世界和 v21 存档迁移见
+[docs/CAMPAIGN_WORLD_PHASE_5_7.md](./docs/CAMPAIGN_WORLD_PHASE_5_7.md)。
 
 ## 非凡能力规则引擎（MVP）
 
@@ -152,6 +174,7 @@ npm run dist:win
 npm run lint
 npm run typecheck
 npm test
+npm run bundle:budget
 ```
 
 仓库内附带一套可复用的真机 QA 脚本：
@@ -172,6 +195,7 @@ app/                  # 游戏前端与逻辑（React + vinext/Next 风格）
   city-map-workspace.tsx # 城市地图
 electron/             # Electron 桌面壳
 scripts/              # 启动器、QA 与工具脚本
+  patch-vinext-windows.mjs # 修复 vinext 生产资源在 Windows 上的路径键
 private/              # 私有设定（gitignored，维护者持有）
 tests/                # 自动化测试
 ```

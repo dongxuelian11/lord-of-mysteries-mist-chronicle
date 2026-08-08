@@ -1,7 +1,7 @@
 # 正式发布
 
-正式 Windows 版本采用 `v<package.json version>` tag 触发。当前发布线从
-`0.2.0` 开始，tag、源码提交、安装包 SHA-256 与知识 seed build ID 会同时写入
+正式 Windows 版本采用 `v<package.json version>` tag 触发。当前发布线为
+`0.3.x`，tag、源码提交、安装包 SHA-256 与知识 seed build ID 会同时写入
 `release/provenance.json`，避免版本标签与二进制来源脱节。
 
 ## Release 环境
@@ -31,8 +31,10 @@ attestation。全部通过后才创建或更新 GitHub Release。
 npm run typecheck
 npm run lint
 npm test
-git tag v0.2.0
-git push origin v0.2.0
+npm run bundle:budget
+$version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+git tag "v$version"
+git push origin "v$version"
 ```
 
 不要复用或强制移动已发布 tag。需要修复时递增 patch 版本并生成新的安装包。
