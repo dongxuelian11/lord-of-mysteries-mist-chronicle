@@ -3,16 +3,24 @@ import { buildAutonomousMemoryProjection, type DynamicMemoryState } from "./memo
 
 export type AutonomousEntityKind = "actor" | "faction";
 
+export type AutonomousReflectionConclusion = {
+  text: string;
+  sourceRefs: string[];
+  sourceEventIds: string[];
+};
+
 export type AutonomousReflection = {
   version: 1;
   createdWeek: number;
   audienceRef: string;
   summary: string;
-  conclusions: string[];
+  conclusions: AutonomousReflectionConclusion[];
   sourceRefs: string[];
   sourceEventIds: string[];
   recommendedObjective: string;
   recommendedIntent: string;
+  recommendationSourceRefs: string[];
+  recommendationSourceEventIds: string[];
   requiredKnowledgeIds: string[];
   driveSignals: string[];
   provenance: "deterministic-visible-state" | "migration";
@@ -116,6 +124,8 @@ function baselineReflection(
     sourceEventIds: [],
     recommendedObjective: objective,
     recommendedIntent: nextAction,
+    recommendationSourceRefs: [],
+    recommendationSourceEventIds: [],
     requiredKnowledgeIds: [],
     driveSignals: [],
     provenance: legacySummary ? "migration" : "deterministic-visible-state",
@@ -126,12 +136,27 @@ function normalizeReflection(profile: AutonomousAgentProfile | (Omit<AutonomousA
   const value = profile.reflection;
   if (value && typeof value === "object" && !Array.isArray(value) && (value as AutonomousReflection).version === 1) {
     const reflection = value as AutonomousReflection;
+    const rawConclusions = Array.isArray((reflection as unknown as { conclusions?: unknown[] }).conclusions)
+      ? (reflection as unknown as { conclusions: unknown[] }).conclusions
+      : [];
     return {
       ...reflection,
       audienceRef: reflection.audienceRef || profile.ref,
-      conclusions: Array.isArray(reflection.conclusions) ? reflection.conclusions.slice(0, 8) : [],
+      conclusions: rawConclusions.flatMap((conclusion) => {
+        if (typeof conclusion === "string") return [{ text: conclusion, sourceRefs: reflection.sourceRefs ?? [], sourceEventIds: reflection.sourceEventIds ?? [] }];
+        if (!conclusion || typeof conclusion !== "object" || Array.isArray(conclusion)) return [];
+        const item = conclusion as Partial<AutonomousReflectionConclusion>;
+        if (typeof item.text !== "string" || !item.text.trim()) return [];
+        return [{
+          text: item.text.slice(0, 360),
+          sourceRefs: Array.isArray(item.sourceRefs) ? [...new Set(item.sourceRefs.map(String))].slice(0, 12) : [],
+          sourceEventIds: Array.isArray(item.sourceEventIds) ? [...new Set(item.sourceEventIds.map(String))].slice(0, 8) : [],
+        }];
+      }).slice(0, 8),
       sourceRefs: Array.isArray(reflection.sourceRefs) ? [...new Set(reflection.sourceRefs)].slice(0, 32) : [],
       sourceEventIds: Array.isArray(reflection.sourceEventIds) ? [...new Set(reflection.sourceEventIds)].slice(0, 24) : [],
+      recommendationSourceRefs: Array.isArray(reflection.recommendationSourceRefs) ? [...new Set(reflection.recommendationSourceRefs)].slice(0, 12) : reflection.sourceRefs ?? [],
+      recommendationSourceEventIds: Array.isArray(reflection.recommendationSourceEventIds) ? [...new Set(reflection.recommendationSourceEventIds)].slice(0, 8) : reflection.sourceEventIds ?? [],
       requiredKnowledgeIds: Array.isArray(reflection.requiredKnowledgeIds) ? [...new Set(reflection.requiredKnowledgeIds)].slice(0, 12) : [],
       driveSignals: Array.isArray(reflection.driveSignals) ? [...new Set(reflection.driveSignals)].slice(0, 6) : [],
     };
@@ -162,6 +187,10 @@ function actorProfile(actor: WorldKernel["actors"][number], week: number): Auton
   };
 }
 
+function factionRiskTolerance(faction: WorldKernel["factions"][number]): number {
+  return clamp(35 + faction.suspicion / 2);
+}
+
 function factionProfile(faction: WorldKernel["factions"][number], week: number): AutonomousAgentProfile {
   return {
     ref: `faction:${faction.id}`,
@@ -171,7 +200,7 @@ function factionProfile(faction: WorldKernel["factions"][number], week: number):
     drives: [faction.posture, "保存组织资源并扩大可持续影响"],
     currentObjective: faction.posture,
     nextAction: faction.lastAction,
-    riskTolerance: clamp(35 + faction.suspicion / 2),
+    riskTolerance: factionRiskTolerance(faction),
     planningHorizonWeeks: 3 + stableNumber(`horizon:${faction.id}`) % 6,
     privateMemoryIds: [],
     reflection: baselineReflection(`faction:${faction.id}`, faction.posture, faction.lastAction, week),
@@ -273,7 +302,12 @@ export function ensureAutonomousWorldState(state: AutonomousWorldState | undefin
   ]);
   const profiles = [...profileByRef.values()]
     .filter((profile) => validRefs.has(profile.ref))
-    .map((profile) => ({ ...profile, reflection: normalizeReflection(profile) }));
+    .map((profile) => {
+      const normalized = { ...profile, reflection: normalizeReflection(profile) };
+      if (profile.kind !== "faction") return normalized;
+      const faction = kernel.factions.find((candidate) => candidate.id === profile.entityId);
+      return faction ? { ...normalized, riskTolerance: factionRiskTolerance(faction) } : normalized;
+    });
   const residency = selectAutonomousAgentResidency(profiles, kernel, current.activeAgentRefs ?? [], MAX_ACTIVE_AUTONOMOUS_AGENTS, memory);
   const active = new Set(residency.activeAgentRefs);
   return {
@@ -344,13 +378,7 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
     const factionIds = new Set(kernel.factions.map((faction) => faction.id));
     const projectIds = new Set(kernel.projects.map((project) => project.id));
     const locationIds = new Set(view.locations.map((location) => location.id));
-    const currentLocation = profile.kind === "actor"
-      ? kernel.locations.find((location) => location.id === (entity as WorldKernel["actors"][number] | undefined)?.locationId)
-      : undefined;
-    const visibleEntityRefs = view.events.flatMap((event) => [
-      ...event.actorIds.map((id) => `actor:${id}`),
-      ...event.factionIds.map((id) => `faction:${id}`),
-    ]);
+    const perceivedEntityRefs = view.observations.flatMap((observation) => observation.perceivedRefs ?? []);
     const subjectRefs = view.knowledge.flatMap((node) => {
       const subject = node.subject.trim();
       if (actorIds.has(subject)) return [`actor:${subject}`];
@@ -369,10 +397,8 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
       profile.ref,
       ...allowedLocationIds.map((id) => `location:${id}`),
       ...relationships.map((relationship) => relationship.targetRef),
-      ...visibleEntityRefs,
+      ...perceivedEntityRefs,
       ...subjectRefs,
-      ...(currentLocation?.actorIds ?? []).map((id) => `actor:${id}`),
-      ...(currentLocation?.factionIds ?? []).map((id) => `faction:${id}`),
       ...kernel.projects.filter((project) => project.ownerId === profile.entityId).map((project) => `project:${project.id}`),
     ])].filter((ref) => {
       if (ref === "player" || ref === "organization") return true;
@@ -390,17 +416,34 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
       nextAction: profile.nextAction,
       relationshipRefs: relationships.map((relationship) => relationship.targetRef),
     });
+    const relevantLocations = profile.kind === "actor"
+      ? view.locations.filter((location) => location.id === (entity as WorldKernel["actors"][number] | undefined)?.locationId)
+      : view.locations.filter((location) => location.factionIds.includes(profile.entityId));
     const planningSignature = stableNumber(JSON.stringify({
       ref: profile.ref,
       objective: profile.currentObjective,
       nextAction: profile.nextAction,
       locationId: profile.kind === "actor" ? (entity as WorldKernel["actors"][number] | undefined)?.locationId : undefined,
+      condition: profile.kind === "actor" ? (entity as WorldKernel["actors"][number] | undefined)?.condition : undefined,
       resources: profile.kind === "faction" ? (entity as WorldKernel["factions"][number] | undefined)?.resources : undefined,
-      reflectionSources: profile.reflection.sourceRefs,
-      reflectionIntent: profile.reflection.recommendedIntent,
-      observations: view.observations.map((observation) => observation.id).sort(),
-      knowledge: knownKnowledgeIds.slice().sort(),
-      memory: materialMemory.referenceIds.slice().sort(),
+      suspicion: profile.kind === "faction" ? (entity as WorldKernel["factions"][number] | undefined)?.suspicion : undefined,
+      riskTolerance: profile.riskTolerance,
+      locations: relevantLocations.map((location) => [location.id, location.risk, location.stability, location.publicMood, location.conditions, location.updatedWeek]),
+      reflection: {
+        summary: profile.reflection.summary,
+        conclusions: profile.reflection.conclusions,
+        sourceRefs: profile.reflection.sourceRefs,
+        sourceEventIds: profile.reflection.sourceEventIds,
+        recommendedObjective: profile.reflection.recommendedObjective,
+        recommendedIntent: profile.reflection.recommendedIntent,
+        recommendationSourceRefs: profile.reflection.recommendationSourceRefs,
+        recommendationSourceEventIds: profile.reflection.recommendationSourceEventIds,
+        requiredKnowledgeIds: profile.reflection.requiredKnowledgeIds,
+        driveSignals: profile.reflection.driveSignals,
+      },
+      observations: view.observations.map((observation) => [observation.id, observation.eventId, observation.channel, observation.text, observation.visibility, observation.perceivedRefs ?? []]).sort(),
+      knowledge: view.knowledge.map((node) => [node.id, node.subject, node.statement, node.truth, node.visibility, node.sourceEventId]).sort(),
+      memory: [materialMemory.referenceIds.slice().sort(), materialMemory.text],
       relationships,
       projects: kernel.projects.filter((project) => project.ownerId === profile.entityId && project.status === "active").map((project) => [project.id, project.stage, project.progress, project.nextMilestone, project.blockers]).sort(),
     })).toString(36);
@@ -460,7 +503,7 @@ function buildStructuredReflection(
   const commitment = visibleCommitments.sort((left, right) => right.importance - left.importance || left.id.localeCompare(right.id))[0];
   const relationship = visibleRelationships.sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta) || left.id.localeCompare(right.id))[0];
   const event = visibleEvents[0];
-  const conclusions = [
+  const conclusionTexts = [
     ...(plan ? [`计划“${plan.title}”仍要求：${plan.currentStep}`] : []),
     ...(knowledge ? [`新认知“${knowledge.statement}”需要纳入下一步判断`] : []),
     ...(belief ? [`当前信念：“${belief.claim}”`] : []),
@@ -468,13 +511,26 @@ function buildStructuredReflection(
     ...(relationship ? [`关系依据：“${relationship.summary}”`] : []),
     ...(event ? [`本周亲历：“${event.title}”`] : []),
   ].slice(0, 8);
+  const conclusionEvidence = [
+    ...(plan ? [{ sourceRefs: [plan.id], sourceEventIds: plan.sourceEventIds }] : []),
+    ...(knowledge ? [{ sourceRefs: [knowledge.id], sourceEventIds: knowledge.sourceEventId ? [knowledge.sourceEventId] : [] }] : []),
+    ...(belief ? [{ sourceRefs: [belief.id, belief.learnedFrom.sourceId], sourceEventIds: [belief.learnedFrom.sourceId] }] : []),
+    ...(commitment ? [{ sourceRefs: [commitment.id], sourceEventIds: [commitment.sourceEventId] }] : []),
+    ...(relationship ? [{ sourceRefs: [relationship.id], sourceEventIds: [relationship.sourceEventId] }] : []),
+    ...(event ? [{ sourceRefs: [event.id], sourceEventIds: [event.id] }] : []),
+  ].slice(0, 8);
+  const conclusions = conclusionTexts.map((text, index) => ({
+    text,
+    sourceRefs: [...new Set(conclusionEvidence[index]?.sourceRefs ?? [])],
+    sourceEventIds: [...new Set(conclusionEvidence[index]?.sourceEventIds ?? [])],
+  }));
   const recommendedObjective = plan?.objective || profile.currentObjective;
   const recommendedIntent = plan?.currentStep
     || (knowledge ? `核验或利用关于${knowledge.subject}的新认知` : "")
     || (relationship ? `根据既有关系调整对${relationship.fromCharacterId === profile.entityId ? relationship.toCharacterId : relationship.fromCharacterId}的行动` : "")
     || profile.nextAction;
   const summary = conclusions.length
-    ? conclusions.join("；").slice(0, 720)
+    ? conclusions.map((conclusion) => conclusion.text).join("；").slice(0, 720)
     : `没有新的主体可见依据足以改变“${profile.currentObjective}”；维持既定方向。`;
   return {
     version: 1,
@@ -494,6 +550,20 @@ function buildStructuredReflection(
     ])].slice(0, 24),
     recommendedObjective,
     recommendedIntent,
+    recommendationSourceRefs: plan
+      ? [plan.id]
+      : knowledge
+        ? [knowledge.id]
+        : relationship
+          ? [relationship.id]
+          : [],
+    recommendationSourceEventIds: plan
+      ? plan.sourceEventIds
+      : knowledge?.sourceEventId
+        ? [knowledge.sourceEventId]
+        : relationship
+          ? [relationship.sourceEventId]
+          : [],
     requiredKnowledgeIds: visibleKnowledge.map((item) => item.id).slice(0, 12),
     driveSignals: [...new Set([
       ...(plan ? [plan.objective] : []),

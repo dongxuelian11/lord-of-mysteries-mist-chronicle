@@ -68,6 +68,21 @@ export type WorldObservation = {
   visibility: Exclude<WorldVisibility, "world">;
   holderIds: string[];
   holderRefs?: string[];
+  perceivedRefs?: string[];
+  acquisitionKind?: KnowledgeGrantKind;
+};
+
+export type KnowledgeGrantKind = "witness" | "communication" | "investigation" | "propagation";
+
+export type WorldKnowledgeGrant = {
+  id: string;
+  week: number;
+  knowledgeId: string;
+  holderRef: string;
+  kind: KnowledgeGrantKind;
+  sourceEventId: string;
+  sourceObservationId: string;
+  grantedByRef?: string;
 };
 
 export type WorldKnowledgeNode = {
@@ -101,6 +116,7 @@ export type WorldKernel = {
   events: PersistentWorldEvent[];
   observations: WorldObservation[];
   knowledge: WorldKnowledgeNode[];
+  knowledgeGrants: WorldKnowledgeGrant[];
   canon: {
     mode: "anchored" | "diverging";
     deviation: number;
@@ -138,6 +154,7 @@ export type WorldTurnDelta = {
   events: Omit<PersistentWorldEvent, "week">[];
   observations: Omit<WorldObservation, "week">[];
   knowledge?: (Omit<WorldKnowledgeNode, "acquiredWeek" | "loreRecordIds"> & { loreRecordIds?: string[] })[];
+  knowledgeGrants?: Omit<WorldKnowledgeGrant, "week">[];
   canon?: { mode?: "anchored" | "diverging"; deviationDelta?: number; pivotEventIds?: string[] };
 };
 
@@ -167,6 +184,7 @@ export function createWorldKernel(seed: WorldKernelSeed): WorldKernel {
     events: [],
     observations: [],
     knowledge: [],
+    knowledgeGrants: [],
     canon: {
       mode: "anchored",
       deviation: 0,
@@ -187,6 +205,26 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
   const existingActorIds = new Set(kernel.actors.map((actor) => actor.id));
   const existingFactionIds = new Set(kernel.factions.map((faction) => faction.id));
   const existingProjectIds = new Set(kernel.projects.map((project) => project.id));
+  const locationIds = new Set(kernel.locations.map((location) => location.id));
+  for (const actor of delta.newActors ?? []) {
+    if (!locationIds.has(actor.locationId)) throw new Error(`新角色引用了不存在的地点：${actor.id} -> ${actor.locationId}`);
+  }
+  for (const update of delta.actorUpdates) {
+    if (update.locationId && !locationIds.has(update.locationId)) throw new Error(`角色更新引用了不存在的地点：${update.actorId} -> ${update.locationId}`);
+  }
+  const validOwnerIds = new Set([
+    "world",
+    "canon",
+    "player",
+    "organization",
+    ...existingActorIds,
+    ...existingFactionIds,
+    ...(delta.newActors ?? []).map((actor) => actor.id),
+    ...(delta.newFactions ?? []).map((faction) => faction.id),
+  ]);
+  for (const project of delta.newProjects ?? []) {
+    if (!validOwnerIds.has(project.ownerId)) throw new Error(`新项目引用了不存在的所有者：${project.id} -> ${project.ownerId}`);
+  }
   const seededActors = [...kernel.actors, ...(delta.newActors ?? []).filter((actor) => !existingActorIds.has(actor.id)).map((actor) => ({ ...actor, lastAction: actor.lastAction ?? "刚刚进入持续世界状态", knowledgeIds: actor.knowledgeIds ?? [] }))];
   const seededFactions = [...kernel.factions, ...(delta.newFactions ?? []).filter((faction) => !existingFactionIds.has(faction.id)).map((faction) => ({ ...faction, lastAction: faction.lastAction ?? "刚刚进入持续世界状态" }))];
   const seededProjects = [...kernel.projects, ...(delta.newProjects ?? []).filter((project) => !existingProjectIds.has(project.id)).map((project) => ({ ...project, updatedWeek: delta.week }))];
@@ -221,7 +259,42 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
   }))].slice(-240);
   const eventIds = new Set(events.map((event) => event.id));
   const observations = [...kernel.observations, ...delta.observations.filter((observation) => eventIds.has(observation.eventId)).map((observation) => ({ ...observation, week: delta.week }))].slice(-320);
-  const knowledge = [...kernel.knowledge, ...(delta.knowledge ?? []).filter((node) => !node.sourceEventId || eventIds.has(node.sourceEventId)).map((node) => ({ ...node, loreRecordIds: node.loreRecordIds ?? [], acquiredWeek: delta.week }))].slice(-400);
+  const incomingKnowledge = (delta.knowledge ?? [])
+    .filter((node) => !node.sourceEventId || eventIds.has(node.sourceEventId))
+    .map((node) => ({ ...node, loreRecordIds: node.loreRecordIds ?? [], acquiredWeek: delta.week }));
+  const incomingKnowledgeIds = new Set(incomingKnowledge.map((node) => node.id));
+  const incomingKnowledgeGrants = (delta.knowledgeGrants ?? []).map((grant) => ({ ...grant, week: delta.week }));
+  const validKnowledgeHolderRefs = new Set([
+    "player",
+    "organization",
+    ...seededActors.map((actor) => `actor:${actor.id}`),
+    ...seededFactions.map((faction) => `faction:${faction.id}`),
+  ]);
+  for (const grant of incomingKnowledgeGrants) {
+    if (!incomingKnowledgeIds.has(grant.knowledgeId)) throw new Error(`KnowledgeGrant references unknown knowledge: ${grant.id}`);
+    if (!validKnowledgeHolderRefs.has(grant.holderRef)) throw new Error(`KnowledgeGrant references unknown holder: ${grant.id}`);
+    if (!eventIds.has(grant.sourceEventId)) throw new Error(`KnowledgeGrant references unknown event: ${grant.id}`);
+    const holderId = grant.holderRef.replace(/^(actor|faction):/, "");
+    const sourceObservation = observations.find((observation) => observation.id === grant.sourceObservationId && observation.eventId === grant.sourceEventId);
+    if (!sourceObservation || sourceObservation.visibility !== "public"
+      && !sourceObservation.holderRefs?.includes(grant.holderRef)
+      && !sourceObservation.holderIds.includes(holderId)) {
+      throw new Error(`KnowledgeGrant references invalid observation: ${grant.id}`);
+    }
+  }
+  const grantedHolders = new Map<string, string[]>();
+  for (const grant of incomingKnowledgeGrants) grantedHolders.set(grant.knowledgeId, [...new Set([...(grantedHolders.get(grant.knowledgeId) ?? []), grant.holderRef])]);
+  const authorizedKnowledge = incomingKnowledge.map((node) => {
+    if (node.visibility === "public" || node.visibility === "world") return node;
+    const holderRefs = grantedHolders.get(node.id) ?? [];
+    const holderIds = holderRefs.map((ref) => ref === "player" ? "player" : ref.replace(/^(actor|faction):/, ""));
+    return { ...node, holderIds, holderRefs };
+  });
+  const knowledge = [...kernel.knowledge, ...authorizedKnowledge].slice(-400);
+  const knowledgeIds = new Set(knowledge.map((node) => node.id));
+  const knowledgeGrants = [...(kernel.knowledgeGrants ?? []), ...incomingKnowledgeGrants]
+    .filter((grant) => knowledgeIds.has(grant.knowledgeId))
+    .slice(-800);
   return {
     ...kernel,
     currentWeek: Math.max(kernel.currentWeek, delta.week + 1),
@@ -233,6 +306,7 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
     events,
     observations,
     knowledge,
+    knowledgeGrants,
     canon: {
       ...kernel.canon,
       mode: delta.canon?.mode ?? kernel.canon.mode,
@@ -269,6 +343,7 @@ export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudi
     events: kernel.events.filter((event) => event.visibility !== "world" && (event.visibility === "public" || observableEventIds.has(event.id) || event.witnessRefs?.includes(reference))),
     observations: visibleObservations,
     knowledge: kernel.knowledge.filter((node) => canSee(node.visibility, node.holderIds, node.holderRefs, audience)),
+    knowledgeGrants: (kernel.knowledgeGrants ?? []).filter((grant) => grant.holderRef === reference),
   };
 }
 

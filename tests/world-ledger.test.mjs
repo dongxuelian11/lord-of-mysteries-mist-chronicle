@@ -5,6 +5,7 @@ import { createInitialGame } from "../app/game-model.ts";
 import {
   appendWorldLedgerEvents,
   appendWorldLedgerCompensation,
+  WORLD_LEDGER_EVENT_RETENTION,
   commitWorldLedgerWeek,
   createWorldLedger,
   createWorldLedgerBranch,
@@ -105,7 +106,8 @@ test("private perceptions are isolated between actors, factions, and the player"
     locationUpdates: [],
     events: [{ id: "private-event", title: "Private", detail: "Only one side saw this", locationId: "east", actorIds: ["reporter"], factionIds: ["press"], causeIds: [], visibility: "actors", witnessRefs: ["actor:reporter", "faction:press"] }],
     observations: [{ id: "private-observation", eventId: "private-event", channel: "report", text: "private detail", visibility: "actors", holderIds: [], holderRefs: ["faction:press"] }],
-    knowledge: [{ id: "private-knowledge", subject: "manifest", statement: "altered", truth: "confirmed", visibility: "actors", holderIds: [], holderRefs: ["faction:press"] }],
+    knowledge: [{ id: "private-knowledge", subject: "manifest", statement: "altered", truth: "confirmed", visibility: "actors", holderIds: [], holderRefs: ["faction:press"], sourceEventId: "private-event" }],
+    knowledgeGrants: [{ id: "grant-private-knowledge", knowledgeId: "private-knowledge", holderRef: "faction:press", kind: "investigation", sourceEventId: "private-event", sourceObservationId: "private-observation" }],
   });
 
   assert.equal(projectWorldForAudience(next, { kind: "faction", holderId: "press" }).knowledge.length, 1);
@@ -151,6 +153,37 @@ test("long-running ledgers keep bounded checkpoint snapshots while retaining ful
   assert.deepEqual(replayWorldLedger(ledger, { useSnapshots: true }), replayWorldLedger(ledger, { useSnapshots: false }));
   assert.equal(replayWorldLedger(ledger, { throughWeek: 17, useSnapshots: true }).week, 17);
   assert.equal(verifyWorldLedger(ledger).ok, true, verifyWorldLedger(ledger).issues.join("\n"));
+});
+
+test("very long ledgers segment old events behind a trusted checkpoint and verify the retained chain incrementally", () => {
+  const game = createInitialGame("spectator");
+  let ledger = createWorldLedger(game);
+  let current = game;
+  for (let week = 2; week <= 30; week += 1) {
+    ledger = appendWorldLedgerEvents(ledger, Array.from({ length: 90 }, (_, index) => ({
+      id: `bulk:${week}:${index}`,
+      week,
+      phase: "autonomous-actors",
+      kind: "world-event-recorded",
+      summary: `bulk event ${week}:${index}`,
+      actorIds: [], factionIds: [], witnessRefs: [], causeEventIds: [],
+      audience: { visibility: "world", holderRefs: [] },
+      payload: { worldEventId: `bulk-world:${week}:${index}` },
+    })));
+    current = { ...current, week, date: `1349-long-${week}`, money: game.money + week };
+    ledger = commitWorldLedgerWeek(ledger, current);
+  }
+  assert.ok(ledger.eventArchive);
+  assert.ok(ledger.eventArchive.archivedCount > 0);
+  assert.ok(ledger.eventArchive.segments.length > 0);
+  assert.ok(ledger.events.length <= WORLD_LEDGER_EVENT_RETENTION);
+  assert.deepEqual(replayWorldLedger(ledger, { useSnapshots: false }), replayWorldLedger(ledger, { useSnapshots: true }));
+  assert.equal(replayWorldLedger(ledger, { throughWeek: ledger.eventArchive.throughWeek - 1, useSnapshots: false }), null);
+  assert.equal(verifyWorldLedger(ledger).ok, true, verifyWorldLedger(ledger).issues.join("\n"));
+
+  const damagedCheckpoint = structuredClone(ledger);
+  damagedCheckpoint.eventArchive.checkpoint.projection.resources.money += 1;
+  assert.equal(verifyWorldLedger(damagedCheckpoint).ok, false);
 });
 
 test("ordinary authoritative event reducers advance action, world, knowledge, and phase state", () => {

@@ -4,6 +4,31 @@ import { loadRuntimeModule, closeRuntimeServer } from "../scripts/rag/lib/load-r
 
 after(() => closeRuntimeServer());
 
+test("world protocol keeps authority rules external to the engine and requests compact lossless JSON", async () => {
+  const { attachOrganizationAdjudicationProtocol, ORGANIZATION_ADJUDICATION_PROTOCOL, WORLD_KERNEL_PROTOCOL } = await loadRuntimeModule("app/world-adjudication-protocol.ts");
+  const { buildWorldAdjudicatorPrompt, WORLD_ADJUDICATOR_SYSTEM } = await loadRuntimeModule("app/world-adjudicator-prompt.ts");
+  const payload = attachOrganizationAdjudicationProtocol({ adjudicatorWorld: { proposals: [] } });
+  const prompt = buildWorldAdjudicatorPrompt(payload, WORLD_KERNEL_PROTOCOL);
+  assert.equal(payload.organizationInstructions, ORGANIZATION_ADJUDICATION_PROTOCOL);
+  assert.match(WORLD_ADJUDICATOR_SYSTEM, /紧凑输出/);
+  assert.match(WORLD_ADJUDICATOR_SYSTEM, /不得因此省略任何有因果意义的字段或内容/);
+  assert.match(prompt, /presence不等于perception/);
+  assert.match(prompt, /公开变化只写一次到 publicSignals/);
+  assert.doesNotMatch(prompt, /"changes": \["0至4条公开变化"\]/);
+});
+
+test("initial world seed remains isolated from mutable game instances", async () => {
+  const { createInitialGame, INITIAL_FACTIONS, INITIAL_TIMELINE } = await loadRuntimeModule("app/game-model.ts");
+  const first = createInitialGame("seer");
+  const second = createInitialGame("seer");
+  assert.deepEqual(first.factions, INITIAL_FACTIONS);
+  assert.deepEqual(first.timeline, INITIAL_TIMELINE);
+  assert.notEqual(first.factions, second.factions);
+  assert.notEqual(first.canonActors, second.canonActors);
+  first.factions[0].currentPlan = "mutated instance";
+  assert.notEqual(second.factions[0].currentPlan, "mutated instance");
+});
+
 test("world adjudicator input exposes one entity authority and omits legacy actor/faction state", async () => {
   const { createInitialGame } = await loadRuntimeModule("app/game-model.ts");
   const { buildWorldAdjudicatorInput } = await loadRuntimeModule("app/world-authority.ts");

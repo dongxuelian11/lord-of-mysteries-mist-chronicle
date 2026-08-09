@@ -154,7 +154,11 @@ test("materiality signatures skip unchanged model calls and reopen planning afte
   assert.ok(firstFrames.every((frame) => typeof frame.planningSignature === "string"));
   initial.profiles = initial.profiles.map((profile) => {
     const frame = firstFrames.find((candidate) => candidate.ref === profile.ref);
-    return frame ? { ...profile, lastPlanningSignature: frame.planningSignature } : profile;
+    return frame ? {
+      ...profile,
+      reflection: { ...profile.reflection, createdWeek: profile.reflection.createdWeek + 1 },
+      lastPlanningSignature: frame.planningSignature,
+    } : profile;
   });
   const unchangedFrames = buildAutonomousDecisionFrames(initial, kernel, 5).filter((frame) => firstFrames.some((candidate) => candidate.ref === frame.ref));
   let calls = 0;
@@ -277,7 +281,18 @@ test("visible participants, owned projects and known locations form explicit pro
   const kernel = applyWorldTurn(initial, {
     week: 5,
     playerIssuedNoOrders: true,
-    actorUpdates: [], projectUpdates: [], locationUpdates: [], observations: [],
+    actorUpdates: [], projectUpdates: [], locationUpdates: [],
+    observations: [{
+      id: "public-briefing-observation",
+      eventId: "public-briefing",
+      channel: "public briefing",
+      text: "记者辨认出书记员与晚报消息网代表。",
+      visibility: "public",
+      holderIds: [],
+      holderRefs: [],
+      perceivedRefs: ["actor:clerk", "faction:press"],
+      acquisitionKind: "propagation",
+    }],
     events: [{ id: "public-briefing", title: "公开核对", detail: "记者与书记员核对名单。", locationId: "east", actorIds: ["reporter", "clerk"], factionIds: ["press"], causeIds: [], visibility: "public" }],
   });
   const frames = buildAutonomousDecisionFrames(createAutonomousWorldState(kernel), kernel, 6);
@@ -298,6 +313,67 @@ test("visible participants, owned projects and known locations form explicit pro
     targetRefs: ["actor:clerk", "faction:press", "location:east"],
   }), reporter);
   assert.ok(checked.proposal);
+});
+
+test("co-location does not authorize a hidden target until an explicit perception identifies it", () => {
+  const initial = createWorldKernel({
+    week: 5,
+    date: "1349-week-5",
+    actors: [
+      { id: "observer", name: "Observer", locationId: "east", agenda: "watch the street" },
+      { id: "hidden", name: "Hidden", locationId: "east", agenda: "remain concealed" },
+    ],
+    factions: [],
+    locations: [{ id: "east", name: "East", risk: 50 }],
+    timeline: [],
+  });
+  const initialFrame = buildAutonomousDecisionFrames(createAutonomousWorldState(initial), initial, 5)
+    .find((frame) => frame.ref === "actor:observer");
+  assert.ok(initialFrame);
+  assert.ok(!initialFrame.allowedTargetRefs.includes("actor:hidden"));
+
+  const perceived = applyWorldTurn(initial, {
+    week: 5,
+    playerIssuedNoOrders: true,
+    actorUpdates: [], projectUpdates: [], locationUpdates: [], knowledge: [],
+    events: [{ id: "glimpse", title: "A glimpse", detail: "A concealed figure crossed the alley.", locationId: "east", actorIds: ["hidden"], factionIds: [], causeIds: [], visibility: "world" }],
+    observations: [{ id: "observer-glimpse", eventId: "glimpse", channel: "eyewitness", text: "The observer identified the concealed figure.", visibility: "actors", holderIds: ["observer"], holderRefs: ["actor:observer"], perceivedRefs: ["actor:hidden"] }],
+  });
+  const perceivedFrame = buildAutonomousDecisionFrames(createAutonomousWorldState(perceived), perceived, 6)
+    .find((frame) => frame.ref === "actor:observer");
+  assert.ok(perceivedFrame?.allowedTargetRefs.includes("actor:hidden"));
+});
+
+test("materiality signatures include condition, local risk, memory content and synchronized faction risk", () => {
+  const kernel = createWorldKernel({
+    week: 5,
+    date: "1349-week-5",
+    actors: [{ id: "observer", name: "Observer", locationId: "east", agenda: "watch" }],
+    factions: [{ id: "press", name: "Press", plan: "protect sources", progress: 20, suspicion: 10 }],
+    locations: [{ id: "east", name: "East", risk: 40 }],
+    timeline: [],
+  });
+  const memoryA = deriveMemory(emptyMemoryState(), [{ kind: "belief", characterId: "observer", subjectId: "street", claimType: "risk", claim: "The street is quiet", confidence: 0.6, truthStatus: "uncertain", learnedFrom: { type: "observed", sourceId: "street-report" }, validFromWeek: 4, secrecy: "restricted" }]).state;
+  const memoryB = { ...memoryA, beliefs: memoryA.beliefs.map((belief) => ({ ...belief, claim: "The street is now dangerous", confidence: 0.9 })) };
+  const state = createAutonomousWorldState(kernel);
+  const signature = (world, memory, ref) => buildAutonomousDecisionFrames(ensureAutonomousWorldState(state, world, memory), world, 5, memory).find((frame) => frame.ref === ref);
+  const actorBase = signature(kernel, memoryA, "actor:observer");
+  assert.ok(actorBase);
+  const conditionChanged = structuredClone(kernel);
+  conditionChanged.actors[0].condition = "injured";
+  assert.notEqual(signature(conditionChanged, memoryA, "actor:observer")?.planningSignature, actorBase.planningSignature);
+  const riskChanged = structuredClone(kernel);
+  riskChanged.locations[0].risk += 15;
+  assert.notEqual(signature(riskChanged, memoryA, "actor:observer")?.planningSignature, actorBase.planningSignature);
+  assert.notEqual(signature(kernel, memoryB, "actor:observer")?.planningSignature, actorBase.planningSignature);
+
+  const factionBase = signature(kernel, memoryA, "faction:press");
+  const suspicionChanged = structuredClone(kernel);
+  suspicionChanged.factions[0].suspicion = 70;
+  const factionChanged = signature(suspicionChanged, memoryA, "faction:press");
+  assert.ok(factionBase && factionChanged);
+  assert.notEqual(factionChanged.riskTolerance, factionBase.riskTolerance);
+  assert.notEqual(factionChanged.planningSignature, factionBase.planningSignature);
 });
 
 test("a visible knowledge id misplaced in targetRefs is deterministically normalized", () => {

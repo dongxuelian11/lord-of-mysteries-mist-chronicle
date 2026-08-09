@@ -23,9 +23,10 @@ test("free ability use defaults to player intent and reports rule rejection inli
 });
 
 test("NPC speech is AI generated and a quiet week uses independent planning plus a fixed newspaper", async () => {
-  const [game, engine, council, adjudicatorPrompt, authority, outputAdapter] = await Promise.all([
+  const [game, engine, agentPlanning, council, adjudicatorPrompt, authority, outputAdapter] = await Promise.all([
     read("app/complete-game.tsx"),
     read("app/game-engine.ts"),
+    read("app/agent-planning-service.ts"),
     read("app/council-ai.ts"),
     read("app/world-adjudicator-prompt.ts"),
     read("app/world-authority.ts"),
@@ -44,7 +45,8 @@ test("NPC speech is AI generated and a quiet week uses independent planning plus
   assert.doesNotMatch(engine, /function parseWorldKernelDelta/);
   assert.match(outputAdapter, /function parseWorldKernelDelta/);
   assert.match(outputAdapter, /export function adaptWorldAdjudication/);
-  assert.match(engine, /planActiveAgentsIndependently/);
+  assert.match(engine, /planAutonomousAgentsForWeek/);
+  assert.match(agentPlanning, /planActiveAgentsIndependently/);
   assert.match(adjudicatorPrompt, /允许真正安静的一周/);
   assert.match(adjudicatorPrompt, /固定报纸必须给出 2 至 4 条/);
   assert.doesNotMatch(engine, /世界模型没有让足够的独立势力采取行动/);
@@ -82,13 +84,14 @@ test("Backlund control map keeps its three-pane desktop workspace bounded", asyn
 });
 
 test("weekly prose normalizes punctuation and carries consequences into the next council", async () => {
-  const [source, reader, saves] = await Promise.all([read("app/game-engine.ts"), read("app/complete-game.tsx"), read("app/save-system.ts")]);
+  const [source, reader, saves, session] = await Promise.all([read("app/game-engine.ts"), read("app/complete-game.tsx"), read("app/save-system.ts"), read("app/game-session-controller.ts")]);
   assert.match(source, /function cleanNarrative/);
   assert.match(source, /replace\(\/\^若\(\?:继续\(\?:搁置\|放任\)\|不加干预\)/);
   assert.match(source, /heading: "下一次集会之前"/);
   assert.match(source, /还剩\$\{pressure\.deadline\}周/);
   assert.doesNotMatch(reader, /function normalizeNarrativeGame/);
-  assert.match(reader, /migrateStoredGame\(JSON\.parse\(/);
+  assert.match(reader, /loadGameSession/);
+  assert.match(session, /migrateStoredGame\(JSON\.parse\(/);
   assert.match(saves, /export function normalizeStoredGame/);
   assert.match(saves, /section\.paragraphs \?\? \[\]/);
   assert.match(saves, /map\(cleanStoredNarrative\)/);

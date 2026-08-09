@@ -27,6 +27,7 @@ import {
   memoryPromptBlockWithIds,
   submitMemoryDelivery,
   markMemoryPresented,
+  markMemoryRecalled,
   actorAudience,
   factionAudience,
   narratorAudience,
@@ -53,16 +54,11 @@ import {
 } from "./world-ledger.ts";
 import {
   advanceAutonomousWorldState,
-  buildAutonomousDecisionFrames,
-  ensureAutonomousWorldState,
 } from "./autonomous-agents.ts";
 import {
   assertWorldAdjudicatorPayloadBudget,
-  buildAgentPlanningProjection,
   buildAdjudicatorProjection,
   fitWorldAdjudicatorPayload,
-  planActiveAgentsIndependently,
-  type AgentProposal,
 } from "./world-runtime.ts";
 import { buildWorldAdjudicatorPrompt, WORLD_ADJUDICATOR_SYSTEM } from "./world-adjudicator-prompt.ts";
 import { resolveFactionStrategyRound } from "./faction-strategy.ts";
@@ -72,13 +68,13 @@ import { advanceCampaignWorld, applyCampaignActionResults, applyCampaignSignals,
 import { extractJson, textSimilarity } from "./model-output.ts";
 import { actionTextBoundaryIssue } from "./action-boundaries.ts";
 import { repairActionReports, requestWorldEnvelope } from "./world-envelope.ts";
-import { requestAutonomousAgentProposal } from "./autonomous-planning.ts";
+import { planAutonomousAgentsForWeek, releaseAutonomousPlanningCache } from "./agent-planning-service.ts";
 import { buildWorldAdjudicatorInput, projectLegacyWorldCompatibility } from "./world-authority.ts";
 import { adaptWorldAdjudication } from "./world-output-adapter.ts";
+import { attachOrganizationAdjudicationProtocol, WORLD_KERNEL_PROTOCOL } from "./world-adjudication-protocol.ts";
 export type { AiConfig } from "./ai-client";
 export { actionTextBoundaryIssue } from "./action-boundaries.ts";
 export const callModel = invokeModel;
-const uncommittedAgentProposalCache = new WeakMap<GameState, Map<string, AgentProposal>>();
 
 export async function generateParticipationSceneBeat(config: AiConfig, game: GameState, scene: ParticipationScene, intent: string) {
   const finalBeat = scene.phase === "crisis";
@@ -1050,164 +1046,7 @@ export function resolveWeek(game: GameState) {
   return { state: nextState, chapter };
 }
 
-function validateChapter(value: Record<string, unknown>) {
-  const title = typeof value.title === "string" ? value.title : "本周纪事";
-  const sections = Array.isArray(value.sections) ? value.sections.flatMap((section) => {
-    if (!section || typeof section !== "object") return [];
-    const candidate = section as { heading?: unknown; paragraphs?: unknown };
-    const paragraphs = Array.isArray(candidate.paragraphs) ? candidate.paragraphs.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
-    return typeof candidate.heading === "string" && paragraphs.length ? [{ heading: candidate.heading, paragraphs }] : [];
-  }) : [];
-  if (sections.length < 1) throw new Error("文学章节没有形成正文");
-  return { title, sections };
-}
-
-function splitLongParagraphs<T extends ReturnType<typeof validateChapter>>(chapter: T): T {
-  const max = 180;
-  return {
-    ...chapter,
-    sections: chapter.sections.map((section) => ({
-      ...section,
-      paragraphs: section.paragraphs.flatMap((paragraph) => {
-        if (paragraph.length <= max) return [paragraph];
-        const parts: string[] = [];
-        let current = "";
-        for (const char of paragraph) {
-          current += char;
-          if (current.length >= max && /[。！？；]/.test(current)) {
-            const cut = Math.max(current.lastIndexOf("。"), current.lastIndexOf("！"), current.lastIndexOf("？"), current.lastIndexOf("；"));
-            if (cut >= Math.floor(max * 0.5)) {
-              parts.push(current.slice(0, cut + 1));
-              current = current.slice(cut + 1);
-            }
-          }
-        }
-        if (current.trim()) parts.push(current);
-        return parts;
-      }),
-    })),
-  } as T;
-}
-
-function literaryAgencyIssue(chapter: ReturnType<typeof validateChapter>, game: GameState, local: ChronicleChapter) {
-  const prose = chapter.sections.flatMap((section) => section.paragraphs).join("\n");
-  for (const result of local.results) {
-    const issue = actionTextBoundaryIssue(prose, game, result.contract);
-    if (issue) return `${result.title}：${issue}`;
-  }
-  if (local.results.length || local.title.startsWith("终局") || local.title.startsWith("重大事件")) return null;
-  const identities = [game.playerName, game.playerName.split("·").at(-1), ...game.members.map((member) => member.name)]
-    .filter(Boolean)
-    .map((value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  if (!identities.length) return null;
-  const actor = `(?:${identities.join("|")})`;
-  const unauthorized = "(?:离开(?:了)?据点|决定去|前往|走进|来到.{0,12}(?:档案室|黑市|码头|东区|桥区|皇后区)|打听|调查|询问|拜访|跟踪|追踪|潜入|亲自查看|现场核验|设法.{0,12}(?:取得|抄到|获得))";
-  const paragraphs = chapter.sections.flatMap((section) => section.paragraphs);
-  if (paragraphs.some((paragraph) => new RegExp(`${actor}[\\s\\S]{0,180}${unauthorized}`).test(paragraph) || new RegExp(`${unauthorized}[\\s\\S]{0,80}${actor}`).test(paragraph))) {
-    return "本周没有玩家决议，正文却让玩家或组织成员执行了外出、调查、接触或取证行动";
-  }
-  const externalPlace = /码头区|桥区|皇后区|东区|黑市|酒馆|老宅|面粉厂|厂区|河堤|市场|巷口|栅栏|仓库|警察厅/;
-  const sceneAction = /坐在|站在|走到|沿着|离开|返回|回到|钻进|靠近|认出|记住|跟上|拿出|等候|尾随|守在|绕到/;
-  const actorExpression = new RegExp(actor);
-  if (paragraphs.some((paragraph) => actorExpression.test(paragraph) && externalPlace.test(paragraph) && sceneAction.test(paragraph))) {
-    return "本周没有玩家决议，正文却把玩家或组织成员放进了外部地点的亲历场景";
-  }
-  return null;
-}
-
-async function enforceLiteraryAgency(config: AiConfig, system: string, factPack: Record<string, unknown>, game: GameState, local: ChronicleChapter, candidate: ReturnType<typeof validateChapter>, onStage: (value: string) => void, onToken?: (text: string) => void) {
-  let repaired = candidate;
-  let issue = literaryAgencyIssue(repaired, game, local);
-  if (!issue) return repaired;
-  for (let pass = 0; pass < 2; pass += 1) {
-    const targets: { sectionIndex: number; paragraphIndex: number; issue: string }[] = [];
-    repaired.sections.forEach((section, sectionIndex) => section.paragraphs.forEach((paragraph, paragraphIndex) => {
-      const paragraphChapter = { title: repaired.title, sections: [{ heading: section.heading, paragraphs: [paragraph] }] };
-      const paragraphIssue = literaryAgencyIssue(paragraphChapter, game, local);
-      if (paragraphIssue) targets.push({ sectionIndex, paragraphIndex, issue: paragraphIssue });
-    }));
-    if (!targets.length) break;
-    onStage(`连续性编辑正在局部纠正越界段落（${pass + 1}/2）`);
-    const sections = repaired.sections.map((section) => ({ ...section, paragraphs: [...section.paragraphs] }));
-    for (const target of targets) {
-      const original = sections[target.sectionIndex].paragraphs[target.paragraphIndex];
-      const raw = extractJson(await callModel(
-        config,
-        `${system}\n你是玩家主权连续性编辑。世界事实只读；你一次只能改写一个越界段落。`,
-        `这一个段落违反了玩家行动边界：${target.issue}。只重写这一段，不要重写章节，不得新增行动、线索、人物、地点或世界事实。\n本周已结算行动：${JSON.stringify(local.results.map((result) => ({ title: result.title, outcome: result.outcome, findings: result.findings, consequence: result.consequence, contract: { rawIntent: result.contract.rawIntent, approach: result.contract.approach, desiredOutcome: result.contract.desiredOutcome, redLines: result.contract.redLines, retreat: result.contract.retreat } })))}\n本周公开消息：${JSON.stringify(factPack.publicSignals ?? [])}\n原段落：${JSON.stringify(original)}\n\n只返回严格 JSON：{"paragraph":"改写后的单个自然段"}。保留原段落的文风和已锁定结果，但绝不扩大行动范围。若行动只允许整理、汇总、比对公开来源，成员必须始终留在组织据点，只能阅读已经持有的公开材料；不要在输出中复述、讨论或引用禁区行为。`,
-        { json: true, maxTokens: 1200, temperature: pass ? .12 : .2, stream: true, onToken },
-      ));
-      if (typeof raw.paragraph !== "string" || !raw.paragraph.trim()) throw new Error("文学连续性编辑没有返回可用的局部段落");
-      sections[target.sectionIndex].paragraphs[target.paragraphIndex] = raw.paragraph.trim().slice(0, 1200);
-    }
-    repaired = { ...repaired, sections };
-    issue = literaryAgencyIssue(repaired, game, local);
-    if (!issue) return repaired;
-  }
-  throw new Error(`${issue}；两次局部连续性修复后仍未通过`);
-}
-
-export async function generateLiteraryChapter(config: AiConfig, game: GameState, local: ChronicleChapter, onStage: (value: string) => void, onToken?: (text: string) => void): Promise<ChronicleChapter> {
-  const literaryMemoryView = memoryPromptBlockWithIds(game.memory, "player", "player", local.week);
-  const playerLedResult = local.results.find((result) => result.contract.executionMode === "player-led" || result.contract.leaderId === "player");
-  const factPack = {
-    week: local.week,
-    date: local.date,
-    organization: { name: game.organizationName, charter: game.charter },
-    player: { name: game.playerName, address: game.playerAddress, nameExposure: game.nameExposure, pathway: PATHWAYS[game.pathwayId].name, sequence: game.currentSequence },
-    results: local.results.map((result) => ({ title: result.title, outcome: result.outcome, findings: result.findings, consequence: result.consequence, abilityEffects: result.abilityEffects, reasons: result.reasons, futureChanges: result.futureChanges, contract: result.contract })),
-    activePressure: game.missions.filter((mission) => mission.state === "active"),
-    discoveredEvidence: game.evidenceNodes.filter((item) => item.discovered),
-    availableOpportunities: game.opportunities.filter((item) => item.state === "available"),
-    worldState: (() => { const snapshot = game.worldSnapshots?.find((item) => item.week === local.week); return snapshot ? { week: snapshot.week, date: snapshot.date, publicAtmosphere: snapshot.atmosphere } : null; })(),
-    publicSignals: game.worldSignals?.filter((signal) => signal.week === local.week).slice(0, 8).map((signal) => ({ ...signal, relatedFactionId: undefined })) ?? [],
-    playerWorldKnowledge: game.worldKernel.knowledge.filter((node) => node.visibility === "public" || node.holderIds.includes("player") || node.holderRefs?.includes("player")).slice(-16),
-    dynamicMemory: literaryMemoryView.text,
-    finale: game.ending.campaign ? { stage: game.ending.campaign.stage, doctrine: game.ending.campaign.doctrine, reports: game.ending.campaign.reports.slice(0, 2), aftermath: game.ending.campaign.aftermath } : null,
-    campaignWorld: { currentStageId: game.campaignWorld.currentStageId, cities: game.campaignWorld.cities.map((city) => ({ id: city.id, name: city.name, status: city.status, control: city.playerControl, intelligence: city.intelligence, pressure: city.localPressure })), postDeity: game.campaignWorld.postDeity },
-    highSequenceAssets: { characteristics: game.highSequenceLedger.characteristics.filter((item) => item.holderRef === "player"), uniquenesses: game.highSequenceLedger.uniquenesses.filter((item) => item.holderRef === "player"), sefirot: game.highSequenceLedger.sefirot.filter((item) => item.holderRef === "player") },
-    localReference: local.sections,
-    participationDirective: playerLedResult
-      ? `本周玩家亲自参与“${playerLedResult.title}”。把它写成玩家有限视角下的连续现场场景：动作、感官、他人反应与已锁定结果依次发生，不要把关键过程改写成下属报告或事后摘要；不得替玩家增加契约外选择。`
-      : "本周行动均为委派执行。玩家留在组织中枢，只能通过下属回报、来信、账册和议会陈述获知行动，不得写成玩家亲历现场。",
-    agencyBoundary: local.title.startsWith("终局") || local.title.startsWith("重大事件")
-      ? "这是已经由重大事件规则结算的阶段。只能叙述finale.reports和aftermath里锁定的行动与代价，不得新增行动、幸存、死亡或胜利。"
-      : local.results.length
-      ? "玩家与组织成员只能执行results.contract中明确结算的行动，不得扩写契约之外的外出、接触、调查或取证。"
-      : "本周没有任何玩家决议。玩家与组织成员不得离开据点、调查、接触、追踪、取证、获得新文件或自行决定下一步；只能阅读publicSignals、维持据点日常与观察城市公开变化。",
-    forbidden: ["改变行动成败", "新增未经结算的线索", "泄露幕后真相", "替玩家决定内心信念", "擅自判定玩家死亡", "让无决议玩家或成员自行外出调查"],
-  };
-  const submitLiterary = (stage: string) => {
-    game.memory = submitMemoryDelivery(game.memory, {
-      actionId: `literary:${local.week}`,
-      modelCallId: `literary:${local.week}:${stage}`,
-      stage,
-      audience: narratorAudience(),
-      memoryIds: literaryMemoryView.ids,
-      week: local.week,
-    });
-  };
-  const system = "你为原创维多利亚神秘主义互动小说《灰雾纪事》工作。使用严格的第三人称有限视角和克制的神秘悬疑文风，不复制任何现有小说句子。严格遵守participationDirective：玩家亲自参与时写连续现场，委派执行时只能写玩家收到的回报。不要套用固定的周报结构、固定开场、固定收尾、信息分类标题或‘首先/其次/最后’式模板；根据这一周真正发生的事情自行决定场景、节奏、详略和分节数量。即使玩家没有发布命令，也要以事实包里的报纸、街谈、来信、亲历场景和可感知异常写出世界继续运行的实感。事实包故意排除了全知世界层：不得补写任何未被玩家观察到的势力行动、幕后身份、秘密工程目的或原著真相；publicAtmosphere只能用于天气与公共气氛，不能从中推导幕后主体。只能表达事实包，不能新增事实。只返回JSON。";
-  if ((config.quality ?? "balanced") === "balanced") {
-    onStage("小说引擎正在把规则结果写成章节");
-    const written = extractJson(await callModel(config, system, `根据事实包写成600至1400字的完整章节。分节数量由内容决定，允许一段连续场景，也允许多地点交错；不要为了凑结构重复信息。正文必须自然分段，每段控制在180字以内，段落之间用空行节奏区分。返回JSON：{"title":"章名","sections":[{"heading":"自然分节名","paragraphs":["完整段落"]}]}。不得改变成败或新增线索。\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6200, temperature: .86, stream: true, onToken }));
-    submitLiterary("writer");
-    const chapter = await enforceLiteraryAgency(config, system, factPack, game, local, validateChapter(written), onStage, onToken);
-    return splitLongParagraphs({ ...local, ...chapter, source: "ai" as const });
-  }
-  onStage("叙事导演正在安排重点场景");
-  const director = extractJson(await callModel(config, `${system}\n你是叙事导演。`, `根据事实的戏剧重量制定600至1500字章节提纲，自行决定视角锚点、场景数量和结尾位置，不使用固定周报结构。返回JSON。\n${JSON.stringify(factPack)}`, { json: true, maxTokens: 2600, temperature: .62, stream: true, onToken }));
-  submitLiterary("director");
-  onStage("正文作者正在写作");
-  const writer = extractJson(await callModel(config, `${system}\n你是正文作者。`, `按提纲完成正文，分节数量服从故事而不是模板。正文必须自然分段，每段控制在180字以内，避免整页无断落的长块文字。返回{"title":"章名","sections":[{"heading":"分节","paragraphs":["完整段落"]}]}。\n提纲：${JSON.stringify(director)}\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6800, temperature: .9, stream: true, onToken }));
-  submitLiterary("writer");
-  onStage("连续性编辑正在校对世界事实");
-  const edited = extractJson(await callModel(config, `${system}\n你是连续性编辑，只能压缩、校正视角和人物语气。`, `校订并返回同样JSON。不得改变以下初稿所引用的事实。\n事实：${JSON.stringify(factPack)}\n初稿：${JSON.stringify(writer)}`, { json: true, maxTokens: 6200, temperature: .35, stream: true, onToken }));
-  submitLiterary("editor");
-  const chapter = await enforceLiteraryAgency(config, system, factPack, game, local, validateChapter(edited), onStage, onToken);
-  return splitLongParagraphs({ ...local, ...chapter, source: "ai" as const });
-}
-
+export { generateLiteraryChapter } from "./literary-generation-service.ts";
 export type NpcDialogueResult = {
   reply: string;
   mood: string;
@@ -1353,40 +1192,18 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   const worldConfig = { ...config, model: config.worldModel?.trim() || config.model };
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
   const worldMemoryView = memoryPromptBlockWithIds(game.memory, "world", undefined, chapter.week);
-  const autonomousState = ensureAutonomousWorldState(game.worldAgents, game.worldKernel, game.memory ?? emptyMemoryState());
-  const autonomousDecisionFrames = buildAutonomousDecisionFrames(autonomousState, game.worldKernel, chapter.week, game.memory ?? emptyMemoryState());
-  const autonomousPlanningProjections = new Map(
-    autonomousDecisionFrames.map((frame) => [
-      frame.ref,
-      buildAgentPlanningProjection(frame, game.worldKernel, game.memory ?? emptyMemoryState()),
-    ]),
-  );
-  const proposalCache = uncommittedAgentProposalCache.get(game) ?? new Map();
-  uncommittedAgentProposalCache.set(game, proposalCache);
-  let readyAgents = 0;
-  const autonomousAgentProposals = await planActiveAgentsIndependently(
-    autonomousDecisionFrames,
-    game.worldKernel,
-    (projection, context) => requestAutonomousAgentProposal(
-      worldConfig,
-      LORE_RECORDS,
-      projection,
-      { week: game.week, date: game.date, horizon: knowledgeHorizon(game, false) },
-      context,
-    ),
-    {
-      maxAttempts: 2,
-      concurrency: 4,
-      proposalCache,
-      memory: game.memory ?? emptyMemoryState(),
-      materialityGate: true,
-      failurePolicy: "fallback-wait",
-      onAgentStage: ({ state }) => {
-        if (state === "ready" || state === "degraded") readyAgents += 1;
-        onStage(`独立 Agent 规划中（${Math.min(readyAgents, autonomousDecisionFrames.length)}/${autonomousDecisionFrames.length}）`);
-      },
-    },
-  );
+  const autonomousPlanning = await planAutonomousAgentsForWeek({
+    config: worldConfig,
+    game,
+    chapter,
+    loreRecords: LORE_RECORDS,
+    horizon: knowledgeHorizon(game, false),
+    onProgress: (ready, total) => onStage(`独立 Agent 规划中（${ready}/${total}）`),
+  });
+  const autonomousState = autonomousPlanning.autonomousState;
+  const autonomousDecisionFrames = autonomousPlanning.decisionFrames;
+  const autonomousPlanningProjections = autonomousPlanning.planningProjections;
+  const autonomousAgentProposals = autonomousPlanning.proposals;
   onStage("世界裁决器正在处理同时发生的提案");
   const adjudicatorWorld = buildAdjudicatorProjection(game.worldKernel, autonomousAgentProposals, [...autonomousPlanningProjections.values()]);
   const lore = await loreForWorld(
@@ -1409,12 +1226,9 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     loreRecordIds: lore.records.map((item) => item.id),
     designerSupplement: config.worldBible,
   });
-  const kernelProtocol = `同时必须返回kernelDelta，作为下周继续推演的权威世界状态增量：{"kernelDelta":{"newActors":[{"id":"稳定英文id","name":"本周首次进入推演且值得长期追踪的人物","locationId":"已有地点id","agenda":"长期诉求","shortTermGoal":"当前目标","condition":"处境"}],"newFactions":[{"id":"稳定英文id","name":"本周首次进入推演的组织","posture":"立场与目标","resources":0到100,"suspicion":0到100}],"newProjects":[{"id":"稳定英文id","ownerId":"已有或新角色/势力id","title":"新形成的持续计划","stage":"阶段","progress":0到100,"momentum":-10到10,"secrecy":0到100,"nextMilestone":"下一里程碑","blockers":[],"status":"active|paused|completed|failed"}],"actorUpdates":[{"actorId":"adjudicatorWorld中的id","locationId":"已有地点id","shortTermGoal":"下一阶段目标","lastAction":"本周实际行动","condition":"当前处境"}],"factionUpdates":[{"factionId":"已有id","posture":"当前姿态与目标","resourcesDelta":-8到8,"suspicionDelta":-6到6,"lastAction":"本周自主行动"}],"projectUpdates":[{"projectId":"adjudicatorWorld中的项目id","progressDelta":-8到10,"stage":"当前阶段","nextMilestone":"可检验的下一里程碑","blockers":["阻碍"],"status":"active|paused|completed|failed"}],"locationUpdates":[{"locationId":"已有地点id","riskDelta":-8到8,"stabilityDelta":-8到8,"publicMood":"普通人可感受到的气氛","condition":"本周形成的地点状态"}],"events":[{"id":"本回合内部临时id","title":"事件名","detail":"世界真相层发生的具体事件","locationId":"已有地点id或空","actorIds":["已有或newActors的id"],"factionIds":["已有或newFactions的id"],"causeIds":["本回合事件临时id或既有事件id"],"visibility":"world|public|player|actors"}],"observations":[{"eventId":"对应事件临时id","channel":"观察来源","text":"实际能被某方获知的内容","visibility":"public|player|actors","holderIds":["仅actors时填写角色id"]}],"knowledge":[{"subject":"对象","statement":"新形成的认知，允许为误判","truth":"confirmed|likely|false|unknown","visibility":"world|public|player|actors","holderIds":["持有者id"],"loreRecordIds":["本次authorizedLore中确实被获知的记录id"],"sourceEventId":"事件临时id"}],"canon":{"mode":"anchored|diverging","deviationDelta":0到8,"pivotEventIds":["明确偏转事件临时id"]}}}。newActors/newFactions只用于真正需要跨周追踪的新主体，不能每周滥造。events、projectUpdates、actorUpdates与factionUpdates均由实际状态变化决定，可以为空；等待、隐藏、休整或没有相互作用的提案不应制造事件。世界真相事件默认visibility=world；只有observations可以把其中一部分转化为角色或玩家认知。不要因为模型读到了authorizedLore，就让NPC或玩家自动知道它。历史偏转未达到门槛时必须保持anchored，并让原著锚点大致按时间惯性发展。`;
-  const organizationProtocol = `同时返回organizationDelta，让组织内部遵循跨周因果而不是事件模板：{"organizationDelta":{"departmentDevelopments":[{"departmentId":"已有id","report":"本周自然形成的一句话述职","cause":"决议、旧积压或常设命令"}],"memberDevelopments":[{"memberId":"已有id","observation":"可观察的具体变化","cause":"来源"}],"recruitDevelopments":[{"memberId":"已有候选人id","observation":"关系为何推进、停滞或倒退"}],"governanceIssues":[{"category":"部门|招募|成员|资源","sourceId":"已有部门或人物id","title":"只有确需会长拍板才出现","summary":"前因、现状与放任后果","urgency":35到95,"deadline":1到3,"signals":["可观察征兆"]}],"formulaDiscoveries":[{"pathwayId":"仅限现有22途径id","sequence":0到9,"status":"lead|fragment|verifying|verified","reliability":0到100,"sourceRefs":["本周actionId或世界事件id"],"loreEvidenceIds":["必须来自authorizedLore的记录id"]}],"newRecruitableNpc":{"name":"仅在世界因果中反复接触后才锁定的新原创人物或空","role":"公开身份","specialty":"明确专长","background":"固定背景","core":"性格核心","voice":"说话方式","arc":"成长方向","secret":"锁定秘密","contactReason":"为何进入招募视野"}|null}}。只有玩家本周明确搜集、交易或核验魔药配方且行动成功时，才能输出formulaDiscoveries；verified必须有authorizedLore记录直接支撑且reliability至少90，否则最多为fragment或verifying。不得编造知识库不存在的配方内容。部门能力、积压、暴露、凝聚，成员压力、信任及招募动量均由规则引擎结算；你只能生成可观察叙述和需要裁决的议题，不得输出或暗示修改这些数值。不要套固定事件桥段，不得自动令成员死亡、离开、加入或背叛；重大不可逆结果只能先形成governanceIssues，留给玩家干预。没有真实变化时数组可以为空。`;
-  (payload as Record<string, unknown>).organizationInstructions = organizationProtocol;
-  const boundedPayload = fitWorldAdjudicatorPayload(payload);
+  const boundedPayload = fitWorldAdjudicatorPayload(attachOrganizationAdjudicationProtocol(payload));
   assertWorldAdjudicatorPayloadBudget(boundedPayload);
-  const raw = await requestWorldEnvelope(worldConfig, WORLD_ADJUDICATOR_SYSTEM, buildWorldAdjudicatorPrompt(boundedPayload, kernelProtocol), game, chapter.results.length === 0, chapter.results.map((result) => result.id), onStage, onToken);
+  const raw = await requestWorldEnvelope(worldConfig, WORLD_ADJUDICATOR_SYSTEM, buildWorldAdjudicatorPrompt(boundedPayload, WORLD_KERNEL_PROTOCOL), game, chapter.results.length === 0, chapter.results.map((result) => result.id), onStage, onToken);
   const allowedLoreIds = new Set([...LORE_RECORDS.map((record) => record.id), ...(await listRuntimeChunkIds())]);
   const { worldMoves, canonMoves, publicSignals, atmosphere, undercurrents, kernelDelta } = adaptWorldAdjudication(raw, {
     game,
@@ -1708,6 +1522,9 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     };
     committedMemory = submitMemoryDelivery(committedMemory, descriptor);
     committedMemory = markMemoryPresented(committedMemory, descriptor);
+    if (proposal.usedMemoryIds.length) {
+      committedMemory = markMemoryRecalled(committedMemory, { ...descriptor, memoryIds: proposal.usedMemoryIds });
+    }
   }
   committedMemory = submitMemoryDelivery(committedMemory, {
     actionId: `world:${chapter.week}`,
@@ -1740,7 +1557,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     campaignWorld,
   };
   nextGame.worldLedger = commitWorldLedgerWeek(worldLedger, nextGame);
-  uncommittedAgentProposalCache.delete(game);
+  releaseAutonomousPlanningCache(game);
   return nextGame;
 }
 

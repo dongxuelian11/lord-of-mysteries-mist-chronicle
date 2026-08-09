@@ -36,7 +36,7 @@ test("DeepSeek relay validates requests without exposing an open proxy", async (
 });
 
 test("implements the complete simulation systems and accessible Apple-style UI", async () => {
-  const [app, title, council, prologue, abilitySystem, abilityConsole, engine, worldEnvelope, aiClient, aiSettings, aiRoute, finale, finaleView, model, managementConsole, css, councilCss, v10Css, v11Css, finaleCss, apiCss, layout] = await Promise.all([
+  const [app, title, council, prologue, abilitySystem, abilityConsole, engine, agentPlanning, worldEnvelope, aiClient, aiSettings, aiRoute, finale, finaleView, model, managementConsole, css, councilCss, v10Css, v11Css, finaleCss, apiCss, layout] = await Promise.all([
     readFile(new URL("../app/complete-game.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/title-screen.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/weekly-council.tsx", import.meta.url), "utf8"),
@@ -44,6 +44,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
     readFile(new URL("../app/ability-system.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ability-console.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game-engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/agent-planning-service.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/world-envelope.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ai-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ai-settings.tsx", import.meta.url), "utf8"),
@@ -61,6 +62,12 @@ test("implements the complete simulation systems and accessible Apple-style UI",
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
   ]);
   const controlMap = await readFile(new URL("../app/backlund-control-map.tsx", import.meta.url), "utf8");
+  const sessionController = await readFile(new URL("../app/game-session-controller.ts", import.meta.url), "utf8");
+  const initialWorldSeed = await readFile(new URL("../app/initial-world-seed.ts", import.meta.url), "utf8");
+  const worldProtocol = await readFile(new URL("../app/world-adjudication-protocol.ts", import.meta.url), "utf8");
+  const literaryService = await readFile(new URL("../app/literary-generation-service.ts", import.meta.url), "utf8");
+  const dialogueController = await readFile(new URL("../app/dialogue-session-controller.ts", import.meta.url), "utf8");
+  const openingFactory = await readFile(new URL("../app/opening-state-factory.ts", import.meta.url), "utf8");
   assert.match(app, /localStorage/);
   assert.match(app, /议桌对发言的规则化理解/);
   assert.match(app, /行动、证据与规则附录/);
@@ -74,7 +81,8 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(app, /character-dialogue/);
   assert.match(council, /重读小说章节/);
   assert.match(app, /每周小说总结都会永久保存/);
-  assert.match(app, /LEGACY_SAVE_KEYS/);
+  assert.match(app, /loadGameSession/);
+  assert.match(sessionController, /LEGACY_ACTIVE_SAVE_KEYS/);
   const saveSystem = await readFile(new URL("../app/save-system.ts", import.meta.url), "utf8");
   assert.match(saveSystem, /mist-chronicle-complete-v\$\{20 - index\}/);
   assert.match(saveSystem, /旧历史分支/);
@@ -93,6 +101,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /scheduleContract/);
   assert.match(engine, /resolveWeek/);
   assert.match(engine, /generateLiteraryChapter/);
+  assert.match(literaryService, /generateLiteraryChapter/);
   assert.doesNotMatch(engine, /chronicle: \[chapter, \.\.\.game\.chronicle\]\.slice/);
   assert.match(engine, /advanceSequence/);
   assert.match(engine, /actionEvidenceIds/);
@@ -112,7 +121,16 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /worldSnapshots/);
   assert.match(engine, /adjudicatorWorld/);
   assert.match(engine, /autonomousAgentProposals/);
-  assert.match(engine, /planActiveAgentsIndependently/);
+  assert.match(engine, /planAutonomousAgentsForWeek/);
+  assert.match(engine, /WORLD_KERNEL_PROTOCOL/);
+  assert.match(worldProtocol, /presence不等于perception/);
+  assert.match(model, /INITIAL_CANON_ACTORS/);
+  assert.match(initialWorldSeed, /INITIAL_KERNEL_CANON_ACTORS/);
+  assert.match(model, /createOpeningState/);
+  assert.match(openingFactory, /export function createOpeningState/);
+  assert.match(app, /applyDialogueModelResult/);
+  assert.match(dialogueController, /chooseDialogueScreeningAction/);
+  assert.match(agentPlanning, /planActiveAgentsIndependently/);
   assert.doesNotMatch(engine, /persistentWorld: \{ \.\.\.game\.worldKernel/);
   assert.match(engine, /kernelDelta/);
   assert.match(engine, /authorizedLore/);
@@ -188,7 +206,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(controlMap, /onFormDirection/);
   assert.match(app, /key={`\$\{game\.week\}:\$\{councilDecisionSignal\}`}/);
   assert.doesNotMatch(engine, /visibleFactionMoves:/);
-  assert.match(engine, /事实包故意排除了全知世界层/);
+  assert.match(literaryService, /事实包故意排除了全知世界层/);
   assert.match(engine, /changes: publicSignals/);
   assert.match(council, /自由讨论/);
   assert.match(council, /一键整理意见/);

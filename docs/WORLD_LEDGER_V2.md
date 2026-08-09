@@ -73,3 +73,4 @@ V1 读取路径不会丢弃旧事件：
 ## UI 术语
 
 改变途径并调用 `createInitialGame` 是“开始全新游戏”，不是账本分支。只有从现有账本指定 sequence 派生的新 V2 ledger 才称为“历史分支”。
+> Long-run update (2026-08-09): event history may now be compacted behind a trusted checkpoint after the 2,048-event retention threshold. Replay before that checkpoint is unavailable without an external archive. See [WORLD_LEDGER_LONG_RUN.md](./WORLD_LEDGER_LONG_RUN.md) for the current replay, verification, and non-cryptographic threat-model boundary. The older “all events are always retained/from-zero replay is always available” statements below apply only before event compaction.

@@ -73,15 +73,16 @@ test("recruitment governance is not mistaken for recruiting a workflow as a pers
 });
 
 test("no-order literary chapters cannot make the player investigate off-screen", async () => {
-  const engine = await read("app/game-engine.ts");
-  assert.match(engine, /function literaryAgencyIssue/);
-  assert.match(engine, /本周没有任何玩家决议/);
-  assert.match(engine, /连续性编辑正在局部纠正越界段落/);
-  assert.match(engine, /两次局部连续性修复后仍未通过/);
-  assert.match(engine, /一次只能改写一个越界段落/);
-  assert.match(engine, /const externalPlace =/);
-  assert.match(engine, /const sceneAction =/);
-  assert.match(engine, /放进了外部地点的亲历场景/);
+  const [engine, literary] = await Promise.all([read("app/game-engine.ts"), read("app/literary-generation-service.ts")]);
+  assert.match(engine, /export \{ generateLiteraryChapter \}/);
+  assert.match(literary, /function literaryAgencyIssue/);
+  assert.match(literary, /本周没有任何玩家决议/);
+  assert.match(literary, /连续性编辑正在局部纠正越界段落/);
+  assert.match(literary, /两次局部连续性修复后仍未通过/);
+  assert.match(literary, /一次只能改写一个越界段落/);
+  assert.match(literary, /const externalPlace =/);
+  assert.match(literary, /const sceneAction =/);
+  assert.match(literary, /放进了外部地点的亲历场景/);
 });
 
 test("negated artifact mentions do not silently replace the chosen pathway ability", async () => {

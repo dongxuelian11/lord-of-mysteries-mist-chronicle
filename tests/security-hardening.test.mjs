@@ -10,13 +10,15 @@ test("AI API Key is bridged through Electron safeStorage, not persisted in local
   const main = source("electron/main.cjs");
   const preload = source("electron/preload.cjs");
   const renderer = source("app/complete-game.tsx");
+  const session = source("app/game-session-controller.ts");
   const storage = source("app/ai-settings-storage.ts");
 
   assert.match(main, /safeStorage/);
   assert.match(preload, /mistCredentials/);
-  assert.match(renderer, /serializeAiSettings/);
+  assert.match(renderer, /saveAiSessionSettings/);
+  assert.match(session, /serializeAiSettings/);
   assert.match(storage, /apiKey: "", rememberKey/);
-  assert.doesNotMatch(renderer, /apiKey:\s*rememberApiKey\s*\?/);
+  assert.doesNotMatch(`${renderer}\n${session}`, /apiKey:\s*rememberApiKey\s*\?/);
 });
 
 test("release workflow disables implicit publish and enforces provenance gates", () => {

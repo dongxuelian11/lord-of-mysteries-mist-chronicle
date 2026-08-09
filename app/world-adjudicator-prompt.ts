@@ -4,7 +4,7 @@ export const WORLD_ADJUDICATOR_SYSTEM = `你是《灰雾纪事》的持续世界
 
 提案不代表成功。准备、情报、序列与能力、区域控制、行动性质和周初已经存在的条件命令共同决定结果。规则引擎已经锁定的玩家行动成败、资源、生死与红线不得改写；不得杀死玩家、控制玩家意志，或把隐藏真相和私密提案直接变成角色知识。
 
-允许真正安静的一周。等待、观察、休整或隐藏可以不形成事件。公开信息只能通过报纸、街谈、通告、行业消息、私人来信或可感知征兆进入玩家视野。只返回严格 JSON。`;
+允许真正安静的一周。等待、观察、休整或隐藏可以不形成事件。公开信息只能通过报纸、街谈、通告、行业消息、私人来信或可感知征兆进入玩家视野。只返回严格 JSON。JSON 必须紧凑输出，不要 Markdown、代码围栏、缩进或无意义换行；不得因此省略任何有因果意义的字段或内容。`;
 
 export function buildWorldAdjudicatorPrompt(payload: unknown, kernelProtocol: string) {
   return `裁决本周 adjudicatorWorld.proposals 与玩家已经锁定的行动结果。
@@ -17,14 +17,13 @@ export function buildWorldAdjudicatorPrompt(payload: unknown, kernelProtocol: st
 - 不得为了热闹制造事件，不得把所有事件都牵向玩家组织。
 - 同一持续事件必须出现新的反应、阶段、代价或可观察变化，不能只替换日期、数字和少量名词。
 - actionReports 逐字服从对应玩家契约的 domain、desiredOutcome、redLines 与 retreat。非调查行动不得凭空发现档案补录、马车路线、宴会名单、幕后身份或其他阴谋线索。
-- worldSummary.changes 只能写 publicSignals 或玩家观察可以支持的公开变化；undercurrents 只供世界内核延续。
+- worldSummary 不重复返回 changes；公开变化只写一次到 publicSignals，undercurrents 只供世界内核延续。
 - 每条 publicSignal 只属于一个主要城市；贝克兰德消息可以再标一个城区。
 
 返回结构：
 {
   "worldSummary": {
     "atmosphere": "玩家本周公开可感受到的城市气氛，80至180字",
-    "changes": ["0至4条公开变化"],
     "undercurrents": ["0至4条只供世界内核延续的暗流"]
   },
   "publicSignals": [{

@@ -60,8 +60,12 @@ test("a world turn updates private memory, reflection, plans, and social ties wi
     projectUpdates: [],
     locationUpdates: [],
     events: [{ id: "shared-event", title: "交换名单", detail: "记者与消息网交换了两份名单。", locationId: "east", actorIds: ["reporter"], factionIds: ["press"], causeIds: [], visibility: "actors", witnessRefs: ["actor:reporter", "faction:press"] }],
-    observations: [],
+    observations: [{ id: "shared-observation", eventId: "shared-event", channel: "exchange", text: "记者与消息网交换并核对名单。", visibility: "actors", holderIds: ["reporter"], holderRefs: ["actor:reporter", "faction:press"] }],
     knowledge: [{ id: "shared-knowledge", subject: "名单", statement: "两份名单印章不同", truth: "confirmed", visibility: "actors", holderIds: [], holderRefs: ["actor:reporter", "faction:press"], sourceEventId: "shared-event" }],
+    knowledgeGrants: [
+      { id: "grant-shared-reporter", knowledgeId: "shared-knowledge", holderRef: "actor:reporter", kind: "communication", sourceEventId: "shared-event", sourceObservationId: "shared-observation" },
+      { id: "grant-shared-press", knowledgeId: "shared-knowledge", holderRef: "faction:press", kind: "communication", sourceEventId: "shared-event", sourceObservationId: "shared-observation" },
+    ],
   });
   const advanced = advanceAutonomousWorldState(state, before, after, 3);
   const reporter = advanced.profiles.find((profile) => profile.ref === "actor:reporter");
@@ -91,9 +95,10 @@ test("structured reflection cites only visible experience and changes the next d
     week: 3,
     playerIssuedNoOrders: true,
     actorUpdates: [{ actorId: "reporter", lastAction: "比较了两枚印章" }],
-    factionUpdates: [], projectUpdates: [], locationUpdates: [], observations: [],
+    factionUpdates: [], projectUpdates: [], locationUpdates: [], observations: [{ id: "followup-observation", eventId: "visible-followup", channel: "witness", text: "记者辨认了两枚印章的批次差异。", visibility: "actors", holderIds: ["reporter"], holderRefs: ["actor:reporter"] }],
     events: [{ id: "visible-followup", title: "印章差异", detail: "记者确认两枚印章来自不同批次。", locationId: "east", actorIds: ["reporter"], factionIds: [], causeIds: [], visibility: "actors", witnessRefs: ["actor:reporter"] }],
     knowledge: [{ id: "reporter-knowledge", subject: "印章", statement: "第二枚印章比第一枚晚三个月", truth: "confirmed", visibility: "actors", holderIds: [], holderRefs: ["actor:reporter"], sourceEventId: "visible-followup" }],
+    knowledgeGrants: [{ id: "grant-reporter-knowledge", knowledgeId: "reporter-knowledge", holderRef: "actor:reporter", kind: "investigation", sourceEventId: "visible-followup", sourceObservationId: "followup-observation" }],
   });
   const advanced = advanceAutonomousWorldState(createAutonomousWorldState(before), before, after, 3, memory);
   const reporter = advanced.profiles.find((profile) => profile.ref === "actor:reporter");
@@ -109,6 +114,14 @@ test("structured reflection cites only visible experience and changes the next d
   assert.ok(!reporter.reflection.summary.includes("警察厅伪造"));
   assert.equal(reporter.reflection.recommendedObjective, "找到独立的第二来源");
   assert.equal(reporter.reflection.recommendedIntent, "比较两枚印章");
+  const knowledgeConclusion = reporter.reflection.conclusions.find((conclusion) => conclusion.sourceRefs.includes("reporter-knowledge"));
+  assert.ok(knowledgeConclusion);
+  assert.deepEqual(knowledgeConclusion.sourceRefs, ["reporter-knowledge"]);
+  assert.deepEqual(knowledgeConclusion.sourceEventIds, ["visible-followup"]);
+  const planConclusion = reporter.reflection.conclusions.find((conclusion) => conclusion.sourceRefs.includes("verify-list-plan"));
+  assert.deepEqual(planConclusion.sourceRefs, ["verify-list-plan"]);
+  assert.deepEqual(reporter.reflection.recommendationSourceRefs, ["verify-list-plan"]);
+  assert.deepEqual(reporter.reflection.recommendationSourceEventIds, []);
 
   const nextFrame = buildAutonomousDecisionFrames(advanced, after, 4).find((frame) => frame.ref === "actor:reporter");
   assert.deepEqual(nextFrame.reflection, reporter.reflection);

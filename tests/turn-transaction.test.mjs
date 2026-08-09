@@ -159,13 +159,20 @@ test("autonomous memory is delivered to each explicit audience only after the wo
     for (const [ref, kind, id] of [[actorRef, "actor", actorId], [factionRef, "faction", factionId]]) {
       const actionId = `autonomous-agent:${resolved.chapter.week}:${ref}`;
       const receipts = committed.memory.receipts.filter((receipt) => receipt.actionId === actionId);
-      assert.deepEqual(receipts.map((receipt) => receipt.kind).sort(), ["delivered", "presented"]);
+      assert.deepEqual(receipts.map((receipt) => receipt.kind).sort(), ["delivered", "presented", "recalled"]);
       assert.ok(receipts.every((receipt) => receipt.audience.kind === kind));
       assert.ok(receipts.every((receipt) => (kind === "actor" ? receipt.audience.actorId : receipt.audience.factionId) === id));
       const proposalEvent = committed.worldLedger.events.find((event) => event.id === `autonomous-proposal:${resolved.chapter.week}:${ref}`);
       const projection = kind === "actor" ? actorProjection : factionProjection;
       assert.ok(proposalEvent);
       assert.deepEqual(proposalEvent.payload.usedMemoryIds, projection.memoryReferenceIds.slice(0, 1));
+      const usedMemoryId = proposalEvent.payload.usedMemoryIds[0];
+      assert.ok(usedMemoryId);
+      const activation = committed.memory.audienceStates.find((item) => item.memoryId === usedMemoryId
+        && item.audienceKind === kind
+        && (kind === "actor" ? item.actorId === id : item.factionId === id));
+      assert.equal(activation?.lastRecalledWeek, resolved.chapter.week);
+      assert.equal(activation?.recallCount, 1);
       if (kind === "faction") {
         const outcomeEvent = committed.worldLedger.events.find((event) => event.kind === "world-event-recorded" && event.factionIds.includes(id));
         assert.ok(outcomeEvent);

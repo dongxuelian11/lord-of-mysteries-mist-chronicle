@@ -68,7 +68,7 @@ test("world output adapter returns one deterministic, authority-safe adjudicatio
   assert.equal(first.kernelDelta.events.length, 2);
   assert.deepEqual(first.kernelDelta.events[0].actorIds, [knownActor.id]);
   assert.deepEqual(first.kernelDelta.events[0].factionIds, [knownFaction.id]);
-  assert.equal(first.kernelDelta.events[1].locationId, undefined);
+  assert.equal(first.kernelDelta.events[1].locationId, "unknown");
   assert.deepEqual(first.kernelDelta.events[1].causeIds, [first.kernelDelta.events[0].id]);
   assert.equal(first.kernelDelta.observations.length, 3);
   assert.ok(first.kernelDelta.observations.every((item) => item.text !== "这条观察不得挂接到不存在的事件。"));
@@ -76,11 +76,42 @@ test("world output adapter returns one deterministic, authority-safe adjudicatio
   assert.ok(first.kernelDelta.observations[0].holderRefs.includes(`faction:${knownFaction.id}`));
   assert.deepEqual(first.kernelDelta.knowledge[0].loreRecordIds, ["lore-allowed"]);
   assert.equal(first.kernelDelta.knowledge[0].sourceEventId, first.kernelDelta.events[1].id);
+  assert.equal(first.kernelDelta.knowledgeGrants.length, 1);
+  assert.equal(first.kernelDelta.knowledgeGrants[0].knowledgeId, first.kernelDelta.knowledge[0].id);
+  assert.equal(first.kernelDelta.knowledgeGrants[0].holderRef, `faction:${knownFaction.id}`);
+  assert.equal(first.kernelDelta.knowledgeGrants[0].sourceObservationId, first.kernelDelta.observations[0].id);
   assert.equal(first.kernelDelta.actorUpdates.length, 0);
   assert.ok(first.kernelDelta.projectUpdates.every((item) => item.projectId !== "project:unknown"));
   assert.equal(first.kernelDelta.canon.mode, "anchored");
   assert.equal(first.kernelDelta.canon.deviationDelta, 8);
   assert.deepEqual(first.kernelDelta.canon.pivotEventIds, []);
+});
+
+test("private knowledge holders require a matching persisted acquisition grant", async () => {
+  const { game, raw, knownActor, adapt } = await fixture();
+  const unobservedActor = game.worldKernel.actors.find((actor) => actor.id !== knownActor.id);
+  assert.ok(unobservedActor);
+  const malicious = structuredClone(raw);
+  malicious.kernelDelta.knowledge[0].holderIds = [unobservedActor.id];
+  assert.throws(() => adapt(malicious), /KnowledgeGrant/);
+});
+
+test("world output adapter drops new entities whose persistent references do not resolve", async () => {
+  const { raw, knownActor, adapt } = await fixture();
+  const malformed = structuredClone(raw);
+  malformed.kernelDelta.newActors = [
+    { id: "valid-new-actor", name: "合法新角色", locationId: "east", agenda: "调查", shortTermGoal: "观察", condition: "正常" },
+    { id: "orphan-new-actor", name: "孤立新角色", locationId: "missing-location", agenda: "调查", shortTermGoal: "观察", condition: "正常" },
+  ];
+  malformed.kernelDelta.newProjects = [
+    { id: "valid-new-project", ownerId: "valid-new-actor", title: "合法项目", stage: "形成", progress: 0, momentum: 1, secrecy: 50, nextMilestone: "下一步", blockers: [], status: "active" },
+    { id: "orphan-new-project", ownerId: "missing-owner", title: "孤立项目", stage: "形成", progress: 0, momentum: 1, secrecy: 50, nextMilestone: "下一步", blockers: [], status: "active" },
+  ];
+  malformed.kernelDelta.actorUpdates = [{ actorId: knownActor.id, locationId: "missing-location", lastAction: "无效移动" }];
+  const result = adapt(malformed);
+  assert.deepEqual(result.kernelDelta.newActors.map((actor) => actor.id), ["valid-new-actor"]);
+  assert.deepEqual(result.kernelDelta.newProjects.map((project) => project.id), ["valid-new-project"]);
+  assert.equal(result.kernelDelta.actorUpdates[0].locationId, undefined);
 });
 
 test("world output adapter preserves transactional rejection for incomplete public output", async () => {

@@ -10,6 +10,8 @@ test("a new campaign begins with a persistent anchored world, not an empty weekl
   assert.equal(game.worldKernel.canon.mode, "anchored");
   assert.ok(game.worldKernel.projects.length >= game.factions.length + game.timeline.length);
   assert.ok(game.worldKernel.actors.some((actor) => actor.id === "klein" && actor.locationId === "tingen"));
+  const locationIds = new Set(game.worldKernel.locations.map((location) => location.id));
+  assert.ok(game.worldKernel.actors.every((actor) => locationIds.has(actor.locationId)));
 });
 
 test("an AI world turn advances independent plans even when the player issued no orders", () => {
@@ -80,4 +82,47 @@ test("the persistent world can introduce a newly relevant actor and causal proje
   assert.equal(next.actors.find((item) => item.id === "dock-clerk")?.shortTermGoal, "补齐缺失货单");
   assert.equal(next.projects.find((item) => item.id === "emergent:missing-cargo")?.stage, "掩盖");
   assert.equal(projectWorldForAudience(next, { kind: "player", holderId: "player" }).events.length, 0);
+});
+
+test("the world kernel rejects orphan actor locations and project owners transactionally", () => {
+  const initial = createWorldKernel({ week: 4, date: "1349年2月11日", factions: [], actors: [], locations: [{ id: "dock", name: "码头区", risk: 60 }], timeline: [] });
+  const base = { week: 4, playerIssuedNoOrders: true, actorUpdates: [], projectUpdates: [], locationUpdates: [], events: [], observations: [] };
+  assert.throws(
+    () => applyWorldTurn(initial, { ...base, newActors: [{ id: "orphan", name: "孤立角色", locationId: "missing", agenda: "等待", shortTermGoal: "等待", condition: "正常" }] }),
+    /不存在的地点/,
+  );
+  assert.throws(
+    () => applyWorldTurn(initial, { ...base, newProjects: [{ id: "orphan-project", ownerId: "missing-owner", title: "孤立项目", stage: "形成", progress: 0, momentum: 1, secrecy: 50, nextMilestone: "等待", blockers: [], status: "active" }] }),
+    /不存在的所有者/,
+  );
+  assert.equal(initial.actors.length, 0);
+  assert.equal(initial.projects.length, 0);
+});
+
+test("private knowledge authority cannot bypass grants or borrow another holder's observation", () => {
+  const initial = createWorldKernel({
+    week: 5,
+    date: "1349年2月18日",
+    factions: [],
+    actors: [
+      { id: "observer", name: "观察者", locationId: "dock", agenda: "核验" },
+      { id: "outsider", name: "局外人", locationId: "dock", agenda: "等待" },
+    ],
+    locations: [{ id: "dock", name: "码头区", risk: 60 }],
+    timeline: [],
+  });
+  const base = {
+    week: 5,
+    playerIssuedNoOrders: true,
+    actorUpdates: [], projectUpdates: [], locationUpdates: [],
+    events: [{ id: "private-source", title: "私下核验", detail: "观察者核验了一份货单。", locationId: "dock", actorIds: ["observer"], factionIds: [], causeIds: [], visibility: "world" }],
+    observations: [{ id: "private-source-observation", eventId: "private-source", channel: "investigation", text: "观察者看到货单被修改。", visibility: "actors", holderIds: ["observer"], holderRefs: ["actor:observer"] }],
+    knowledge: [{ id: "private-fact", subject: "manifest", statement: "货单被修改", truth: "confirmed", visibility: "actors", holderIds: ["outsider"], holderRefs: ["actor:outsider"], sourceEventId: "private-source" }],
+  };
+  const withoutGrant = applyWorldTurn(initial, base);
+  assert.equal(projectWorldForAudience(withoutGrant, { kind: "actor", holderId: "outsider" }).knowledge.length, 0);
+  assert.throws(
+    () => applyWorldTurn(initial, { ...base, knowledgeGrants: [{ id: "borrowed-observation", knowledgeId: "private-fact", holderRef: "actor:outsider", kind: "investigation", sourceEventId: "private-source", sourceObservationId: "private-source-observation" }] }),
+    /invalid observation/,
+  );
 });

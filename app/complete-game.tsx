@@ -20,11 +20,10 @@ import {
 } from "./game-engine";
 import { assignFinaleResource, autoDeployFinale, chooseFinaleDoctrine, refreshFinaleFronts, resolveFinalePhase } from "./finale-system";
 import OrganizationManagementConsole from "./organization-management-console";
-import { advanceManagedBeyonder, promoteCandidate, recalculateBacklundControl, startCandidateScreening, type OrganizationManagementState } from "./organization-management";
+import { advanceManagedBeyonder, promoteCandidate, recalculateBacklundControl, type OrganizationManagementState } from "./organization-management";
 import GreatSmogFinale from "./great-smog-finale";
 import AiSettings from "./ai-settings";
 import { AiConfig, DEEPSEEK_FLASH_PRESET, testModelConnection } from "./ai-client";
-import { AI_SESSION_KEY, AI_SETTINGS_STORAGE_KEY, parseStoredAiSettings, resolveLoadedAiSettings, serializeAiSettings } from "./ai-settings-storage";
 import WeeklyCouncil from "./weekly-council";
 import OpeningPrologue from "./opening-prologue";
 import AbilityConsole from "./ability-console";
@@ -33,15 +32,14 @@ import { abilityForFreeIntent, continueAbilityScene, generateAbilityDraft, gener
 import { generateCouncilReplies, generateCouncilSummary, generateDecisionDraft } from "./council-ai";
 import { actingPrinciplesFor, advancementStatus } from "./progression-system";
 import { abilitiesFor } from "./pathway-abilities";
-import { ACTIVE_SAVE_KEY, LEGACY_ACTIVE_SAVE_KEYS, createRecoveryCheckpoint, downloadSave, migrateStoredGame, normalizeStoredGame, parseSaveEnvelope, savePreview } from "./save-system";
+import { createRecoveryCheckpoint, downloadSave, normalizeStoredGame, parseSaveEnvelope, savePreview } from "./save-system";
 import { continueAsSuccessor } from "./succession-system";
 import ParticipationSceneOverlay from "./participation-scene-overlay";
 import { createParticipationScene, resolveParticipationSceneTurn } from "./participation-scene";
 import { stableEntityId, stableTextHash } from "./stable-id";
+import { clearAiSessionKey, loadGameSession, persistActiveGame, saveAiSessionSettings } from "./game-session-controller";
+import { appendPlayerDialogue, applyDialogueDecision, applyDialogueModelResult, chooseDialogueScreeningAction, ensureDialogueThread } from "./dialogue-session-controller";
 
-const SAVE_KEY = ACTIVE_SAVE_KEY;
-const LEGACY_SAVE_KEYS = LEGACY_ACTIVE_SAVE_KEYS;
-const AI_KEY = AI_SETTINGS_STORAGE_KEY;
 const DEV_MODE = typeof window !== "undefined" && window.localStorage.getItem("mist-chronicle-dev-mode") === "1";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
@@ -49,10 +47,6 @@ const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Command }[] = [
   { id: "intent", label: "议会", icon: Command },
   { id: "archive", label: "纪事", icon: BookOpen },
 ];
-
-function asksForCandidateScreening(text: string) {
-  return /(筛选|挑选|物色|举荐|推荐|提交|给我).{0,12}(候选|人选|基层|普通人)|(?:候选|人选).{0,12}(筛选|名单|档案|提拔)/.test(text);
-}
 
 function riskClass(risk: RiskLevel) { return risk === "致命" ? "fatal" : risk === "高" ? "high" : risk === "中" ? "medium" : "low"; }
 
@@ -123,60 +117,19 @@ export default function CompleteGame() {
   useEffect(() => {
     let cancelled = false;
     const timer = window.setTimeout(() => { void (async () => {
-      const saved = window.localStorage.getItem(SAVE_KEY);
-      const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
-      const savedAi = window.localStorage.getItem(AI_KEY);
-      if (saved) {
-        try {
-          const migrated = migrateStoredGame(JSON.parse(saved));
-          if (!migrated) throw new Error("unsupported-save-version");
-          setGame(migrated.game);
-          setHasSave(migrated.hasSave);
-        }
-        catch { window.localStorage.removeItem(SAVE_KEY); }
-      } else if (legacySaved) {
-        try {
-          const migrated = migrateStoredGame(JSON.parse(legacySaved));
-          if (migrated) {
-            setGame(migrated.game);
-            setHasSave(migrated.hasSave);
-          }
-        } catch { /* 旧存档只用于读取纪事，损坏时不影响新游戏。 */ }
-      }
-      let secureResult: Awaited<ReturnType<NonNullable<typeof window.mistCredentials>["load"]>> = { available: false, apiKey: "" };
-      if (window.mistCredentials) {
-        try { secureResult = await window.mistCredentials.load(); }
-        catch { secureResult = { available: false, apiKey: "", error: "secure-storage-unavailable" }; }
-      }
+      const loaded = await loadGameSession();
       if (cancelled) return;
-      setSecureStorageAvailable(secureResult.available);
-      if (savedAi) {
-        try {
-          const value = parseStoredAiSettings(savedAi);
-          const sessionKey = window.sessionStorage.getItem(AI_SESSION_KEY) ?? "";
-          const legacyPlaintextKey = value.apiKey ?? "";
-          let secureKey = secureResult.apiKey ?? "";
-          let rememberKey = Boolean(value.rememberKey && secureResult.available);
-          if (legacyPlaintextKey && rememberKey && window.mistCredentials) {
-            const migration = await window.mistCredentials.save(legacyPlaintextKey);
-            rememberKey = Boolean(migration.saved);
-            secureKey = rememberKey ? legacyPlaintextKey : "";
-          }
-          if (cancelled) return;
-          const loaded = resolveLoadedAiSettings(value, { secureStorageAvailable: secureResult.available, secureKey, sessionKey, rememberKey });
-          window.localStorage.setItem(AI_KEY, JSON.stringify(loaded.sanitized));
-          if (loaded.sessionKeyToPersist) window.sessionStorage.setItem(AI_SESSION_KEY, loaded.sessionKeyToPersist);
-          setAiConfig(loaded.config);
-          setRememberApiKey(loaded.rememberKey);
-        }
-        catch { window.localStorage.removeItem(AI_KEY); }
-      }
+      if (loaded.game) setGame(loaded.game);
+      setHasSave(loaded.hasSave);
+      setSecureStorageAvailable(loaded.secureStorageAvailable);
+      if (loaded.aiConfig) setAiConfig(loaded.aiConfig);
+      setRememberApiKey(loaded.rememberApiKey);
       setHydrated(true);
     })(); }, 0);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, []);
 
-  useEffect(() => { if (hydrated && game.prologueComplete) window.localStorage.setItem(SAVE_KEY, JSON.stringify(game)); }, [game, hydrated]);
+  useEffect(() => { if (hydrated && game.prologueComplete) persistActiveGame(game); }, [game, hydrated]);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(""), 3600); return () => window.clearTimeout(timer); }, [toast]);
   const pathway = PATHWAYS[game.pathwayId];
   const currentSequence = pathway.sequences.find((sequence) => sequence.rank === game.currentSequence)!;
@@ -561,7 +514,7 @@ export default function CompleteGame() {
       if (!confirmed) return;
       if (game.prologueComplete) createRecoveryCheckpoint(game, "import");
       const next = normalizeStoredGame(envelope.game);
-      window.localStorage.setItem(SAVE_KEY, JSON.stringify(next));
+      persistActiveGame(next);
       setGame(next); setHasSave(true); setEntry("title"); setToast("存档校验通过并已导入；仍从标题页进入游戏");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "导入失败；当前存档没有被覆盖");
@@ -679,17 +632,7 @@ export default function CompleteGame() {
   }
 
   async function saveSettings() {
-    let remembered = false;
-    if (rememberApiKey && secureStorageAvailable && window.mistCredentials) {
-      try {
-        const result = await window.mistCredentials.save(aiConfig.apiKey);
-        remembered = Boolean(result.saved);
-      } catch { remembered = false; }
-    }
-    const stored = serializeAiSettings(aiConfig, remembered);
-    window.localStorage.setItem(AI_KEY, JSON.stringify(stored));
-    if (remembered) window.sessionStorage.removeItem(AI_SESSION_KEY);
-    else window.sessionStorage.setItem(AI_SESSION_KEY, aiConfig.apiKey);
+    const { remembered } = await saveAiSessionSettings(aiConfig, rememberApiKey, secureStorageAvailable);
     setRememberApiKey(remembered);
     setConnectionVerified(false);
     setShowSettings(false);
@@ -699,10 +642,7 @@ export default function CompleteGame() {
   }
 
   async function clearSavedKey() {
-    try { await window.mistCredentials?.clear(); } catch { /* 本地状态仍然清除 */ }
-    const stored = serializeAiSettings(aiConfig, false);
-    window.localStorage.setItem(AI_KEY, JSON.stringify(stored));
-    window.sessionStorage.removeItem(AI_SESSION_KEY);
+    await clearAiSessionKey(aiConfig);
     setAiConfig((current) => ({ ...current, apiKey: "" }));
     setRememberApiKey(false);
     setConnectionVerified(false);
@@ -808,10 +748,7 @@ export default function CompleteGame() {
   function openMemberChat(memberId: string, seed = "", context: "council" | "private" = "council") {
     window.scrollTo({ top: 0, behavior: "auto" });
     setChatMemberId(memberId); setChatContext(context); setChatInput(seed);
-    setGame((current) => {
-      if (current.dialogueThreads.some((item) => item.memberId === memberId)) return current;
-      return { ...current, dialogueThreads: [...current.dialogueThreads, { memberId, messages: [], memories: [], lastMood: "等待发言", lastUpdatedWeek: current.week }] };
-    });
+    setGame((current) => ensureDialogueThread(current, memberId));
   }
 
   async function sendChat() {
@@ -819,60 +756,17 @@ export default function CompleteGame() {
     const member = game.members.find((item) => item.id === chatMemberId);
     if (!text || !member || chatLoading) return;
     if (!aiReady) { setShowSettings(true); setToast("自由人物对话需要先连接AI模型；游戏不会再用固定台词冒充回应"); return; }
-    const existingMessageCount = game.dialogueThreads.find((thread) => thread.memberId === member.id)?.messages.length ?? 0;
-    const playerMessage = {
-      id: stableEntityId("dialogue-message", game.week, member.id, existingMessageCount + 1, "player", text),
-      role: "player" as const,
-      text,
-      week: game.week,
-      context: chatContext,
-    };
-    setGame((current) => ({ ...current, dialogueThreads: current.dialogueThreads.map((thread) => thread.memberId === member.id ? { ...thread, messages: [...thread.messages, playerMessage], lastUpdatedWeek: current.week } : thread) }));
+    setGame((current) => appendPlayerDialogue(current, member.id, text, chatContext));
     setChatInput(""); setChatLoading(true);
     try {
       const result = await generateNpcDialogue(aiConfig, game, member.id, text, chatContext);
-      const isInternalAffairs = game.management.offices.some((office) => office.id === "internal-affairs" && (office.incumbentId === member.id || office.actingMemberId === member.id));
-      const fallbackScreening = isInternalAffairs && asksForCandidateScreening(text)
-        ? { kind: "screen-candidates" as const, manpower: game.management.manpowerAllocation.headquarters >= 5 ? 5 : 3, moneyCost: game.management.resources.money >= 45 ? 45 : 20 }
-        : null;
-      const screeningAction = result.managementAction ?? fallbackScreening;
+      const screeningAction = chooseDialogueScreeningAction(game, member.id, text, result.managementAction);
       let screeningError = "";
-      setGame((current) => ({
-        ...current,
-        ...(() => {
-          let management = current.management;
-          let dossierMessage = "";
-          if (screeningAction) {
-            try {
-              const previousCandidateIds = new Set(management.candidates.map((candidate) => candidate.id));
-              management = startCandidateScreening(management, { week: current.week, manpower: screeningAction.manpower, moneyCost: screeningAction.moneyCost });
-              const submitted = management.candidates.filter((candidate) => !previousCandidateIds.has(candidate.id));
-              dossierMessage = submitted.length
-                ? `内务档案已当场送达：${submitted.map((candidate) => `${candidate.name}（${candidate.background}，${candidate.aptitude}）`).join("；")}。本次核验调用${screeningAction.manpower}名本部人力并支出£${screeningAction.moneyCost}，是否提拔仍由你决定。`
-                : "内务档案没有产生新的可用人选。";
-            } catch (error) {
-              screeningError = error instanceof Error ? error.message : "候选档案未能完成核验";
-              dossierMessage = `内务执行未能入账：${screeningError}`;
-            }
-          }
-          return {
-            management,
-            money: management.resources.money,
-            members: current.members.map((item) => item.id === member.id ? { ...item, trust: Math.max(0, Math.min(100, (item.trust ?? item.loyalty) + result.trustDelta)) } : item),
-            dialogueThreads: current.dialogueThreads.map((thread) => thread.memberId === member.id ? {
-              ...thread,
-              messages: [
-                ...thread.messages,
-                { id: stableEntityId("dialogue-message", current.week, member.id, thread.messages.length + 1, "member", result.reply), role: "member" as const, text: result.reply, week: current.week, context: chatContext, mood: result.mood },
-                ...(dossierMessage ? [{ id: stableEntityId("dialogue-message", current.week, member.id, thread.messages.length + 2, "dossier", dossierMessage), role: "member" as const, text: dossierMessage, week: current.week, context: chatContext, mood: screeningError ? "执行受阻" : "档案已呈交" }] : []),
-              ],
-              memories: result.memory && !thread.memories.includes(result.memory) ? [...thread.memories, result.memory].slice(-8) : thread.memories,
-              lastMood: result.mood,
-              lastUpdatedWeek: current.week,
-            } : thread),
-          };
-        })(),
-      }));
+      setGame((current) => {
+        const applied = applyDialogueModelResult(current, member.id, result, chatContext, screeningAction);
+        screeningError = applied.screeningError;
+        return applied.game;
+      });
       if (screeningAction) setToast(screeningError || "候选档案已在本回合送达，可在组织账簿中决定是否提拔");
     } catch (error) { setToast(`${error instanceof Error ? error.message : "人物回应生成失败"}；没有伪造人物台词，也没有改变关系。`); }
     finally { setChatLoading(false); }
@@ -892,13 +786,7 @@ export default function CompleteGame() {
       const scheduled = scheduleContract(game, interpreted);
       const restatement = await generateNpcDialogue(aiConfig, game, member.id, `【正式决议】${game.playerAddress}已经按以下原意拍板：“${decisionText}”。自然地确认你理解的执行方向与不能越过的边界；保持对负责人的尊重，但不要套用固定领命句式。`, "council");
       const now = Date.now();
-      setGame((current) => ({
-        ...current,
-        schedule: [...current.schedule.map((item) => interpreted.focus ? { ...item, focus: false } : item), scheduled],
-        councilRecords: current.councilRecords.map((record) => record.week === current.week ? { ...record, decisions: [...record.decisions, { id: `decision-${scheduled.id}`, title: scheduled.title, rawIntent: scheduled.rawIntent, proposerId: "player", status: "scheduled" }] } : record),
-        members: current.members.map((item) => item.id === member.id ? { ...item, trust: Math.min(100, (item.trust ?? item.loyalty) + restatement.trustDelta) } : item),
-        dialogueThreads: current.dialogueThreads.map((item) => item.memberId === member.id ? { ...item, messages: [...item.messages, ...(chatInput.trim() ? [{ id: `dialogue-${now}-decision`, role: "player" as const, text: decisionText, week: current.week, context: "council" as const }] : []), { id: `dialogue-${now}-restate`, role: "member", text: restatement.reply, week: current.week, context: "council", mood: restatement.mood }], memories: restatement.memory && !item.memories.includes(restatement.memory) ? [...item.memories, restatement.memory].slice(-8) : item.memories, lastMood: restatement.mood, lastUpdatedWeek: current.week } : item),
-      }));
+      setGame((current) => applyDialogueDecision(current, member.id, decisionText, Boolean(chatInput.trim()), scheduled, restatement, now));
       setChatInput("");
       setToast(`${member.name}已复述并将决议写入本周记录`);
     } catch (error) { setToast(error instanceof Error ? error.message : "这项决议暂时无法写入本周记录"); }

@@ -110,8 +110,31 @@ export type WorldLedgerSnapshotArchive = {
   lastChecksum: string;
 };
 
+export type WorldLedgerEventSegment = {
+  id: string;
+  fromSequence: number;
+  throughSequence: number;
+  throughWeek: number;
+  eventCount: number;
+  firstPrevHash: string | null;
+  lastHash: string;
+  checksum: string;
+};
+
+export type WorldLedgerEventArchive = {
+  archivedCount: number;
+  throughWeek: number;
+  throughSequence: number;
+  lastHash: string;
+  projectionChecksum: string;
+  checkpoint: WorldLedgerSnapshot;
+  segments: WorldLedgerEventSegment[];
+};
+
 export const WORLD_LEDGER_SNAPSHOT_INTERVAL_WEEKS = 4;
 export const WORLD_LEDGER_SNAPSHOT_RETENTION = 6;
+export const WORLD_LEDGER_EVENT_RETENTION = 2048;
+export const WORLD_LEDGER_SEGMENT_RETENTION = 16;
 
 export type WorldLedger = {
   version: 2;
@@ -123,6 +146,7 @@ export type WorldLedger = {
   events: WorldLedgerEvent[];
   snapshots: WorldLedgerSnapshot[];
   snapshotArchive?: WorldLedgerSnapshotArchive;
+  eventArchive?: WorldLedgerEventArchive;
 };
 
 export type LegacyWorldLedger = {
@@ -291,6 +315,42 @@ export function compactWorldLedgerSnapshots(ledger: WorldLedger): WorldLedger {
   };
 }
 
+export function compactWorldLedgerEvents(ledger: WorldLedger): WorldLedger {
+  if (ledger.events.length <= WORLD_LEDGER_EVENT_RETENTION) return ledger;
+  const cutoffSequence = ledger.events[Math.max(0, ledger.events.length - WORLD_LEDGER_EVENT_RETENTION)].sequence;
+  const checkpoint = ledger.snapshots
+    .filter((snapshot) => snapshot.afterSequence >= cutoffSequence && snapshot.afterSequence > (ledger.eventArchive?.throughSequence ?? 0))
+    .sort((left, right) => left.afterSequence - right.afterSequence)[0];
+  if (!checkpoint) return ledger;
+  const removed = ledger.events.filter((event) => event.sequence <= checkpoint.afterSequence);
+  if (!removed.length) return ledger;
+  const retained = ledger.events.filter((event) => event.sequence > checkpoint.afterSequence);
+  const last = removed.at(-1)!;
+  const segment: WorldLedgerEventSegment = {
+    id: `ledger-segment-${ledger.branchId}-${removed[0].sequence}-${last.sequence}`,
+    fromSequence: removed[0].sequence,
+    throughSequence: last.sequence,
+    throughWeek: last.week,
+    eventCount: removed.length,
+    firstPrevHash: removed[0].prevHash,
+    lastHash: last.hash,
+    checksum: ledgerChecksum(removed.map((event) => [event.sequence, event.hash])),
+  };
+  return {
+    ...ledger,
+    events: retained,
+    eventArchive: {
+      archivedCount: (ledger.eventArchive?.archivedCount ?? 0) + removed.length,
+      throughWeek: checkpoint.week,
+      throughSequence: checkpoint.afterSequence,
+      lastHash: last.hash,
+      projectionChecksum: checkpoint.checksum,
+      checkpoint: copyValue(checkpoint),
+      segments: [...(ledger.eventArchive?.segments ?? []), segment].slice(-WORLD_LEDGER_SEGMENT_RETENTION),
+    },
+  };
+}
+
 function createLedgerFromProjection(
   projection: WorldLedgerProjection,
   branchId: string,
@@ -319,7 +379,7 @@ export function appendWorldLedgerEvents(ledger: WorldLedger, inputs: LedgerEvent
   if (!inputs.length) return ledger;
   if (ledger.version !== 2) throw new Error("必须先把 V1 世界账本迁移为 V2 才能追加事件");
   let sequence = ledger.nextSequence;
-  let prevHash = ledger.events.at(-1)?.hash ?? null;
+  let prevHash = ledger.events.at(-1)?.hash ?? ledger.eventArchive?.lastHash ?? null;
   const existingIds = new Set(ledger.events.map((event) => event.id));
   const events: WorldLedgerEvent[] = [];
   for (const input of inputs) {
@@ -499,17 +559,20 @@ function normalizeReplayOptions(value: number | ReplayWorldLedgerOptions | undef
 
 export function replayWorldLedger(ledger: WorldLedger, through?: number | ReplayWorldLedgerOptions): WorldLedgerProjection | null {
   const options = normalizeReplayOptions(through);
+  const archiveCheckpoint = ledger.eventArchive?.checkpoint;
+  if (archiveCheckpoint && (options.throughSequence < archiveCheckpoint.afterSequence || options.throughWeek < archiveCheckpoint.week)) return null;
   const eligibleEvents = ledger.events
     .filter((event) => event.sequence <= options.throughSequence && event.week <= options.throughWeek)
     .sort((left, right) => left.sequence - right.sequence);
-  const maximumSequence = eligibleEvents.at(-1)?.sequence ?? 0;
+  const maximumSequence = eligibleEvents.at(-1)?.sequence ?? archiveCheckpoint?.afterSequence ?? 0;
   const snapshot = options.useSnapshots
     ? ledger.snapshots
         .filter((item) => item.afterSequence <= maximumSequence && item.afterSequence <= options.throughSequence && item.week <= options.throughWeek && ledgerChecksum(item.projection) === item.checksum)
         .sort((left, right) => right.afterSequence - left.afterSequence)[0]
     : undefined;
-  let projection = snapshot ? copyProjection(snapshot.projection) : null;
-  const start = snapshot?.afterSequence ?? 0;
+  const base = snapshot ?? archiveCheckpoint;
+  let projection = base ? copyProjection(base.projection) : null;
+  const start = base?.afterSequence ?? 0;
   for (const event of eligibleEvents) if (event.sequence > start) projection = reduceWorldLedgerEvent(projection, event);
   return projection;
 }
@@ -519,8 +582,10 @@ function addSnapshotAtHead(ledger: WorldLedger): WorldLedger {
   if (!projection) return ledger;
   const afterSequence = ledger.nextSequence - 1;
   const latest = ledger.snapshots.slice().sort((left, right) => right.afterSequence - left.afterSequence)[0];
-  if (latest && projection.week - latest.week < WORLD_LEDGER_SNAPSHOT_INTERVAL_WEEKS) return compactWorldLedgerSnapshots(ledger);
-  return compactWorldLedgerSnapshots({ ...ledger, snapshots: [...ledger.snapshots, snapshotFor(ledger, projection, afterSequence)] });
+  const withSnapshot = latest && projection.week - latest.week < WORLD_LEDGER_SNAPSHOT_INTERVAL_WEEKS
+    ? ledger
+    : { ...ledger, snapshots: [...ledger.snapshots, snapshotFor(ledger, projection, afterSequence)] };
+  return compactWorldLedgerEvents(compactWorldLedgerSnapshots(withSnapshot));
 }
 
 export function commitWorldLedgerWeek(ledger: WorldLedger, source: LedgerStateSource): WorldLedger {
@@ -577,7 +642,7 @@ function projectionFromLegacyCommit(event: LegacyWorldLedger["events"][number]):
 }
 
 export function migrateWorldLedger(value: WorldLedger | LegacyWorldLedger, fallback?: LedgerStateSource): WorldLedger {
-  if (value.version === 2) return compactWorldLedgerSnapshots(value);
+  if (value.version === 2) return compactWorldLedgerEvents(compactWorldLedgerSnapshots(value));
   const legacyEvents = [...(value.events ?? [])].sort((left, right) => left.sequence - right.sequence);
   const initial = value.snapshots?.find((snapshot) => snapshot.afterSequence === 0)?.projection
     ?? (fallback ? projectLedgerState(fallback) : undefined)
@@ -639,9 +704,22 @@ export function runWorldLedgerCounterfactual(parent: WorldLedger, atSequence: nu
 
 export function verifyWorldLedger(ledger: WorldLedger) {
   const issues: string[] = [];
-  let previousSequence = 0;
-  let previousHash: string | null = null;
+  let previousSequence = ledger.eventArchive?.throughSequence ?? 0;
+  let previousHash: string | null = ledger.eventArchive?.lastHash ?? null;
+  let replayed = ledger.eventArchive ? copyProjection(ledger.eventArchive.checkpoint.projection) : null;
   const ids = new Set<string>();
+  const retainedEventSequences = new Map(ledger.events.map((event) => [event.id, event.sequence]));
+  if (ledger.eventArchive) {
+    const archive = ledger.eventArchive;
+    if (archive.checkpoint.afterSequence !== archive.throughSequence || archive.checkpoint.week !== archive.throughWeek) issues.push("事件归档检查点边界不一致");
+    if (ledgerChecksum(archive.checkpoint.projection) !== archive.projectionChecksum || archive.checkpoint.checksum !== archive.projectionChecksum) issues.push("事件归档检查点校验失败");
+    if (archive.segments.length > WORLD_LEDGER_SEGMENT_RETENTION) issues.push("事件分段元数据超过保留上限");
+    for (let index = 0; index < archive.segments.length; index += 1) {
+      const segment = archive.segments[index];
+      if (segment.eventCount < 1 || segment.fromSequence > segment.throughSequence || !segment.lastHash || !segment.checksum) issues.push(`事件分段${segment.id}元数据无效`);
+      if (index > 0 && segment.fromSequence <= archive.segments[index - 1].throughSequence) issues.push(`事件分段${segment.id}与前一分段重叠`);
+    }
+  }
   for (const event of ledger.events) {
     if (event.schemaVersion !== 1) issues.push(`事件${event.id}使用未知 schemaVersion`);
     if (event.branchId !== ledger.branchId) issues.push(`事件${event.id}属于错误分支`);
@@ -650,10 +728,15 @@ export function verifyWorldLedger(ledger: WorldLedger) {
     if (event.prevHash !== previousHash) issues.push(`事件${event.id}的 prevHash 断链`);
     const { hash, ...withoutHash } = event;
     if (eventHash(withoutHash) !== hash) issues.push(`事件${event.id}哈希校验失败`);
-    if (event.causeEventIds.some((id) => !ids.has(id))) issues.push(`事件${event.id}引用了尚不存在的原因`);
+    if (event.causeEventIds.some((id) => !ids.has(id) && (!ledger.eventArchive || retainedEventSequences.has(id)))) issues.push(`事件${event.id}引用了尚不存在的原因`);
     ids.add(event.id);
     previousSequence = event.sequence;
     previousHash = event.hash;
+    replayed = reduceWorldLedgerEvent(replayed, event);
+    if (event.kind === "week-committed") {
+      const expected = typeof event.payload.checksum === "string" ? event.payload.checksum : "";
+      if (expected && ledgerChecksum(replayed) !== expected) issues.push(`第${event.week}周提交 checksum 与事件重放不一致`);
+    }
   }
   for (const snapshot of ledger.snapshots) {
     if (ledgerChecksum(snapshot.projection) !== snapshot.checksum) issues.push(`快照${snapshot.id}校验失败`);
@@ -661,16 +744,11 @@ export function verifyWorldLedger(ledger: WorldLedger) {
   }
   if (ledger.snapshots.length > WORLD_LEDGER_SNAPSHOT_RETENTION) issues.push(`快照数量超过保留上限：${ledger.snapshots.length}`);
   if (ledger.snapshotArchive && (ledger.snapshotArchive.archivedCount < 1 || ledger.snapshotArchive.throughSequence < 1 || !ledger.snapshotArchive.lastChecksum)) issues.push("快照归档元数据无效");
-  const fromZero = replayWorldLedger(ledger, { useSnapshots: false });
+  const fromZero = replayed;
   const accelerated = replayWorldLedger(ledger, { useSnapshots: true });
   if (ledgerChecksum(fromZero) !== ledgerChecksum(accelerated)) issues.push("从零重放与快照加速重放不一致");
   const latest = ledger.snapshots.slice().sort((left, right) => right.afterSequence - left.afterSequence)[0];
   if (latest && fromZero && latest.afterSequence === previousSequence && ledgerChecksum(fromZero) !== latest.checksum) issues.push("重放结果与最新快照不一致");
   if (ledger.nextSequence <= previousSequence) issues.push("nextSequence没有越过最后一个事件");
-  for (const event of ledger.events.filter((item) => item.kind === "week-committed")) {
-    const expected = typeof event.payload.checksum === "string" ? event.payload.checksum : "";
-    const replayed = replayWorldLedger(ledger, { throughSequence: event.sequence, useSnapshots: false });
-    if (expected && ledgerChecksum(replayed) !== expected) issues.push(`第${event.week}周提交 checksum 与事件重放不一致`);
-  }
   return { ok: issues.length === 0, issues, replayed: fromZero };
 }

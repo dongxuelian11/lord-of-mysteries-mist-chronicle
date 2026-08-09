@@ -17,13 +17,25 @@ function parseWorldKernelDelta(raw: Record<string, unknown>, game: GameState, re
   const factionIds = new Set(game.worldKernel.factions.map((item) => item.id));
   const projectIds = new Set(game.worldKernel.projects.map((item) => item.id));
   const locationIds = new Set(game.worldKernel.locations.map((item) => item.id));
+  const validHolderRef = (ref: string) => ref === "player"
+    || ref === "organization"
+    || ref.startsWith("actor:") && actorIds.has(ref.slice("actor:".length))
+    || ref.startsWith("faction:") && factionIds.has(ref.slice("faction:".length));
+  const holderRefForId = (id: string) => id === "player" || id === "organization"
+    ? id
+    : actorIds.has(id)
+      ? `actor:${id}`
+      : factionIds.has(id)
+        ? `faction:${id}`
+        : "";
   const newActors = list("newActors").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 8).flatMap((value, index) => {
     const name = typeof value.name === "string" ? value.name.trim().slice(0, 60) : "";
-    if (!name) return [];
+    const locationId = typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : "";
+    if (!name || !locationId) return [];
     const requested = typeof value.id === "string" ? value.id.trim().replace(/[^a-z0-9:_-]/gi, "-").slice(0, 64) : "";
     const id = requested && !actorIds.has(requested) ? requested : `emergent-actor-${resolvingWeek}-${index}-${legacyHash(name)}`;
     actorIds.add(id);
-    return [{ id, name, locationId: typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : "unknown", agenda: typeof value.agenda === "string" ? value.agenda.slice(0, 220) : "在世界中维护自身处境", shortTermGoal: typeof value.shortTermGoal === "string" ? value.shortTermGoal.slice(0, 220) : "完成眼前事务", condition: typeof value.condition === "string" ? value.condition.slice(0, 140) : "正常活动", lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 280) : undefined, knowledgeIds: [] }];
+    return [{ id, name, locationId, agenda: typeof value.agenda === "string" ? value.agenda.slice(0, 220) : "在世界中维护自身处境", shortTermGoal: typeof value.shortTermGoal === "string" ? value.shortTermGoal.slice(0, 220) : "完成眼前事务", condition: typeof value.condition === "string" ? value.condition.slice(0, 140) : "正常活动", lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 280) : undefined, knowledgeIds: [] }];
   });
   const newFactions = list("newFactions").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 4).flatMap((value, index) => {
     const name = typeof value.name === "string" ? value.name.trim().slice(0, 60) : "";
@@ -36,7 +48,8 @@ function parseWorldKernelDelta(raw: Record<string, unknown>, game: GameState, re
   const newProjects = list("newProjects").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 8).flatMap((value, index) => {
     const title = typeof value.title === "string" ? value.title.trim().slice(0, 80) : "";
     const ownerId = typeof value.ownerId === "string" ? value.ownerId : "world";
-    if (!title) return [];
+    const validOwnerIds = new Set(["world", "canon", "player", "organization", ...actorIds, ...factionIds]);
+    if (!title || !validOwnerIds.has(ownerId)) return [];
     const requested = typeof value.id === "string" ? value.id.trim().replace(/[^a-z0-9:_-]/gi, "-").slice(0, 72) : "";
     const id = requested && !projectIds.has(requested) ? requested : `emergent-project-${resolvingWeek}-${index}-${legacyHash(title)}`;
     projectIds.add(id);
@@ -74,19 +87,30 @@ function parseWorldKernelDelta(raw: Record<string, unknown>, game: GameState, re
     const text = typeof value.text === "string" ? value.text.trim().slice(0, 420) : "";
     if (!text) return [];
     const visibility = ["public", "player", "actors"].includes(String(value.visibility)) ? String(value.visibility) as "public" | "player" | "actors" : "public";
-    const holderIds = Array.isArray(value.holderIds) ? value.holderIds.map(String).slice(0, 8) : [];
+    const holderIds = Array.isArray(value.holderIds) ? value.holderIds.map(String).filter((id) => Boolean(holderRefForId(id))).slice(0, 8) : [];
     const holderRefs = [...new Set([
-      ...(Array.isArray(value.holderRefs) ? value.holderRefs.map(String).slice(0, 12) : []),
-      ...holderIds.map((id) => id === "player" ? "player" : actorIds.has(id) ? `actor:${id}` : factionIds.has(id) ? `faction:${id}` : id),
+      ...(Array.isArray(value.holderRefs) ? value.holderRefs.map(String).filter(validHolderRef).slice(0, 12) : []),
+      ...holderIds.map(holderRefForId).filter(Boolean),
     ])];
     const requestedEventId = typeof value.eventId === "string" ? value.eventId.trim() : "";
     const eventId = requestedEventId
       ? eventIdMap.get(requestedEventId) ?? (existingEventIds.has(requestedEventId) ? requestedEventId : undefined)
       : fallbackEventId;
     if (!eventId) return [];
-    return [{ id: `observation-${resolvingWeek}-${index}-${legacyHash(text)}`, eventId, channel: typeof value.channel === "string" ? value.channel.slice(0, 24) : "街谈", text, visibility, holderIds, holderRefs }];
+    const event = events.find((candidate) => candidate.id === eventId) ?? game.worldKernel.events.find((candidate) => candidate.id === eventId);
+    const eventEntityRefs = new Set([
+      ...(event?.actorIds ?? []).map((id) => `actor:${id}`),
+      ...(event?.factionIds ?? []).map((id) => `faction:${id}`),
+    ]);
+    const perceivedRefs = Array.isArray(value.perceivedRefs)
+      ? [...new Set(value.perceivedRefs.map(String).filter((ref) => validHolderRef(ref) && eventEntityRefs.has(ref)).slice(0, 12))]
+      : [];
+    const acquisitionKind = ["witness", "communication", "investigation", "propagation"].includes(String(value.acquisitionKind))
+      ? String(value.acquisitionKind) as "witness" | "communication" | "investigation" | "propagation"
+      : "investigation" as const;
+    return [{ id: `observation-${resolvingWeek}-${index}-${legacyHash(text)}`, eventId, channel: typeof value.channel === "string" ? value.channel.slice(0, 24) : "街谈", text, visibility, holderIds, holderRefs, perceivedRefs, acquisitionKind }];
   });
-  if (fallbackEventId) for (const [index, signal] of publicSignals.entries()) if (!observations.some((item) => item.text === signal.body)) observations.push({ id: `observation-signal-${resolvingWeek}-${index}`, eventId: fallbackEventId, channel: signal.channel, text: signal.body, visibility: "public", holderIds: [], holderRefs: [] });
+  if (fallbackEventId) for (const [index, signal] of publicSignals.entries()) if (!observations.some((item) => item.text === signal.body)) observations.push({ id: `observation-signal-${resolvingWeek}-${index}`, eventId: fallbackEventId, channel: signal.channel, text: signal.body, visibility: "public", holderIds: [], holderRefs: [], perceivedRefs: [], acquisitionKind: "propagation" });
   const actorUpdates = list("actorUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && actorIds.has(String((item as Record<string, unknown>).actorId)))).slice(0, 12).map((value) => ({ actorId: String(value.actorId), locationId: typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : undefined, shortTermGoal: typeof value.shortTermGoal === "string" ? value.shortTermGoal.slice(0, 220) : undefined, lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 320) : undefined, condition: typeof value.condition === "string" ? value.condition.slice(0, 160) : undefined }));
   const factionUpdates = list("factionUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && factionIds.has(String((item as Record<string, unknown>).factionId)))).slice(0, 10).map((value) => ({ factionId: String(value.factionId), posture: typeof value.posture === "string" ? value.posture.slice(0, 220) : undefined, resourcesDelta: Math.max(-8, Math.min(8, Number(value.resourcesDelta) || 0)), suspicionDelta: Math.max(-6, Math.min(6, Number(value.suspicionDelta) || 0)), lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 320) : undefined }));
   const explicitProjects = list("projectUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && projectIds.has(String((item as Record<string, unknown>).projectId)))).slice(0, 12).map((value) => ({ projectId: String(value.projectId), progressDelta: Math.max(-8, Math.min(10, Number(value.progressDelta) || 0)), stage: typeof value.stage === "string" ? value.stage.slice(0, 60) : undefined, nextMilestone: typeof value.nextMilestone === "string" ? value.nextMilestone.slice(0, 220) : undefined, blockers: Array.isArray(value.blockers) ? value.blockers.map(String).slice(0, 4) : undefined, status: ["active", "paused", "completed", "failed"].includes(String(value.status)) ? String(value.status) as "active" | "paused" | "completed" | "failed" : undefined }));
@@ -97,16 +121,36 @@ function parseWorldKernelDelta(raw: Record<string, unknown>, game: GameState, re
     if (!statement) return [];
     const visibility = ["world", "public", "player", "actors"].includes(String(value.visibility)) ? String(value.visibility) as "world" | "public" | "player" | "actors" : "world";
     const truth = ["confirmed", "likely", "false", "unknown"].includes(String(value.truth)) ? String(value.truth) as "confirmed" | "likely" | "false" | "unknown" : "unknown";
-    const holderIds = Array.isArray(value.holderIds) ? value.holderIds.map(String).slice(0, 8) : [];
-    const holderRefs = [...new Set([
-      ...(Array.isArray(value.holderRefs) ? value.holderRefs.map(String).slice(0, 12) : []),
-      ...holderIds.map((id) => id === "player" ? "player" : actorIds.has(id) ? `actor:${id}` : factionIds.has(id) ? `faction:${id}` : id),
+    const requestedHolderIds = Array.isArray(value.holderIds) ? value.holderIds.map(String).filter((id) => Boolean(holderRefForId(id))).slice(0, 8) : [];
+    const requestedHolderRefs = [...new Set([
+      ...(Array.isArray(value.holderRefs) ? value.holderRefs.map(String).filter(validHolderRef).slice(0, 12) : []),
+      ...requestedHolderIds.map(holderRefForId).filter(Boolean),
     ])];
-    return [{ id: `knowledge-${resolvingWeek}-${index}-${legacyHash(statement)}`, subject: typeof value.subject === "string" ? value.subject.slice(0, 80) : "世界变化", statement, truth, visibility, holderIds, holderRefs, loreRecordIds: Array.isArray(value.loreRecordIds) ? value.loreRecordIds.map(String).filter((id) => allowedLoreIds.has(id)).slice(0, 8) : [], sourceEventId: eventIdMap.get(String(value.sourceEventId ?? "")) }];
+    const sourceEventId = eventIdMap.get(String(value.sourceEventId ?? ""));
+    const privateHolders = visibility === "actors" || visibility === "player" ? requestedHolderRefs : [];
+    for (const holderRef of privateHolders) {
+      const sourceObservation = observations.find((observation) => observation.eventId === sourceEventId && observation.holderRefs.includes(holderRef));
+      if (!sourceObservation) throw new Error(`KnowledgeGrant missing for ${holderRef}: private knowledge requires a matching persisted observation`);
+    }
+    const holderRefs = privateHolders;
+    const holderIds = holderRefs.map((ref) => ref === "player" || ref === "organization" ? ref : ref.replace(/^(actor|faction):/, ""));
+    return [{ id: `knowledge-${resolvingWeek}-${index}-${legacyHash(statement)}`, subject: typeof value.subject === "string" ? value.subject.slice(0, 80) : "世界变化", statement, truth, visibility, holderIds, holderRefs, loreRecordIds: Array.isArray(value.loreRecordIds) ? value.loreRecordIds.map(String).filter((id) => allowedLoreIds.has(id)).slice(0, 8) : [], sourceEventId }];
   });
+  const knowledgeGrants = knowledge.flatMap((node) => node.holderRefs.map((holderRef) => {
+    const observation = observations.find((candidate) => candidate.eventId === node.sourceEventId && candidate.holderRefs.includes(holderRef));
+    if (!node.sourceEventId || !observation) throw new Error(`KnowledgeGrant missing for ${holderRef}: acquisition evidence did not survive normalization`);
+    return {
+      id: `knowledge-grant-${resolvingWeek}-${legacyHash(`${node.id}:${holderRef}:${observation.id}`)}`,
+      knowledgeId: node.id,
+      holderRef,
+      kind: observation.acquisitionKind,
+      sourceEventId: node.sourceEventId,
+      sourceObservationId: observation.id,
+    };
+  }));
   const canonValue = source.canon && typeof source.canon === "object" && !Array.isArray(source.canon) ? source.canon as Record<string, unknown> : {};
   const mayDiverge = game.deviation >= 15 || game.pivots.some((pivot) => pivot.magnitude >= 20);
-  return { week: resolvingWeek, playerIssuedNoOrders: playerIssuedNoOrders, newActors, newFactions, newProjects, actorUpdates, factionUpdates, projectUpdates, locationUpdates, events, observations, knowledge, canon: { mode: mayDiverge && canonValue.mode === "diverging" ? "diverging" : "anchored", deviationDelta: Math.max(0, Math.min(8, Number(canonValue.deviationDelta) || 0)), pivotEventIds: mayDiverge && Array.isArray(canonValue.pivotEventIds) ? canonValue.pivotEventIds.map(String).map((id) => eventIdMap.get(id) ?? id).slice(0, 4) : [] } };
+  return { week: resolvingWeek, playerIssuedNoOrders: playerIssuedNoOrders, newActors, newFactions, newProjects, actorUpdates, factionUpdates, projectUpdates, locationUpdates, events, observations, knowledge, knowledgeGrants, canon: { mode: mayDiverge && canonValue.mode === "diverging" ? "diverging" : "anchored", deviationDelta: Math.max(0, Math.min(8, Number(canonValue.deviationDelta) || 0)), pivotEventIds: mayDiverge && Array.isArray(canonValue.pivotEventIds) ? canonValue.pivotEventIds.map(String).map((id) => eventIdMap.get(id) ?? id).slice(0, 4) : [] } };
 }
 
 export function adaptWorldAdjudication(

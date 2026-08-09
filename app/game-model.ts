@@ -12,6 +12,10 @@ import { sequenceLedgerFor } from "./pathway-sequence-ledger.ts";
 import { createHighSequenceLedger, type HighSequenceLedger } from "./high-sequence-ledger.ts";
 import { createCampaignWorldState, type CampaignWorldState } from "./campaign-world.ts";
 import type { OriginTrait, PathwayOriginScenario } from "./pathway-origins.ts";
+import { INITIAL_CANON_ACTORS, INITIAL_FACTIONS, INITIAL_KERNEL_CANON_ACTORS, INITIAL_TIMELINE } from "./initial-world-seed.ts";
+import { createOpeningState } from "./opening-state-factory.ts";
+
+export { INITIAL_FACTIONS, INITIAL_TIMELINE } from "./initial-world-seed.ts";
 
 export type PathwayId = StandardPathwayId;
 type CorePathwayId = "seer" | "spectator" | "apprentice" | "hunter" | "mystery";
@@ -1172,41 +1176,19 @@ export const INITIAL_OPPORTUNITIES: Opportunity[] = [
   { id: "op-ritual-core", caseId: "great-smog", title: "确认核心仪式坐标", description: "把人口、管网、货物与魔女活动连接为可执行的终局目标。", districtId: "east", risk: "致命", requirements: ["ev-population", "ev-gas-map", "ev-perfume", "ev-sealed-cargo"], suggestedIntent: "只用远距离调查和多源交叉验证确认核心仪式坐标，不进入核心区域；若遭遇天使级征兆，立即向盟友求援并撤退。", rewardPreview: "终局开放阻止与改变路线的关键优势", state: "locked" },
 ];
 
-export const INITIAL_FACTIONS: FactionState[] = [
-  { id: "night-church", name: "黑夜教会", kind: "教会", publicGoal: "维持首都神秘秩序", currentPlan: "观察非法非凡组织与异常人口报告", trust: 8, interest: 18, suspicion: 20, leverage: 0, planProgress: 12, visibility: "传闻", lastMove: "值夜者正在汇总东区失踪案。" },
-  { id: "steam-church", name: "蒸汽与机械之神教会", kind: "教会", publicGoal: "保护工业与技术秩序", currentPlan: "审查煤气、港务与大型工程事故", trust: 4, interest: 12, suspicion: 15, leverage: 0, planProgress: 8, visibility: "传闻", lastMove: "机械之心接管了一份异常设备事故档案。" },
-  { id: "royal-project", name: "王室特别工程集团", kind: "王室", publicGoal: "推进保密公共工程", currentPlan: "集中材料、人口与行政掩护", trust: 0, interest: 5, suspicion: 6, leverage: 0, planProgress: 18, visibility: "未知", lastMove: "一批不公开招标的物资完成转运。" },
-  { id: "witch-sect", name: "魔女教派", kind: "密教", publicGoal: "身份与目的均未公开", currentPlan: "提供仪式支持并清理知情者", trust: 0, interest: 4, suspicion: 4, leverage: 0, planProgress: 14, visibility: "未知", lastMove: "一名使用假身份的女子在东区更换住所。" },
-  { id: "aurora-order", name: "极光会外围", kind: "密教", publicGoal: "散播末日与救赎言论", currentPlan: "争夺被忽视的异常与失踪者", trust: 0, interest: 10, suspicion: 8, leverage: 0, planProgress: 7, visibility: "传闻", lastMove: "地下聚会出现新的布道者。" },
-  { id: "police", name: "贝克兰德警察厅", kind: "官方", publicGoal: "控制治安与舆论", currentPlan: "把失踪人口归入普通治安案件", trust: 10, interest: 8, suspicion: 12, leverage: 0, planProgress: 10, visibility: "已接触", lastMove: "警察要求事务所补交执业文件。" },
-  { id: "press", name: "晚报消息网", kind: "灰色势力", publicGoal: "用新闻换取生存和影响", currentPlan: "收集东区事故与上流丑闻", trust: 22, interest: 28, suspicion: 5, leverage: 8, planProgress: 16, visibility: "已接触", lastMove: "一名社会版编辑压下了工人失踪短讯。" },
-  { id: "black-market", name: "桥区非凡黑市", kind: "灰色势力", publicGoal: "维持隐秘交易", currentPlan: "垄断配方、材料和危险物品流向", trust: 8, interest: 24, suspicion: 10, leverage: 4, planProgress: 13, visibility: "已接触", lastMove: "有人开始询问黑玻璃制品的买家。" },
-];
-
-export const INITIAL_TIMELINE: TimelineEvent[] = [
-  { id: "tl-awakening", title: "廷根的苏醒者", scheduledWeek: 1, kind: "历史锚点", status: "active", summary: "远方一名本不属于这个时代的人从死亡中醒来；贝克兰德暂时无人知晓。", revealed: true, pressure: 5 },
-  { id: "tl-tingen-shadow", title: "廷根阴影加深", scheduledWeek: 6, kind: "可变事件", status: "upcoming", summary: "廷根的隐秘冲突将逼近灾变窗口。玩家只能通过极少数远方情报察觉。", revealed: false, pressure: 18 },
-  { id: "tl-detective-arrival", title: "一位侦探抵达贝克兰德", scheduledWeek: 10, kind: "历史锚点", status: "upcoming", summary: "如果历史没有严重偏转，一名新的私人侦探会进入首都。", revealed: false, pressure: 12 },
-  { id: "tl-population", title: "不可见人口开始汇聚", scheduledWeek: 14, kind: "可变事件", status: "upcoming", summary: "招工、迁移、失踪和收容记录将逐渐出现同一方向。", revealed: false, pressure: 36 },
-  { id: "tl-procurement", title: "王室采购进入加速期", scheduledWeek: 18, kind: "可变事件", status: "upcoming", summary: "材料、煤气设施和封闭仓库的调度会明显增多。", revealed: false, pressure: 55 },
-  { id: "tl-smog-eve", title: "雾霾前夜", scheduledWeek: 22, kind: "可变事件", status: "upcoming", summary: "相关势力完成最后准备，玩家的证据、盟友与破坏成果开始决定事件形态。", revealed: false, pressure: 78 },
-  { id: "tl-great-smog", title: "贝克兰德大雾霾", scheduledWeek: 24, kind: "终局", status: "upcoming", summary: "终局事件可能被阻止、削弱、转移、利用或按原历史爆发。", revealed: true, pressure: 92 },
-];
-
 export function initializeWorldKernel(input?: Partial<Pick<GameState, "week" | "date" | "factions" | "canonActors" | "timeline" | "deviation" | "pivots">>): WorldKernel {
   const factions = input?.factions ?? INITIAL_FACTIONS;
-  const actors = input?.canonActors ?? [
-    { id: "klein", name: "克莱恩·莫雷蒂", publicIdentity: "廷根毕业生", location: "廷根", agenda: "活下去，并理解自己为何苏醒。", state: "刚从死亡中醒来", awareness: "未知" as const, recruitable: false as const, lastMove: "在远方整理原主留下的痕迹。" },
-    { id: "dunn", name: "邓恩·史密斯", publicIdentity: "廷根值夜者队长", location: "廷根", agenda: "保护队员与廷根的神秘秩序。", state: "正在处理一宗神秘案件", awareness: "未知" as const, recruitable: false as const, lastMove: "把一名新成员纳入观察。" },
-    { id: "audrey", name: "奥黛丽·霍尔", publicIdentity: "贵族小姐", location: "贝克兰德·皇后区", agenda: "接触神秘世界，同时维持家族与自身安全。", state: "尚未与玩家组织发生直接联系", awareness: "未知" as const, recruitable: false as const, lastMove: "寻找不惊动家人的神秘学渠道。" },
-    { id: "azik", name: "阿兹克·艾格斯", publicIdentity: "历史系教员", location: "廷根", agenda: "寻找失落的过去。", state: "记忆仍不完整", awareness: "未知" as const, recruitable: false as const, lastMove: "留意一名学生身上不协调的命运痕迹。" },
-  ];
+  const actors = input?.canonActors ?? INITIAL_KERNEL_CANON_ACTORS;
   const kernel = createWorldKernel({
     week: input?.week ?? 1,
     date: input?.date ?? "1349年6月30日",
     factions: factions.map((item) => ({ id: item.id, name: item.name, plan: item.currentPlan, progress: item.planProgress, suspicion: item.suspicion })),
     actors: actors.map((item) => ({ id: item.id, name: item.name, locationId: DISTRICTS.find((district) => item.location.includes(district.name))?.id ?? (item.location.includes("廷根") ? "tingen" : "unknown"), agenda: item.agenda, state: item.state, lastAction: item.lastMove })),
-    locations: DISTRICTS.map((item) => ({ id: item.id, name: item.name, risk: item.danger })),
+    locations: [
+      ...DISTRICTS.map((item) => ({ id: item.id, name: item.name, risk: item.danger })),
+      { id: "tingen", name: "廷根", risk: 45 },
+      { id: "unknown", name: "未确认地点", risk: 50 },
+    ],
     timeline: (input?.timeline ?? INITIAL_TIMELINE).map((item) => ({ id: item.id, title: item.title, scheduledWeek: item.scheduledWeek, status: item.status })),
   });
   return {
@@ -1308,140 +1290,6 @@ export function createOpeningMission(origin: Pick<PlayerOrigin, "organizationKin
   };
 }
 
-type OpeningState = {
-  facts: WorldFact[];
-  evidenceNodes: EvidenceNode[];
-  evidenceLinks: EvidenceLink[];
-  opportunities: Opportunity[];
-  inventory: InventoryItem[];
-  hiddenWorldFacts: HiddenWorldFact[];
-  caseFile: CaseFile;
-};
-
-function createOpeningState(origin: Pick<PlayerOrigin, "organizationKind" | "identityLabel">): OpeningState {
-  const identity = origin.identityLabel;
-  const week = 1;
-  const facts = (items: [string, string, string][]) => items.map(([subject, statement, source], index) => ({ id: `fact-opening-${origin.organizationKind}-${index}`, subject, statement, certainty: "确认" as const, source, week }));
-  const evidence = (items: [string, string, string, "已确认" | "可信证据" | "推断", boolean][]) => items.map(([id, label, summary, certainty, discovered]) => ({ id, caseId: `opening-${origin.organizationKind}`, label, kind: "记录" as const, summary, certainty: certainty as EvidenceNode["certainty"], discovered, source: `${identity}的初期调查`, tags: [label.slice(0, 2), "开局"], weekDiscovered: discovered ? week : undefined }));
-  const opportunity = (id: string, title: string, description: string, districtId: string, requirementId: string, suggestedIntent: string) => ({ id, caseId: `opening-${origin.organizationKind}`, title, description, districtId, risk: "中" as const, requirements: [requirementId], suggestedIntent, rewardPreview: "把开局线索转化为可交叉验证的新事实", state: "available" as const });
-  const hidden = (id: string, subjectKey: string, statement: string) => ({ id, subjectKey, statement, origin: "fixed" as const, createdWeek: week });
-  const inventory = (id: string, name: string, category: "证据" | "封印物" | "仪式器具" | "身份文件", location: string, keeper: string, risk: string) => ({ id, name, category, quantity: 1, location, keeper, risk });
-
-  const kinds: Record<string, OpeningState> = {
-    detective: {
-      facts: facts([["失踪委托人的名单", "一名常客留下半份名单后消失，名单只写着地址与时间。", "门房记录"], ["失踪委托人", "最后一次出现在事务所门口，随后没有回到住处。", "街口车夫证词"]]),
-      evidenceNodes: evidence([
-        ["ev-detective-list", "半份名单", "名单只剩半页，地址与时间仍可辨认，最后一栏被雨水浸透。", "已确认", true],
-        ["ev-detective-courier", "门口的马车", "委托人当晚乘一辆未登记的马车离开，车夫说他没有报目的地。", "可信证据", true],
-        ["ev-detective-route", "离开路线", "马车在桥区绕行两圈后驶向东区方向。", "推断", true],
-        ["ev-detective-ink", "名单墨迹", "半页名单的墨迹与事务所旧账本不一致。", "推断", false],
-        ["ev-detective-house", "空置地址", "名单上的地址登记为空置房产，但窗口有近期擦拭的痕迹。", "推断", false],
-      ]),
-      evidenceLinks: [
-        { id: "link-detective-1", from: "ev-detective-list", to: "ev-detective-route", label: "名单路线", discovered: true },
-        { id: "link-detective-2", from: "ev-detective-courier", to: "ev-detective-route", label: "同一辆马车", discovered: false },
-      ],
-      opportunities: [
-        opportunity("op-detective-list", "核对名单地址", "确认空置房产的登记与近期使用情况。", "east", "ev-detective-list", "以公开房产登记核对名单上的地址，确认空置时间与近期使用痕迹；不进入室内，不接触住户。"),
-        opportunity("op-detective-route", "沿马车路线调查", "从桥区到东区逐段核对夜间马车与货运记录。", "bridge", "ev-detective-route", "沿马车绕行路线核对桥区到东区的夜间记录，只做观察与公开记录比对，不接触当事人。"),
-        opportunity("op-detective-courier", "追查未登记马车", "查找当晚在事务所附近接客的马车行。", "cherwood", "ev-detective-courier", "从马车行公开排班与路口记录查找当晚未登记的马车，只核对时间与车号。"),
-      ],
-      inventory: [inventory("opening-list-item", "被雨水浸透的半份名单", "证据", "证据档案室", "伊妮丝·科尔", "名单只剩半页，来源不明。")],
-      hiddenWorldFacts: [hidden("hidden-detective-list", "opening-list", "名单上的人与一份更早的失踪记录存在重叠。")],
-      caseFile: { id: "opening-detective", title: "失踪委托人的半份名单", premise: "一名常客留下半份名单后消失，名单只写着地址与时间。", stakes: "委托人可能已经遇险，名单也可能流进他人手里。", state: "active", pressure: 64, discoveredCount: 3, totalCount: 5 },
-    },
-    charity: {
-      facts: facts([["没有名字的病人", "诊所收治一名没有名字的病人，他手上有黑斑，病历一栏被人撕掉。", "诊所值班记录"], ["留下的旧布袋", "病人今早独自离开，留下一个旧布袋。", "诊所储物间清点"]]),
-      evidenceNodes: evidence([
-        ["ev-charity-bag", "旧布袋", "布袋里有半块肥皂、一张没有署名的票据和一段湿绳。", "已确认", true],
-        ["ev-charity-record", "撕毁的病历", "病历姓名栏被撕掉，体温记录停在凌晨三点。", "可信证据", true],
-        ["ev-charity-witness", "邻居证词", "有邻居看见病人从东区方向走来，身上带着煤灰。", "推断", true],
-        ["ev-charity-stain", "黑斑样本", "手上黑斑的形态与普通煤灰不同，呈环形。", "推断", false],
-        ["ev-charity-slip", "无名票据", "票据上的抬头被划去，只剩一个日期。", "推断", false],
-      ]),
-      evidenceLinks: [
-        { id: "link-charity-1", from: "ev-charity-bag", to: "ev-charity-slip", label: "同一来源", discovered: false },
-        { id: "link-charity-2", from: "ev-charity-witness", to: "ev-charity-record", label: "到达时间", discovered: true },
-      ],
-      opportunities: [
-        opportunity("op-charity-bag", "检查旧布袋", "清点布袋物品并核对票据日期。", "south", "ev-charity-bag", "在诊所内清点布袋物品，只记录可核验信息，不公开病人身份。"),
-        opportunity("op-charity-record", "核对值班记录", "确认病人入院时间与当晚值班人员。", "south", "ev-charity-record", "调阅诊所值班记录与入院时间，核对撕毁病历前后的接触者。"),
-        opportunity("op-charity-witness", "走访邻居", "沿东区方向询问清晨是否有人见过病人。", "east", "ev-charity-witness", "以诊所名义询问清晨见过病人的居民，只记录时间与方向，不追问私事。"),
-      ],
-      inventory: [inventory("opening-bag-item", "病人留下的旧布袋", "证据", "诊所储物间", "诺拉·贝尔", "来源不明，未公开。")],
-      hiddenWorldFacts: [hidden("hidden-charity-stain", "opening-stain", "环形黑斑与一种正在扩散的污染存在对应关系。")],
-      caseFile: { id: "opening-charity", title: "诊所里没有名字的病人", premise: "诊所收治一名没有名字的病人，他手上有黑斑，病历一栏被人撕掉。", stakes: "黑斑可能意味着污染，布袋里的东西可能牵连更多病人。", state: "active", pressure: 62, discoveredCount: 3, totalCount: 5 },
-    },
-    archive: {
-      facts: facts([["被封存的目录", "封存目录被借阅者翻动过：一页关于旧仪式的条目被撕走。", "档案室检查"], ["借阅登记", "借阅登记上没有对应签名。", "档案室记录"]]),
-      evidenceNodes: evidence([
-        ["ev-archive-page", "被撕走的条目", "条目只留下开头：旧仪式材料索引，卷号被撕去。", "已确认", true],
-        ["ev-archive-register", "借阅登记", "登记本最后一页有新的墨迹，但没有签名。", "可信证据", true],
-        ["ev-archive-door", "出入记录", "封存室的出入记录与借阅登记时间不一致。", "推断", true],
-        ["ev-archive-ink", "墨迹对比", "登记墨迹与常驻借阅者的笔迹不同。", "推断", false],
-        ["ev-archive-key", "钥匙保管", "封存室钥匙的保管记录少了一行。", "推断", false],
-      ]),
-      evidenceLinks: [
-        { id: "link-archive-1", from: "ev-archive-page", to: "ev-archive-register", label: "同一时段", discovered: true },
-        { id: "link-archive-2", from: "ev-archive-register", to: "ev-archive-door", label: "时间冲突", discovered: false },
-      ],
-      opportunities: [
-        opportunity("op-archive-ink", "核对笔迹", "比对登记墨迹与最近接触目录的人。", "north", "ev-archive-ink", "只比对公开借阅登记的笔迹与近期接触目录的人员样本，不做无依据指控。"),
-        opportunity("op-archive-door", "复核出入记录", "核对封存室钥匙与出入记录。", "north", "ev-archive-door", "复核封存室钥匙保管与出入记录，找出时间冲突。"),
-        opportunity("op-archive-key", "追查钥匙保管", "确认钥匙保管记录缺失的那一行由谁经手。", "cherwood", "ev-archive-key", "核对钥匙保管记录与值班表，只做内部核查。"),
-      ],
-      inventory: [inventory("opening-page-item", "封存目录残页", "证据", "证据档案室", "塞德里克·霍尔", "涉及旧仪式材料索引。")],
-      hiddenWorldFacts: [hidden("hidden-archive-index", "opening-index", "被撕条目指向一条仍在流通的旧仪式材料索引。")],
-      caseFile: { id: "opening-archive", title: "被封存的目录缺了一页", premise: "封存目录被借阅者翻动过：一页关于旧仪式的条目被撕走。", stakes: "被撕走的条目可能让外人顺藤摸瓜找到更多封存资料。", state: "active", pressure: 60, discoveredCount: 3, totalCount: 5 },
-    },
-    trading: {
-      facts: facts([["无货单的密封箱", "货仓里出现一只没有货单的密封箱，封蜡上有陌生徽记。", "货仓清点"], ["码头管事的说法", "码头管事说不清箱子何时入库。", "码头记录"]]),
-      evidenceNodes: evidence([
-        ["ev-trading-crate", "密封箱", "箱体没有货单，封蜡上的徽记与任何登记客户都不符。", "已确认", true],
-        ["ev-trading-log", "卸货记录", "当周卸货记录里没有对应批次。", "可信证据", true],
-        ["ev-trading-worker", "搬运者", "有码头工人记得两名陌生搬运者深夜入库。", "推断", true],
-        ["ev-trading-seal", "封蜡样本", "封蜡成分与港务常用蜡不同。", "推断", false],
-        ["ev-trading-ship", "入港船名", "当晚有一般未登记的驳船停靠外港。", "推断", false],
-      ]),
-      evidenceLinks: [
-        { id: "link-trading-1", from: "ev-trading-crate", to: "ev-trading-log", label: "无对应批次", discovered: true },
-        { id: "link-trading-2", from: "ev-trading-worker", to: "ev-trading-ship", label: "深夜入港", discovered: false },
-      ],
-      opportunities: [
-        opportunity("op-trading-log", "核对卸货记录", "确认箱子入库时间与当周批次。", "dock", "ev-trading-log", "核对当周卸货与入库记录，确认密封箱入库时间，不接触搬运者。"),
-        opportunity("op-trading-worker", "询问码头工人", "了解深夜搬运者的情况。", "dock", "ev-trading-worker", "以商行名义询问当班码头工人，只记录时间、人数与离开方向。"),
-        opportunity("op-trading-seal", "鉴定封蜡", "确认封蜡成分与来源。", "hillston", "ev-trading-seal", "委托可靠渠道鉴定封蜡成分，不拆箱、不公开。"),
-      ],
-      inventory: [inventory("opening-crate-item", "无货单的密封箱", "封印物", "货仓暗格", "塞德里克·霍尔", "封蜡上有陌生徽记，未拆封。")],
-      hiddenWorldFacts: [hidden("hidden-trading-crate", "opening-crate", "箱体残留与一条深夜走私链存在关联。")],
-      caseFile: { id: "opening-trading", title: "货仓里多出的密封箱", premise: "货仓里出现一只没有货单的密封箱，封蜡上有陌生徽记。", stakes: "箱内物品一旦被发现，商行的合法掩护会立刻失效。", state: "active", pressure: 63, discoveredCount: 3, totalCount: 5 },
-    },
-    sect: {
-      facts: facts([["旧成员的密信", "一位旧成员在聚会散场后留下密信，说“有人在按名单找我们”。", "聚会清点"], ["旧成员失踪", "留下密信后，旧成员没有再出现。", "内部联络"]]),
-      evidenceNodes: evidence([
-        ["ev-sect-letter", "密信", "信纸是常见纸，墨迹没有署名，末尾画了一个旧徽记。", "已确认", true],
-        ["ev-sect-signin", "聚会签到", "签到本上旧成员的名字被划掉，但没有登记离开。", "可信证据", true],
-        ["ev-sect-visitor", "陌生访客", "有成员看见一名陌生人在聚会散场后守在巷口。", "推断", true],
-        ["ev-sect-ink", "墨迹来源", "信纸墨迹与附近文具店售出的墨水相近。", "推断", false],
-        ["ev-sect-route", "离开路线", "旧成员离开时没有走惯常路线。", "推断", false],
-      ]),
-      evidenceLinks: [
-        { id: "link-sect-1", from: "ev-sect-letter", to: "ev-sect-signin", label: "同一晚", discovered: true },
-        { id: "link-sect-2", from: "ev-sect-visitor", to: "ev-sect-route", label: "巷口监视", discovered: false },
-      ],
-      opportunities: [
-        opportunity("op-sect-letter", "核验密信来源", "检查信纸与墨迹来源。", "cherwood", "ev-sect-letter", "在不惊动外人的前提下核验信纸与墨迹来源。"),
-        opportunity("op-sect-visitor", "追查陌生访客", "确认散场后守在巷口的陌生人。", "south", "ev-sect-visitor", "以读书会名义询问附近住户，只记录时间与体貌。"),
-        opportunity("op-sect-route", "复查离开路线", "确认旧成员离开时的路线。", "bridge", "ev-sect-route", "沿旧成员惯常路线复查当晚的夜间记录。"),
-      ],
-      inventory: [inventory("opening-letter-item", "旧成员留下的密信", "证据", "密议室暗柜", "罗文·布莱克", "信中说有人在按名单寻找组织。")],
-      hiddenWorldFacts: [hidden("hidden-sect-list", "opening-sect-list", "有人在按一份旧名单逐一确认结社成员的身份。")],
-      caseFile: { id: "opening-sect", title: "旧成员留下的密信", premise: "一位旧成员留下密信后失踪，信里说有人在按名单寻找组织。", stakes: "若名单真的存在，结社的隐蔽身份可能已经暴露。", state: "active", pressure: 61, discoveredCount: 3, totalCount: 5 },
-    },
-  };
-  return kinds[origin.organizationKind] ?? kinds.detective;
-}
-
 export function createInitialGame(pathwayId: PathwayId = "seer", origin?: Pick<PlayerOrigin, "organizationKind" | "identityLabel" | "organizationName">): GameState {
   const worldKernel = initializeWorldKernel();
   const management = createInitialOrganizationManagement();
@@ -1535,12 +1383,7 @@ export function createInitialGame(pathwayId: PathwayId = "seer", origin?: Pick<P
       { id: "great-smog", title: "不可见的人口", premise: "数条相互独立的异常正在城市底层汇聚。", stakes: "贝克兰德大雾霾及其数万名潜在受害者。", state: "dormant", pressure: 12, discoveredCount: 0, totalCount: 3 },
     ],
     pivots: [],
-    canonActors: [
-      { id: "klein", name: "克莱恩·莫雷蒂", publicIdentity: "廷根毕业生", location: "廷根", agenda: "活下去，并理解自己为何苏醒。", state: "刚从死亡中醒来，尚未进入贝克兰德视野。", awareness: "未知", recruitable: false, lastMove: "在远方整理原主留下的痕迹。" },
-      { id: "dunn", name: "邓恩·史密斯", publicIdentity: "廷根值夜者队长", location: "廷根", agenda: "保护队员与廷根的神秘秩序。", state: "正在处理一宗与安提哥努斯家族笔记有关的案件。", awareness: "未知", recruitable: false, lastMove: "把一名新成员纳入观察。" },
-      { id: "audrey", name: "奥黛丽·霍尔", publicIdentity: "贵族小姐", location: "贝克兰德·皇后区", agenda: "接触神秘世界，同时维持家族与自身安全。", state: "尚未与玩家组织发生直接联系。", awareness: "未知", recruitable: false, lastMove: "在社交季里寻找一条不惊动家人的神秘学渠道。" },
-      { id: "azik", name: "阿兹克·艾格斯", publicIdentity: "历史系教员", location: "廷根", agenda: "寻找失落的过去。", state: "记忆仍不完整。", awareness: "未知", recruitable: false, lastMove: "留意一名学生身上不协调的命运痕迹。" },
-    ],
+    canonActors: INITIAL_CANON_ACTORS.map((actor) => ({ ...actor })),
     fatalSituation: null,
     playerCondition: { health: 100, pollution: 3, injuries: [], alive: true },
     ending: { phase: "running", sandboxUnlocked: false },
