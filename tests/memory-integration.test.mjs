@@ -103,6 +103,32 @@ test("ActivePlan 引用正式计划，completed 不再召回", async () => {
   assert.equal(context.activePlans.length, 0);
 });
 
+test("世界状态为 faction 观察者派生规范 belief、event 和 plan 记忆", async () => {
+  const memory = await memoryModule();
+  const state = memory.deriveMemoryFromWorldState(memory.emptyMemoryState(), {
+    events: [{ id: "faction-observed-event", week: 4, title: "联络点异动", detail: "旧联络点附近出现陌生巡逻。", locationId: "east", actorIds: [], factionIds: [], visibility: "actors" }],
+    observations: [{ eventId: "faction-observed-event", holderIds: [], holderRefs: ["faction:press"], visibility: "actors" }],
+    knowledge: [{ id: "faction-private-knowledge", subject: "network", statement: "旧联络点已经暴露", truth: "likely", visibility: "actors", holderIds: [], holderRefs: ["faction:press"], sourceEventId: "faction-observed-event", acquiredWeek: 4 }],
+    projects: [{ id: "press-relocation", ownerId: "press", title: "转移联络点", stage: "分散档案", progress: 30, secrecy: 80, nextMilestone: "启用备用信箱", blockers: [], status: "active", updatedWeek: 4 }],
+    factions: [{ id: "press" }],
+  }, 4);
+
+  assert.ok(state.events.some((event) => event.sourceEventId === "faction-observed-event" && event.observerIds.includes("faction:press")));
+  assert.ok(state.beliefs.some((belief) => belief.characterId === "faction:press" && belief.claim === "旧联络点已经暴露"));
+  assert.ok(state.plans.some((plan) => plan.sourcePlanId === "press-relocation" && plan.ownerId === "faction:press" && plan.participantIds.includes("faction:press")));
+  const projection = memory.buildAutonomousMemoryProjection(state, { kind: "faction", factionId: "press" }, 4);
+  assert.ok(projection.text.includes("旧联络点已经暴露"));
+  assert.ok(projection.text.includes("转移联络点"));
+
+  const withFactionRelations = memory.deriveMemory(state, [
+    { kind: "commitment", id: "press-source-promise", type: "agreement", participantIds: ["faction:press", "reporter"], summary: "消息网答应保护记者的来源", createdWeek: 4, sourceEventId: "faction-observed-event" },
+    { kind: "relationship", sourceEventId: "faction-observed-event", fromCharacterId: "faction:press", toCharacterId: "reporter", dimension: "trust", delta: 6, summary: "共同保护来源建立了信任", createdWeek: 4 },
+  ], { characterIds: new Set(["reporter"]), organizationIds: new Set(["press"]) });
+  assert.ok(withFactionRelations.state.commitments.some((commitment) => commitment.id === "press-source-promise"));
+  assert.ok(withFactionRelations.state.relationshipCauses.some((cause) => cause.fromCharacterId === "faction:press"));
+  assert.ok(!withFactionRelations.changes.some((change) => change.kind === "rejected"));
+});
+
 test("旧信念无 propositionKey 时可用兼容键读取与替代", async () => {
   const memory = await memoryModule();
   const legacy = {

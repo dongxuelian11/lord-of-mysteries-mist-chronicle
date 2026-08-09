@@ -34,6 +34,10 @@ test("NPC speech is AI generated and a quiet week uses independent planning plus
   assert.match(game, /本地规则不会伪造世界事件/);
   assert.doesNotMatch(game, /我分四层讲|亲历、下属报告、个人推断与未知分别说清/);
   assert.match(engine, /playerIssuedNoOrders/);
+  assert.match(engine, /entityState: "adjudicatorWorld"/);
+  assert.doesNotMatch(engine, /factions: game\.factions\.map\(\(item\) => \(\{ id: item\.id/);
+  assert.doesNotMatch(engine, /canonActors: game\.canonActors\.map\(\(item\) => \(\{ id: item\.id/);
+  assert.match(engine, /Legacy UI collections are compatibility projections only/);
   assert.match(engine, /planActiveAgentsIndependently/);
   assert.match(adjudicatorPrompt, /允许真正安静的一周/);
   assert.match(adjudicatorPrompt, /固定报纸必须给出 2 至 4 条/);
@@ -63,7 +67,7 @@ test("Backlund map exposes district, block and strategic-point control", async (
 });
 
 test("Backlund control map keeps its three-pane desktop workspace bounded", async () => {
-  const [source, council, component] = await Promise.all([read("app/management-refactor.css"), read("app/weekly-council.css"), read("app/weekly-council.tsx")]);
+  const [source, component] = await Promise.all([read("app/management-refactor.css"), read("app/weekly-council.tsx")]);
   assert.match(source, /\.backlund-control-map\{display:grid;grid-template-columns:230px minmax\(360px,1fr\) 330px;[^}]*overflow:hidden/);
   assert.match(source, /\.control-districts,\.control-point-dossier\{min-height:0;overflow:auto/);
   assert.match(source, /\.control-blocks\{min-height:0;overflow:auto/);
@@ -72,11 +76,14 @@ test("Backlund control map keeps its three-pane desktop workspace bounded", asyn
 });
 
 test("weekly prose normalizes punctuation and carries consequences into the next council", async () => {
-  const [source, reader] = await Promise.all([read("app/game-engine.ts"), read("app/complete-game.tsx")]);
+  const [source, reader, saves] = await Promise.all([read("app/game-engine.ts"), read("app/complete-game.tsx"), read("app/save-system.ts")]);
   assert.match(source, /function cleanNarrative/);
   assert.match(source, /replace\(\/\^若\(\?:继续\(\?:搁置\|放任\)\|不加干预\)/);
   assert.match(source, /heading: "下一次集会之前"/);
   assert.match(source, /还剩\$\{pressure\.deadline\}周/);
-  assert.match(reader, /function normalizeNarrativeGame/);
-  assert.match(reader, /section\.paragraphs\.map\(displayNarrative\)/);
+  assert.doesNotMatch(reader, /function normalizeNarrativeGame/);
+  assert.match(reader, /migrateStoredGame\(JSON\.parse\(/);
+  assert.match(saves, /export function normalizeStoredGame/);
+  assert.match(saves, /section\.paragraphs \?\? \[\]/);
+  assert.match(saves, /map\(cleanStoredNarrative\)/);
 });

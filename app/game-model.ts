@@ -654,6 +654,7 @@ export type PlayerIntent = {
 
 export type ActionContract = {
   id: string;
+  actionOrdinal?: number;
   rawIntent: string;
   title: string;
   kind: "调查" | "交涉" | "研究" | "建设" | "招募" | "仪式" | "休整" | "自由行动";

@@ -49,6 +49,8 @@ const AUDIENCE_KINDS = new Set([
   "player-facing-narrator",
   "player-known",
   "actor-private",
+  "faction-private",
+  "faction",
 ]);
 
 function isValidHorizon(horizon) {

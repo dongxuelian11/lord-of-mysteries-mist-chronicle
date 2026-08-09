@@ -1,4 +1,4 @@
-import type { GameState } from "./game-model.ts";
+import { createInitialGame, initializeWorldKernel, type GameState, type PathwayId } from "./game-model.ts";
 import { emptyMemoryState, ensureAudienceStates } from "./memory/index.ts";
 import { createInitialFateState, type FateAberrationState } from "./fate/index.ts";
 import { createInitialControlState, type ControlState } from "./loss-of-control/index.ts";
@@ -10,7 +10,10 @@ import { ensureHighSequenceLedger, type HighSequenceLedger } from "./high-sequen
 import { ensureCampaignWorldState, type CampaignWorldState } from "./campaign-world.ts";
 
 export const ACTIVE_SAVE_KEY = "mist-chronicle-complete-v21";
-export const LEGACY_ACTIVE_SAVE_KEYS = ["mist-chronicle-complete-v20", "mist-chronicle-complete-v19", "mist-chronicle-complete-v18", "mist-chronicle-complete-v17", "mist-chronicle-complete-v16"] as const;
+export const LEGACY_ACTIVE_SAVE_KEYS = Array.from(
+  { length: 16 },
+  (_, index) => `mist-chronicle-complete-v${20 - index}`,
+) as readonly string[];
 export const RECOVERY_KEY = "mist-chronicle-recovery-v21";
 export const LEGACY_RECOVERY_KEYS = ["mist-chronicle-recovery-v20", "mist-chronicle-recovery-v19", "mist-chronicle-recovery-v18", "mist-chronicle-recovery-v17", "mist-chronicle-recovery-v16"] as const;
 export const SAVE_SCHEMA_VERSION = 21;
@@ -40,6 +43,183 @@ const DEFAULT_HORIZON = {
   revealedIdentityIds: ["周明瑞", "夏洛克·莫里亚蒂"],
   worldlineMode: "canon-aligned" as const,
 };
+
+export type StoredGameMigration = {
+  game: GameState;
+  hasSave: boolean;
+  sourceVersion: number;
+  historicalOnly: boolean;
+};
+
+function recordOf(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function cleanStoredNarrative(text: string) {
+  return text
+    .replace(/若继续搁置[，,]\s*若继续(?:搁置|放任)[，,]\s*/g, "若继续搁置，")
+    .replace(/([。！？；])\1+/g, "$1");
+}
+
+/**
+ * The single normalization authority for local saves and imported envelopes.
+ * This function is intentionally pure with respect to its input object.
+ */
+export function normalizeStoredGame(input: Partial<GameState>): GameState {
+  input = JSON.parse(JSON.stringify(input)) as Partial<GameState>;
+  const sourceVersion = Number(input.version ?? 0);
+  const pathwayId = (typeof input.pathwayId === "string" ? input.pathwayId : "seer") as PathwayId;
+  let fresh: GameState;
+  try {
+    fresh = createInitialGame(pathwayId);
+  } catch {
+    fresh = createInitialGame("seer");
+  }
+  const legacyAbilityFields = sourceVersion > 0 && sourceVersion < SAVE_SCHEMA_VERSION
+    ? {
+        spirituality: Math.max(12, input.spirituality ?? 12),
+        spiritualityMax: 18,
+        mentalLoad: input.mentalLoad ?? 0,
+        lastMeditationWeek: input.lastMeditationWeek ?? 0,
+        abilityJournal: input.abilityJournal ?? [],
+        hiddenWorldFacts: input.hiddenWorldFacts ?? fresh.hiddenWorldFacts,
+        activeAbilityScene: input.activeAbilityScene ?? null,
+        activeParticipationScene: input.activeParticipationScene ?? null,
+        councilTopics: input.councilTopics ?? [],
+        worldSignals: input.worldSignals ?? [],
+        worldSnapshots: input.worldSnapshots ?? [],
+      }
+    : {};
+  const base = { ...fresh, ...input, ...legacyAbilityFields, version: SAVE_SCHEMA_VERSION } as GameState;
+  const management = migrateOrganizationManagementState(input.management ?? fresh.management);
+  const worldKernel = input.worldKernel ?? initializeWorldKernel(base);
+  const normalized: GameState = {
+    ...base,
+    playerOrigin: {
+      ...fresh.playerOrigin,
+      ...(input.playerOrigin ?? {}),
+      gender: input.playerOrigin?.gender ?? "",
+      age: input.playerOrigin?.age ?? "",
+      organizationName: input.playerOrigin?.organizationName || input.organizationName || fresh.playerOrigin.organizationName,
+      organizationKind: input.playerOrigin?.organizationKind ?? "detective",
+      organizationKindLabel: input.playerOrigin?.organizationKindLabel ?? "侦探事务所",
+      organizationCharter: input.playerOrigin?.organizationCharter || input.charter || fresh.playerOrigin.organizationCharter,
+    },
+    actingMarks: input.actingMarks ?? [],
+    activeParticipationScene: input.activeParticipationScene ?? null,
+    advancementProcess: input.advancementProcess ?? null,
+    materials: (input.materials ?? fresh.materials).map((item) => ({
+      authenticity: item.obtained ? "已确认" : "未知",
+      purity: item.obtained ? 80 : 0,
+      freshness: item.obtained ? 75 : 0,
+      contamination: 0,
+      traceRisk: 0,
+      storage: item.obtained ? "组织材料柜" : "尚未入库",
+      provenance: item.obtained ? item.source : "尚未建立来源链",
+      ...item,
+    })),
+    members: (input.members ?? fresh.members).map((item) => ({
+      relationshipMomentum: 0,
+      personalPressure: 8,
+      personalEventSignals: [],
+      promises: [],
+      lastRelationshipChangeWeek: 0,
+      ...item,
+    })),
+    recruitPool: (input.recruitPool ?? fresh.recruitPool).map((item) => ({
+      relationshipMomentum: 0,
+      personalPressure: 5,
+      personalEventSignals: [],
+      promises: [],
+      lastRelationshipChangeWeek: 0,
+      ...item,
+    })),
+    departments: (input.departments ?? fresh.departments).map((item) => ({
+      memberIds: [item.leadMemberId],
+      capacity: 50,
+      cohesion: 60,
+      exposure: 10,
+      backlog: 20,
+      standingOrder: item.mandate,
+      tensions: [],
+      lastReport: "等待本周汇报",
+      ...item,
+    })),
+    departmentReports: input.departmentReports ?? [],
+    organizationIssues: input.organizationIssues ?? [],
+    worldSignals: input.worldSignals ?? [],
+    worldSnapshots: input.worldSnapshots ?? [],
+    worldKernel,
+    routeHypotheses: input.routeHypotheses ?? [],
+    spatialContext: input.spatialContext ?? [],
+    management,
+    highSequenceLedger: ensureHighSequenceLedger(input.highSequenceLedger),
+    campaignWorld: ensureCampaignWorldState(input.campaignWorld),
+    chronicle: (input.chronicle ?? []).map((chapter) => ({
+      ...chapter,
+      sections: (chapter.sections ?? []).map((section) => ({
+        ...section,
+        paragraphs: (section.paragraphs ?? []).map(cleanStoredNarrative),
+      })),
+    })),
+  };
+  ensureKnowledgeHorizon(normalized);
+  ensureDynamicMemory(normalized);
+  ensureFateState(normalized);
+  ensureControlState(normalized);
+  ensureOrganizationManagement(normalized);
+  ensureWorldAgents(normalized);
+  ensureFactionStrategy(normalized);
+  ensureWorldLedger(normalized);
+  ensureHighSequenceState(normalized);
+  ensureCampaignState(normalized);
+  return normalized;
+}
+
+export function migrateStoredGame(value: unknown): StoredGameMigration | null {
+  const record = recordOf(value);
+  const sourceVersion = Number(record?.version ?? 0);
+  if (!record || !Number.isInteger(sourceVersion) || sourceVersion < 5 || sourceVersion > SAVE_SCHEMA_VERSION) return null;
+  const input = record as Partial<GameState>;
+  if (sourceVersion <= 7) {
+    if (!Array.isArray(input.chronicle)) return null;
+    const fresh = createInitialGame("seer");
+    return {
+      game: normalizeStoredGame({
+        ...fresh,
+        chronicle: input.chronicle.map((chapter) => ({
+          ...chapter,
+          id: `legacy-${chapter.id}`,
+          title: `旧历史分支 · ${chapter.title}`,
+        })),
+      }),
+      hasSave: true,
+      sourceVersion,
+      historicalOnly: true,
+    };
+  }
+  const legacyIdentity = sourceVersion <= 9
+    ? {
+        prologueComplete: true,
+        playerName: "无名负责人",
+        playerAddress: "会长阁下",
+        nameExposure: 4,
+        knownAliases: [],
+        ...(sourceVersion === 8
+          ? { dialogueThreads: [], councilRecords: [{ week: input.week ?? 1, status: "convened" as const, decisions: [] }] }
+          : {}),
+      }
+    : {};
+  const game = normalizeStoredGame({ ...input, ...legacyIdentity });
+  return {
+    game,
+    hasSave: Boolean(input.prologueComplete ?? sourceVersion < 10),
+    sourceVersion,
+    historicalOnly: false,
+  };
+}
 
 // 旧存档迁移：没有知识边界时补上保守默认（第一卷边界，不自动获得全书知识）。
 export function ensureKnowledgeHorizon(game: {
@@ -166,9 +346,9 @@ export function ensureWorldLedger(game: GameState): void {
   const current = game.worldLedger as unknown as WorldLedger | LegacyWorldLedger | undefined;
   if (!current || !Array.isArray(current.events) || !Array.isArray(current.snapshots) || !Number.isFinite(current.nextSequence)) {
     game.worldLedger = createWorldLedger(game);
-  } else if (current.version === 1) {
+  } else if (current.version === 1 || current.version === 2) {
     game.worldLedger = migrateWorldLedger(current, game);
-  } else if (current.version !== 2) {
+  } else {
     game.worldLedger = createWorldLedger(game);
   }
 }
@@ -216,18 +396,7 @@ export function parseSaveEnvelope(raw: string) {
   if (value.format !== "mist-chronicle-save" || ![15, 16, 17, 18, 19, 20, SAVE_SCHEMA_VERSION].includes(value.schemaVersion ?? -1) || !value.game) throw new Error("这不是可迁移的《灰雾纪事》存档文件");
   if (stableHash(JSON.stringify(value.game)) !== value.checksum) throw new Error("存档校验失败：文件不完整或被修改");
   if (!value.game.prologueComplete || !value.game.worldKernel || !Array.isArray(value.game.chronicle)) throw new Error("存档缺少世界状态或开局记录，未覆盖当前游戏");
-  ensureKnowledgeHorizon(value.game);
-  ensureDynamicMemory(value.game);
-  ensureFateState(value.game);
-  ensureControlState(value.game);
-  ensureOrganizationManagement(value.game);
-  ensureWorldAgents(value.game);
-  ensureFactionStrategy(value.game);
-  ensureWorldLedger(value.game);
-  ensureHighSequenceState(value.game);
-  ensureCampaignState(value.game);
-  value.game.activeParticipationScene = value.game.activeParticipationScene ?? null;
-  value.game.version = 21;
+  value.game = normalizeStoredGame(value.game);
   value.schemaVersion = SAVE_SCHEMA_VERSION;
   return value as SaveEnvelope;
 }

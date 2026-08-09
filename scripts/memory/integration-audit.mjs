@@ -18,9 +18,11 @@ function wiredSites() {
     autonomousAgent:
       runtime.includes("dynamicMemory: dynamicMemory.text") &&
       runtime.includes("memoryReferenceIds: dynamicMemory.referenceIds") &&
+      runtime.includes("usedMemoryIds") &&
       autonomousMemory.includes("AutonomousMemoryAudience") &&
       engine.includes("memory: game.memory ?? emptyMemoryState()") &&
       engine.includes('stage: "autonomous-agent"') &&
+      engine.includes("proposal.usedMemoryIds") &&
       engine.includes("factionAudience"),
   };
 }

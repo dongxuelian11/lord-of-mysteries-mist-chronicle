@@ -56,6 +56,8 @@ export function buildContextPackage(
       ? "world-simulation"
       : query.filters?.audience?.kind === "actor"
         ? "character-knowledge"
+        : query.filters?.audience?.kind === "faction"
+          ? "faction-knowledge"
         : "player-knowledge";
   return {
     purpose,

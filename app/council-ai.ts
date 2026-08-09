@@ -8,6 +8,7 @@ import {
   markMemoryPresented,
   actorAudience,
 } from "./memory/index";
+import { stableEntityId } from "./stable-id";
 
 function extractJson(raw: string) {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? raw;
@@ -17,7 +18,7 @@ function extractJson(raw: string) {
   return JSON.parse(fenced.slice(start, end + 1)) as Record<string, unknown>;
 }
 
-export async function generateCouncilReplies(config: AiConfig, game: GameState, topicText: string): Promise<CouncilTopicMessage[]> {
+export async function generateCouncilReplies(config: AiConfig, game: GameState, topicText: string, topicId?: string): Promise<CouncilTopicMessage[]> {
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
   const members = relevantCouncilMembers(game, topicText, 3);
   const speakerLore = Object.fromEntries(await Promise.all(members.map(async (member) => {
@@ -67,7 +68,12 @@ export async function generateCouncilReplies(config: AiConfig, game: GameState, 
     const text = String(value.text ?? "").trim();
     if (!allowed.has(speakerId) || !text) return [];
     const stance = ["赞成", "保留", "反对", "信息不足", "涉及私情"].includes(String(value.stance)) ? value.stance as CouncilTopicMessage["stance"] : "保留";
-    return [{ id: `council-reply-${Date.now()}-${index}`, speakerId, text: text.slice(0, 800), stance }];
+    return [{
+      id: stableEntityId("council-message", topicId ?? `week:${game.week}:${topicText}`, speakerId, index + 1, text),
+      speakerId,
+      text: text.slice(0, 800),
+      stance,
+    }];
   });
   // 调用成功：按成员独立提交 delivered + presented
   for (const member of members) {

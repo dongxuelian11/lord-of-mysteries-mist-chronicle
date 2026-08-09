@@ -36,7 +36,9 @@ function clamp(value: number, min: number, max: number) {
 function knownCharacter(registry: MemoryRegistry | undefined, id: string | undefined) {
   if (!id) return true;
   if (id === "player") return true;
-  return !registry || registry.characterIds.has(id);
+  if (!registry) return true;
+  if (registry.characterIds.has(id) || registry.organizationIds.has(id)) return true;
+  return id.startsWith("faction:") && registry.organizationIds.has(id.slice("faction:".length));
 }
 
 function validateSeed(seed: MemorySeed, registry?: MemoryRegistry): string | null {
@@ -491,6 +493,7 @@ export function deriveMemoryFromWorldState(
     knowledge: { id: string; subject: string; statement: string; truth: string; visibility: string; holderIds: string[]; holderRefs?: string[]; sourceEventId?: string; acquiredWeek: number }[];
     projects: { id: string; ownerId: string; title: string; stage: string; progress: number; secrecy: number; nextMilestone: string; blockers: string[]; status: string; updatedWeek: number }[];
     observations: { eventId: string; holderIds: string[]; holderRefs?: string[]; visibility: string }[];
+    factions?: { id: string }[];
   },
   week: number
 ): DynamicMemoryState {
@@ -501,7 +504,13 @@ export function deriveMemoryFromWorldState(
       .filter((observation) => observation.eventId === event.id)
       .flatMap((observation) => [
         ...observation.holderIds,
-        ...(observation.holderRefs ?? []).flatMap((reference) => reference === "player" ? ["player"] : reference.startsWith("actor:") ? [reference.slice(6)] : []),
+        ...(observation.holderRefs ?? []).flatMap((reference) => reference === "player"
+          ? ["player"]
+          : reference.startsWith("actor:")
+            ? [reference.slice("actor:".length)]
+            : reference.startsWith("faction:")
+              ? [reference]
+              : []),
       ]);
     seeds.push({
       kind: "event",
@@ -525,7 +534,13 @@ export function deriveMemoryFromWorldState(
     const secrecy = node.visibility === "public" ? "public" : node.visibility === "world" ? "secret" : "restricted";
     const beliefHolders = [...new Set([
       ...node.holderIds,
-      ...(node.holderRefs ?? []).flatMap((reference) => reference === "player" ? ["player"] : reference.startsWith("actor:") ? [reference.slice(6)] : []),
+      ...(node.holderRefs ?? []).flatMap((reference) => reference === "player"
+        ? ["player"]
+        : reference.startsWith("actor:")
+          ? [reference.slice("actor:".length)]
+          : reference.startsWith("faction:")
+            ? [reference]
+            : []),
     ])];
     for (const holder of beliefHolders) {
       seeds.push({
@@ -544,14 +559,16 @@ export function deriveMemoryFromWorldState(
       } as MemorySeed);
     }
   }
+  const factionIds = new Set((worldKernel.factions ?? []).map((faction) => faction.id));
   for (const project of worldKernel.projects) {
     if (project.updatedWeek !== week) continue;
+    const ownerId = factionIds.has(project.ownerId) ? `faction:${project.ownerId}` : project.ownerId;
     seeds.push({
       kind: "plan",
       id: `mem:plan:${project.id}`,
       sourcePlanId: project.id,
-      ownerId: project.ownerId,
-      participantIds: [],
+      ownerId,
+      participantIds: ownerId.startsWith("faction:") ? [ownerId] : [],
       title: project.title,
       objective: project.nextMilestone,
       currentStep: project.stage,

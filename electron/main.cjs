@@ -237,6 +237,8 @@ function registerRagIpc() {
     "player-facing-narrator",
     "player-known",
     "actor-private",
+    "faction-private",
+    "faction",
   ]);
   ipcMain.handle("rag:search", (_event, payload) => {
     if (

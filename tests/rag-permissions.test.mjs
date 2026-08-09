@@ -74,6 +74,27 @@ test("权限：knownLoreIds 可按标题/定位符授权 secret", async () => {
   assert.equal(denied.ok, false);
 });
 
+test("权限：faction 是独立 RAG audience，且仍受私有知识授权约束", async () => {
+  const [{ filterChunk }, { normalizeRagAudienceKind }, { autonomousRagAudience }] = await Promise.all([
+    loadRuntimeModule("app/rag/permissions.ts"),
+    loadRuntimeModule("app/rag/client.ts"),
+    loadRuntimeModule("app/autonomous-planning.ts"),
+  ]);
+  const secret = makeChunk({ id: "faction-secret", visibility: "secret" });
+  assert.equal(normalizeRagAudienceKind("faction-private"), "faction");
+  assert.equal(normalizeRagAudienceKind("actor-private"), "actor");
+  assert.equal(autonomousRagAudience({ memoryAudience: { kind: "faction", factionId: "press" } }), "faction-private");
+  assert.equal(autonomousRagAudience({ memoryAudience: { kind: "actor", actorId: "mara" } }), "actor-private");
+  assert.equal(filterChunk(secret, {
+    audience: { kind: "faction", knownLoreIds: [], topicGrants: [] },
+    maxSpoilerScope: "all",
+  }, new Set()).ok, false);
+  assert.equal(filterChunk(secret, {
+    audience: { kind: "faction", knownLoreIds: ["faction-secret"], topicGrants: [] },
+    maxSpoilerScope: "all",
+  }, new Set(["faction-secret"])).ok, true);
+});
+
 test("权限：未来周目与第二部剧透被时间/剧透过滤拦截", async () => {
   const { filterChunk } = await loadRuntimeModule("app/rag/permissions.ts");
   const future = makeChunk({

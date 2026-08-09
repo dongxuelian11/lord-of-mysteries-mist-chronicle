@@ -16,7 +16,7 @@ export type LegacyLoreRecord = {
 
 export type LegacyLoreRequest = {
   query: string;
-  audience: { kind: "world" | "player" | "actor"; knownLoreIds: string[]; topicGrants: string[] };
+  audience: { kind: "world" | "player" | "actor" | "faction"; knownLoreIds: string[]; topicGrants: string[] };
   limit?: number;
   maxChars?: number;
   week?: number;

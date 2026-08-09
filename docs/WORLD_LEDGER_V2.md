@@ -36,6 +36,8 @@
 
 快照保存某一 `afterSequence` 的投影及 checksum。重放可以从已通过 checksum 校验的最近快照开始，也必须支持 `useSnapshots: false` 从零归约。验证会比较从零重放、快照加速重放和最新快照。
 
+快照不是每周事实副本。当前策略每隔 4 周生成一个检查点，最多保留最近 6 个完整快照；超出上限的检查点只累计到 `snapshotArchive` 元数据（数量、截止周、截止 sequence、最后 checksum）。所有权威事件和 hash chain 均保留，因此被淘汰快照覆盖的早期周仍可从 `ledger-initialized` 与事件流精确重放。加载已有 V2 存档时也会应用相同保留上限。
+
 ## 截止重放
 
 `replayWorldLedger` 支持：

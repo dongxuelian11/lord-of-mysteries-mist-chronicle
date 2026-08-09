@@ -36,6 +36,51 @@ test("旧存档（无 memory 字段）读取时补空安全默认", async () => 
   assert.equal(parsed.game.memory.events.length, 0);
 });
 
+test("本地 v20/v8/v6 存档只通过 save-system 的统一入口迁移", async () => {
+  const model = await loadRuntimeModule("app/game-model.ts");
+  const save = await loadRuntimeModule("app/save-system.ts");
+  const current = model.createInitialGame("seer");
+
+  const v20 = { ...current, version: 20, prologueComplete: true };
+  delete v20.memory;
+  delete v20.worldAgents;
+  delete v20.factionStrategy;
+  const v20Before = JSON.stringify(v20);
+  const migrated20 = save.migrateStoredGame(v20);
+  assert.equal(JSON.stringify(v20), v20Before, "central migration must not mutate the parsed legacy input");
+  assert.equal(migrated20.sourceVersion, 20);
+  assert.equal(migrated20.game.version, 21);
+  assert.equal(migrated20.hasSave, true);
+  assert.ok(Array.isArray(migrated20.game.memory.events));
+  assert.ok(Array.isArray(migrated20.game.worldAgents.profiles));
+  assert.equal(migrated20.game.worldLedger.version, 2);
+
+  const migrated8 = save.migrateStoredGame({
+    ...current,
+    version: 8,
+    prologueComplete: undefined,
+    playerName: undefined,
+    playerAddress: undefined,
+    dialogueThreads: undefined,
+    councilRecords: undefined,
+  });
+  assert.equal(migrated8.game.playerName, "无名负责人");
+  assert.equal(migrated8.game.playerAddress, "会长阁下");
+  assert.equal(migrated8.game.prologueComplete, true);
+  assert.deepEqual(migrated8.game.dialogueThreads, []);
+  assert.equal(migrated8.game.councilRecords[0].status, "convened");
+
+  const migrated6 = save.migrateStoredGame({
+    version: 6,
+    chronicle: [{ id: "old-1", title: "旧章", week: 1, date: "旧日", sections: [] }],
+  });
+  assert.equal(migrated6.historicalOnly, true);
+  assert.equal(migrated6.hasSave, true);
+  assert.equal(migrated6.game.chronicle[0].id, "legacy-old-1");
+  assert.match(migrated6.game.chronicle[0].title, /^旧历史分支/);
+  assert.equal(save.migrateStoredGame({ version: 4 }), null);
+});
+
 test("resolveWeek 与 generateAiWorldDelta 不破坏记忆（引擎集成冒烟）", async () => {
   const { createServer } = await import("vite");
   const server = await createServer({ configFile: false, server: { middlewareMode: true }, appType: "custom", logLevel: "silent" });

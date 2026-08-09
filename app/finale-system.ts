@@ -313,10 +313,10 @@ export function resolveFinalePhase(game: GameState) {
   });
 
   const report: FinaleReport = { stage: campaign.stage, title: campaign.stageTitle, summary: `${results.filter((item) => item.outcome === "成功").length}项成功，${results.filter((item) => item.outcome === "部分成功").length}项部分成功，${results.filter((item) => item.outcome === "失败").length}项失败。`, paragraphs: results.map((item) => item.detail), results };
-  const chapter: ChronicleChapter = { id: `finale-chapter-${campaign.stage}-${Date.now()}`, week: game.week, date: game.date, title: `重大事件 · ${campaign.stageTitle}`, source: "local", sections: [], results: finaleActionResults(game, campaign, crises, report), summary: report.summary };
+  const chapter: ChronicleChapter = { id: `finale:chapter:${game.week}:${campaign.stage}`, week: game.week, date: game.date, title: `重大事件 · ${campaign.stageTitle}`, source: "local", sections: [], results: finaleActionResults(game, campaign, crises, report), summary: report.summary };
   const resolvedFrontIds = [...new Set([...(campaign.resolvedFrontIds ?? []), ...crises.filter((item) => item.outcome === "成功").map((item) => item.id)])];
   const updatedCampaign: FinaleCampaign = { ...campaign, crises, reports: [report, ...campaign.reports], momentum, enemyProgress, rescued, casualties, exposedTruth, resolvedFrontIds };
-  const facts: WorldFact[] = [...game.facts, { id: `finale-fact-${campaign.stage}-${Date.now()}`, subject: `大雾霾第${campaign.stage}阶段`, statement: report.summary, certainty: "确认", source: "重大阶段事件规则账本", week: game.week }];
+  const facts: WorldFact[] = [...game.facts, { id: `fact:finale:${game.week}:${campaign.stage}`, subject: `大雾霾第${campaign.stage}阶段`, statement: report.summary, certainty: "确认", source: "重大阶段事件规则账本", week: game.week }];
   const updated = { ...game, members, facilities, fatalSituation, chronicle: [chapter, ...game.chronicle], facts, ending: { ...game.ending, campaign: updatedCampaign } };
   const shouldEnd = enemyProgress <= 18 || momentum >= 78 || campaign.stage >= 6 || (campaign.stage >= (campaign.totalStages ?? 3) && crisisCandidates(updated).filter((item) => !resolvedFrontIds.includes(item.id)).length < 2);
   if (shouldEnd) return completeCampaign(updated, updatedCampaign);

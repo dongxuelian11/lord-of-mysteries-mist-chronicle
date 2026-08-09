@@ -39,7 +39,8 @@ function worldEnvelope(game, chapter) {
     emergentLead: null,
     organizationDelta: { departmentDevelopments: [], memberDevelopments: [], recruitDevelopments: [], governanceIssues: [], newRecruitableNpc: null },
     kernelDelta: {
-      newActors: [], newFactions: [], newProjects: [], actorUpdates: [], factionUpdates: [],
+      newActors: [], newFactions: [], newProjects: [], actorUpdates: [],
+      factionUpdates: [{ factionId: firstFaction.id, posture: "以内核状态为唯一权威", resourcesDelta: 0, suspicionDelta: 4, lastAction: "内核记录的实际行动" }],
       projectUpdates: [{ projectId: game.worldKernel.projects[0].id, progressDelta: 2, stage: "继续推进", nextMilestone: "取得下一项可核验结果", blockers: [], status: "active" }],
       locationUpdates: [{ locationId, riskDelta: 1, stabilityDelta: 0, publicMood: "不安", condition: "街口出现更多巡警" }],
       events: [
@@ -59,7 +60,10 @@ function worldModelFetch(envelope) {
     if (user.includes("为这个主体独立形成同一周起点上的提案")) {
       const agentRef = user.match(/"ref":"([^"]+)"/)?.[1] ?? "actor:unknown";
       const planningWeek = Number(user.match(/"planningWeek":(\d+)/)?.[1] ?? 1);
-      const proposal = { planningWeek, agentRef, disposition: "wait", intent: "维持既定安排并观察本周公开变化。", rationale: "周初没有足以改变计划的新认知。", targetRefs: [], requiredKnowledgeIds: [] };
+      const payloadStart = user.lastIndexOf("\n{");
+      const payload = payloadStart >= 0 ? JSON.parse(user.slice(payloadStart + 1)) : {};
+      const usedMemoryIds = payload.projection?.memoryReferenceIds?.slice(0, 1) ?? [];
+      const proposal = { planningWeek, agentRef, disposition: "wait", intent: "维持既定安排并观察本周公开变化。", rationale: "周初没有足以改变计划的新认知。", targetRefs: [], requiredKnowledgeIds: [], usedMemoryIds };
       return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify({ proposal }) } }] }) };
     }
     return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(envelope) } }] }) };
@@ -89,12 +93,16 @@ test("closing a council week commits an independently advanced world snapshot", 
     assert.ok(committed.worldKernel.events.some((event) => event.title === "临时停工"));
     assert.equal(committed.worldSignals.length, 3);
     assert.ok(committed.worldLedger.events.some((event) => event.kind === "week-committed"));
-    assert.equal(committed.worldLedger.snapshots.at(-1).week, committed.week);
+    assert.equal(committed.worldLedger.snapshots.length, 1, "weekly commits before the checkpoint interval must not duplicate full projections");
+    assert.equal(committed.worldLedger.events.filter((event) => event.kind === "week-committed").at(-1).week, committed.week);
     assert.equal(verifyWorldLedger(committed.worldLedger).ok, true, verifyWorldLedger(committed.worldLedger).issues.join("\n"));
     assert.equal(committed.worldAgents.lastPlannedWeek, resolved.chapter.week);
     assert.ok(committed.worldAgents.profiles.length >= committed.worldKernel.actors.length + committed.worldKernel.factions.length);
     assert.equal(committed.factionStrategy.lastResolvedWeek, resolved.chapter.week);
     assert.ok(committed.factionStrategy.outcomes.length > 0);
+    assert.equal(committed.factions[0].currentPlan, "以内核状态为唯一权威");
+    assert.equal(committed.factions[0].lastMove, "内核记录的实际行动");
+    assert.equal(committed.factions[0].suspicion, committed.worldKernel.factions.find((item) => item.id === committed.factions[0].id).suspicion);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) delete globalThis.window;
@@ -117,6 +125,7 @@ test("autonomous memory is delivered to each explicit audience only after the wo
     { kind: "event", sourceEventId: "faction-private-source", week: resolved.chapter.week - 1, type: "briefing", summary: "势力内部决定分散档案", participantIds: [], observerIds: [], organizationIds: [factionId] },
   ]).state;
   const envelope = worldEnvelope(resolved.state, resolved.chapter);
+  envelope.kernelDelta.events[0].factionIds = [factionId];
   const captured = [];
   const baseFetch = worldModelFetch(envelope);
   const originalFetch = globalThis.fetch;
@@ -153,6 +162,16 @@ test("autonomous memory is delivered to each explicit audience only after the wo
       assert.deepEqual(receipts.map((receipt) => receipt.kind).sort(), ["delivered", "presented"]);
       assert.ok(receipts.every((receipt) => receipt.audience.kind === kind));
       assert.ok(receipts.every((receipt) => (kind === "actor" ? receipt.audience.actorId : receipt.audience.factionId) === id));
+      const proposalEvent = committed.worldLedger.events.find((event) => event.id === `autonomous-proposal:${resolved.chapter.week}:${ref}`);
+      const projection = kind === "actor" ? actorProjection : factionProjection;
+      assert.ok(proposalEvent);
+      assert.deepEqual(proposalEvent.payload.usedMemoryIds, projection.memoryReferenceIds.slice(0, 1));
+      if (kind === "faction") {
+        const outcomeEvent = committed.worldLedger.events.find((event) => event.kind === "world-event-recorded" && event.factionIds.includes(id));
+        assert.ok(outcomeEvent);
+        assert.ok(outcomeEvent.causeEventIds.includes(proposalEvent.id));
+        assert.deepEqual(outcomeEvent.payload.usedMemoryIds, projection.memoryReferenceIds.slice(0, 1));
+      }
     }
   } finally {
     globalThis.fetch = originalFetch;
@@ -240,7 +259,7 @@ test("repeated public news is repaired locally without rerunning world adjudicat
   }
 });
 
-test("one agent failing twice prevents adjudication and leaves the week uncommitted", async () => {
+test("one agent failing twice degrades privately while peers and the week still commit", async () => {
   const { engine, model, memory } = await loadGameModules();
   const { generateAiWorldDelta, resolveWeek } = engine;
   const game = model.createInitialGame("spectator");
@@ -252,6 +271,7 @@ test("one agent failing twice prevents adjudication and leaves the week uncommit
   const memoryBefore = JSON.stringify(resolved.state.memory);
   const agentsBefore = JSON.stringify(resolved.state.worldAgents);
   const failedRef = resolved.state.worldAgents.activeAgentRefs[0];
+  const envelope = worldEnvelope(resolved.state, resolved.chapter);
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   let adjudicatorCalls = 0;
@@ -259,7 +279,10 @@ test("one agent failing twice prevents adjudication and leaves the week uncommit
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(String(init?.body ?? "{}"));
     const user = body.messages?.at(-1)?.content ?? "";
-    if (!user.includes("为这个主体独立形成同一周起点上的提案")) adjudicatorCalls += 1;
+    if (!user.includes("为这个主体独立形成同一周起点上的提案")) {
+      adjudicatorCalls += 1;
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(envelope) } }] }) };
+    }
     const agentRef = user.match(/"ref":"([^"]+)"/)?.[1] ?? "actor:unknown";
     const planningWeek = Number(user.match(/"planningWeek":(\d+)/)?.[1] ?? resolved.chapter.week);
     const content = agentRef === failedRef
@@ -268,15 +291,18 @@ test("one agent failing twice prevents adjudication and leaves the week uncommit
     return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content } }] }) };
   };
   try {
-    await assert.rejects(
-      () => generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {}),
-      /Agent 独立规划失败/,
-    );
-    assert.equal(adjudicatorCalls, 0);
-    assert.equal(resolved.state.worldLedger.events.some((event) => event.kind === "week-committed" && event.week === resolved.chapter.week), false);
+    const committed = await generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {});
+    assert.equal(adjudicatorCalls, 1);
+    assert.ok(committed.worldLedger.events.some((event) => event.kind === "week-committed"));
+    assert.equal(committed.worldSnapshots[0].week, resolved.chapter.week);
+    const degraded = committed.worldLedger.events.find((event) => event.id === `autonomous-proposal:${resolved.chapter.week}:${failedRef}`);
+    assert.equal(degraded?.payload.planningSource, "deterministic-fallback");
+    assert.match(degraded?.payload.planningIssue, /disposition|依据|意图/);
+    assert.ok(committed.worldLedger.events.some((event) => event.kind === "action-proposed" && event.payload.planningSource === "model"));
     assert.equal(JSON.stringify(resolved.state.memory), memoryBefore);
     assert.equal(JSON.stringify(resolved.state.worldAgents), agentsBefore);
     assert.equal(resolved.state.memory.receipts.some((receipt) => receipt.stage === "autonomous-agent"), false);
+    assert.ok(committed.memory.receipts.some((receipt) => receipt.stage === "autonomous-agent"));
   } finally {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) delete globalThis.window;

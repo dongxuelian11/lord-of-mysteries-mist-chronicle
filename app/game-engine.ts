@@ -64,7 +64,6 @@ import {
   fitWorldAdjudicatorPayload,
   planActiveAgentsIndependently,
   type AgentProposal,
-  type AgentPlanningProjection,
 } from "./world-runtime.ts";
 import { buildWorldAdjudicatorPrompt, WORLD_ADJUDICATOR_SYSTEM } from "./world-adjudicator-prompt.ts";
 import { resolveFactionStrategyRound } from "./faction-strategy.ts";
@@ -74,6 +73,7 @@ import { advanceCampaignWorld, applyCampaignActionResults, applyCampaignSignals,
 import { extractJson, textSimilarity } from "./model-output.ts";
 import { actionTextBoundaryIssue } from "./action-boundaries.ts";
 import { repairActionReports, requestWorldEnvelope } from "./world-envelope.ts";
+import { requestAutonomousAgentProposal } from "./autonomous-planning.ts";
 export type { AiConfig } from "./ai-client";
 export { actionTextBoundaryIssue } from "./action-boundaries.ts";
 export const callModel = invokeModel;
@@ -98,6 +98,46 @@ function hash(value: string) {
     output = Math.imul(output, 16777619);
   }
   return Math.abs(output >>> 0);
+}
+
+function canonicalIdentityText(value: string) {
+  return value.normalize("NFKC").trim().replace(/\s+/g, " ");
+}
+
+function actionIdentityHash(contract: Pick<ActionContract,
+  "rawIntent" | "title" | "kind" | "target" | "desiredOutcome" | "approach" | "leaderId" | "memberIds" |
+  "executionMode" | "districtId" | "abilityIds" | "facilityId" | "days" | "budget" | "risk" | "redLines" |
+  "retreat" | "opportunityId" | "methodTags"
+>) {
+  return hash(JSON.stringify({
+    rawIntent: canonicalIdentityText(contract.rawIntent),
+    title: canonicalIdentityText(contract.title),
+    kind: contract.kind,
+    target: canonicalIdentityText(contract.target),
+    desiredOutcome: canonicalIdentityText(contract.desiredOutcome),
+    approach: canonicalIdentityText(contract.approach),
+    leaderId: contract.leaderId,
+    memberIds: [...new Set(contract.memberIds)].sort(),
+    executionMode: contract.executionMode ?? "delegated",
+    districtId: contract.districtId,
+    abilityIds: [...new Set(contract.abilityIds)].sort(),
+    facilityId: contract.facilityId ?? null,
+    days: contract.days,
+    budget: contract.budget,
+    risk: contract.risk,
+    redLines: canonicalIdentityText(contract.redLines),
+    retreat: canonicalIdentityText(contract.retreat),
+    opportunityId: contract.opportunityId ?? null,
+    methodTags: [...new Set(contract.methodTags ?? [])].sort(),
+  })).toString(36);
+}
+
+function nextActionOrdinal(game: GameState) {
+  return game.schedule.reduce((maximum, action, index) => Math.max(maximum, action.actionOrdinal ?? index + 1), 0) + 1;
+}
+
+function authoritativeActionId(game: GameState, contract: ActionContract, ordinal: number) {
+  return `action:${game.week}:${ordinal}:${actionIdentityHash(contract)}`;
 }
 
 function knownLoreIds(game: GameState, holderId: string) {
@@ -165,43 +205,6 @@ async function loreForWorld(records: LoreRecord[], game: GameState, query: strin
     gameDate: game.date,
     horizon: knowledgeHorizon(game, true),
   });
-}
-
-async function loreForAutonomousAgent(records: LoreRecord[], game: GameState, projection: AgentPlanningProjection) {
-  const knownLoreIds = [...new Set(projection.visibleKnowledge.flatMap((node) => node.loreRecordIds ?? []))];
-  return retrieveLoreContextAsync(records, {
-    query: `${projection.agent.displayName} ${projection.agent.currentObjective} ${projection.agent.nextAction} ${projection.ownedProjects.map((project) => project.title).join(" ")}`,
-    audience: { kind: "actor-private", knownLoreIds, topicGrants: [] },
-    limit: 8,
-    maxChars: 3_500,
-    week: game.week,
-    gameDate: game.date,
-    horizon: knowledgeHorizon(game, false),
-  });
-}
-
-async function requestAutonomousAgentProposal(
-  config: AiConfig,
-  game: GameState,
-  records: LoreRecord[],
-  projection: AgentPlanningProjection,
-  context: { attempt: number; previousIssue?: string },
-) {
-  const lore = await loreForAutonomousAgent(records, game, projection);
-  const repair = context.previousIssue
-    ? `\n上一次提案未通过本主体的局部校验：${context.previousIssue}。只修复该问题，不改变主体掌握的信息。`
-    : "";
-  const raw = extractJson(await callModel(
-    config,
-    "你正在扮演《灰雾纪事》持续世界中的一个独立主体。你只能依据本次提供的自身投影、私有记忆引用和已授权知识做本周计划；不得假设知道其他主体的私密提案或世界真相。你只提出意图，不决定成功，不修改资源和事实。允许行动、延续、观察、隐藏、休整或等待；没有状态驱动的理由时应自然等待。只返回严格JSON。",
-    `为这个主体独立形成同一周起点上的提案。返回：{"proposal":{"planningWeek":${projection.week},"agentRef":"${projection.agent.ref}","disposition":"act|continue|observe|hide|rest|wait","intent":"本周意图","rationale":"只能引用自身可见依据","locationId":"已有地点id或省略","targetRefs":["actor:...|faction:...|location:...|project:...|player|organization"],"requiredKnowledgeIds":["只能取自agent.knownKnowledgeIds"],"conditionalOn":"仅限本周开始前已经存在的条件命令或省略"}}。targetRefs 只能填写带上述前缀的行动目标；knowledge id 绝不能放入 targetRefs，只能放入 requiredKnowledgeIds；没有明确目标时 targetRefs 必须为 []。不要为了热闹强迫主体行动。\n${JSON.stringify({ projection, authorizedKnownLore: lore.context, loreRecordIds: lore.records.map((record) => record.id) })}${repair}`,
-    {
-      json: true,
-      maxTokens: 1_100,
-      temperature: Math.max(.55, Math.min(.92, .55 + projection.agent.riskTolerance / 240)),
-    },
-  ));
-  return raw.proposal && typeof raw.proposal === "object" && !Array.isArray(raw.proposal) ? raw.proposal : raw;
 }
 
 function parseWorldKernelDelta(raw: Record<string, unknown>, game: GameState, chapter: ChronicleChapter, publicSignals: WorldSignal[], worldMoves: WorldMove[], allowedLoreIds: Set<string>): WorldTurnDelta {
@@ -395,7 +398,7 @@ export function localContract(args: {
   const days = kind === "建设" ? 5 : kind === "研究" ? 3 : kind === "休整" ? 2 : /长期|全面|深入/.test(args.intent) ? 4 : 2;
   const budget = kind === "建设" ? 90 : kind === "交涉" ? 35 : kind === "研究" || kind === "仪式" ? 28 : 18;
   return {
-    id: `action-${Date.now()}`,
+    id: `action-draft:${args.game.week}:${hash(JSON.stringify({ intent: canonicalIdentityText(args.intent), leaderId: effectiveLeaderId, districtId: district.id, abilityIds: [...new Set(args.abilityIds)].sort() })).toString(36)}`,
     rawIntent: args.intent.trim(),
     title: `${kind} · ${targetFrom(args.intent)}`,
     kind,
@@ -474,24 +477,30 @@ function rangesOverlap(startA: number, daysA: number, startB: number, daysB: num
 }
 
 export function scheduleContract(game: GameState, contract: ActionContract) {
+  const actionOrdinal = nextActionOrdinal(game);
+  const authoritativeContract = {
+    ...contract,
+    id: authoritativeActionId(game, contract, actionOrdinal),
+    actionOrdinal,
+  };
   const committed = game.schedule.reduce((sum, item) => sum + item.budget, 0);
-  if (game.money - committed - contract.budget < -80) throw new Error("这项行动会让组织越过严重债务线。请先取得收入、降低预算或接受一项有条件的资助。 ");
-  const assignedIds = [...new Set(contract.memberIds.filter(Boolean))];
+  if (game.money - committed - authoritativeContract.budget < -80) throw new Error("这项行动会让组织越过严重债务线。请先取得收入、降低预算或接受一项有条件的资助。 ");
+  const assignedIds = [...new Set(authoritativeContract.memberIds.filter(Boolean))];
   const unavailable = assignedIds.map((id) => game.members.find((member) => member.id === id)).find((member) => member && /阵亡|失踪|重伤|受伤休养|被俘/.test(member.status));
   if (unavailable) throw new Error(`${unavailable.name}当前状态为“${unavailable.status}”，不能承担正式行动。`);
-  for (let day = 1; day <= 7 - contract.days + 1; day += 1) {
+  for (let day = 1; day <= 7 - authoritativeContract.days + 1; day += 1) {
     const conflict = game.schedule.some((action) => {
-      if (!rangesOverlap(day, contract.days, action.startDay, action.days)) return false;
-      const sameMember = action.memberIds.some((id) => contract.memberIds.includes(id));
-      const sameFacility = Boolean(action.facilityId && contract.facilityId && action.facilityId === contract.facilityId);
+      if (!rangesOverlap(day, authoritativeContract.days, action.startDay, action.days)) return false;
+      const sameMember = action.memberIds.some((id) => authoritativeContract.memberIds.includes(id));
+      const sameFacility = Boolean(action.facilityId && authoritativeContract.facilityId && action.facilityId === authoritativeContract.facilityId);
       return sameMember || sameFacility;
     });
-    if (!conflict) return { ...contract, startDay: day, status: "planned" as const };
+    if (!conflict) return { ...authoritativeContract, startDay: day, status: "planned" as const };
   }
   // The player issues goals rather than maintaining a calendar. When no clean
   // slot exists, the command remains accepted and the world adjudicator handles
   // ordering, reduced effect, interruption, or an explicit council exception.
-  return { ...contract, startDay: 1, status: "planned" as const };
+  return { ...authoritativeContract, startDay: 1, status: "planned" as const };
 }
 
 export function availableAbilities(game: GameState): Ability[] {
@@ -696,7 +705,7 @@ function buildLocalChapter(game: GameState, results: ActionResult[], worldText: 
     pressure ? `留在桌面中央的压力仍是“${pressure.title}”。还剩${pressure.deadline}周，当前推进${pressure.progress}%；若继续搁置，${endSentence(pressureConsequence ?? pressure.consequence)}` : "本周没有尚未处理的强制压力，但各方势力仍会依照自己的目标行动。",
   ] });
   return {
-    id: `chapter-${game.week}-${Date.now()}`,
+    id: `chapter:${game.week}:rules`,
     week: game.week,
     date: game.date,
     title: focus ? `雾中意图 · ${focus.contract.target}` : "雾中的静默",
@@ -1438,8 +1447,8 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   const worldConfig = { ...config, model: config.worldModel?.trim() || config.model };
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
   const worldMemoryView = memoryPromptBlockWithIds(game.memory, "world", undefined, chapter.week);
-  const autonomousState = ensureAutonomousWorldState(game.worldAgents, game.worldKernel);
-  const autonomousDecisionFrames = buildAutonomousDecisionFrames(autonomousState, game.worldKernel, chapter.week);
+  const autonomousState = ensureAutonomousWorldState(game.worldAgents, game.worldKernel, game.memory ?? emptyMemoryState());
+  const autonomousDecisionFrames = buildAutonomousDecisionFrames(autonomousState, game.worldKernel, chapter.week, game.memory ?? emptyMemoryState());
   const autonomousPlanningProjections = new Map(
     autonomousDecisionFrames.map((frame) => [
       frame.ref,
@@ -1452,20 +1461,28 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   const autonomousAgentProposals = await planActiveAgentsIndependently(
     autonomousDecisionFrames,
     game.worldKernel,
-    (projection, context) => requestAutonomousAgentProposal(worldConfig, game, LORE_RECORDS, projection, context),
+    (projection, context) => requestAutonomousAgentProposal(
+      worldConfig,
+      LORE_RECORDS,
+      projection,
+      { week: game.week, date: game.date, horizon: knowledgeHorizon(game, false) },
+      context,
+    ),
     {
       maxAttempts: 2,
       concurrency: 4,
       proposalCache,
       memory: game.memory ?? emptyMemoryState(),
+      materialityGate: true,
+      failurePolicy: "fallback-wait",
       onAgentStage: ({ state }) => {
-        if (state === "ready") readyAgents += 1;
+        if (state === "ready" || state === "degraded") readyAgents += 1;
         onStage(`独立 Agent 规划中（${Math.min(readyAgents, autonomousDecisionFrames.length)}/${autonomousDecisionFrames.length}）`);
       },
     },
   );
   onStage("世界裁决器正在处理同时发生的提案");
-  const adjudicatorWorld = buildAdjudicatorProjection(game.worldKernel, autonomousAgentProposals);
+  const adjudicatorWorld = buildAdjudicatorProjection(game.worldKernel, autonomousAgentProposals, [...autonomousPlanningProjections.values()]);
   const lore = await loreForWorld(
     LORE_RECORDS,
     game,
@@ -1475,9 +1492,12 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     resolvingWeek: chapter.week,
     currentWeek: game.week,
     playerIssuedNoOrders: chapter.results.length === 0,
+    worldAuthority: {
+      entityState: "adjudicatorWorld",
+      stateMutation: "kernelDelta",
+      compatibilityOutputs: ["factionMoves", "canonMoves"],
+    },
     chapter: chapter.results.map((item) => ({ actionId: item.id, outcome: item.outcome, domain: actionDomain(item.contract), evidenceSeeking: seeksEvidence(item.contract), contract: item.contract.rawIntent, target: item.contract.target, desiredOutcome: item.contract.desiredOutcome, districtId: item.contract.districtId, approach: item.contract.approach, redLines: item.contract.redLines, retreat: item.contract.retreat, findings: item.findings, futureChanges: item.futureChanges })),
-    factions: game.factions.map((item) => ({ id: item.id, name: item.name, currentPlan: item.currentPlan, trust: item.trust, suspicion: item.suspicion, planProgress: item.planProgress, lastMove: item.lastMove })),
-    canonActors: game.canonActors.map((item) => ({ id: item.id, name: item.name, location: item.location, agenda: item.agenda, awareness: item.awareness, state: item.state })),
     pivots: game.pivots,
     timeline: game.timeline,
     recentWorld: game.worldSnapshots?.slice(0, 4) ?? [],
@@ -1534,28 +1554,16 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   assertWorldAdjudicatorPayloadBudget(boundedPayload);
   const raw = await requestWorldEnvelope(worldConfig, WORLD_ADJUDICATOR_SYSTEM, buildWorldAdjudicatorPrompt(boundedPayload, kernelProtocol), game, chapter.results.length === 0, chapter.results.map((result) => result.id), onStage, onToken);
   const moves = Array.isArray(raw.factionMoves) ? raw.factionMoves.slice(0, 5) : [];
-  const factions = game.factions.map((item) => ({ ...item }));
   const worldMoves: WorldMove[] = [];
   for (const [index, move] of moves.entries()) {
     if (!move || typeof move !== "object") continue;
     const value = move as Record<string, unknown>;
-    const faction = factions.find((item) => item.id === value.factionId);
+    const faction = game.factions.find((item) => item.id === value.factionId);
     if (!faction || typeof value.detail !== "string" || typeof value.title !== "string") continue;
     const visibility = ["迹象", "获知", "确认"].includes(String(value.visibility)) ? value.visibility as WorldMove["visibility"] : "迹象";
-    const suspicionDelta = Math.max(-4, Math.min(6, Number(value.suspicionDelta) || 0));
-    const progressDelta = Math.max(0, Math.min(5, Number(value.progressDelta) || 0));
-    faction.suspicion = Math.max(0, Math.min(100, faction.suspicion + suspicionDelta));
-    faction.planProgress = Math.min(100, faction.planProgress + progressDelta);
-    faction.lastMove = value.detail.slice(0, 240);
     worldMoves.push({ id: `ai-move-${game.week}-${index}-${faction.id}`, factionId: faction.id, title: value.title.slice(0, 40), detail: value.detail.slice(0, 240), week: game.week, visibility });
   }
   const canonMoves = Array.isArray(raw.canonMoves) ? raw.canonMoves.slice(0, 3) : [];
-  const canonActors = game.canonActors.map((actor) => {
-    const move = canonMoves.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).actorId === actor.id) as Record<string, unknown> | undefined;
-    if (!move || typeof move.lastMove !== "string") return actor;
-    const awareness = ["未知", "间接听闻", "注意", "直接接触"].includes(String(move.awareness)) ? move.awareness as typeof actor.awareness : actor.awareness;
-    return { ...actor, lastMove: move.lastMove.slice(0, 220), awareness };
-  });
   const allowedChannels = new Set<WorldSignal["channel"]>(["报纸", "街谈", "官方通告", "行业消息", "神秘征兆", "私人来信"]);
   const allowedReliability = new Set<WorldSignal["reliability"]>(["公开事实", "多源传闻", "单一消息", "异常感知"]);
   const publicSignals: WorldSignal[] = Array.isArray(raw.publicSignals) ? raw.publicSignals.slice(0, 4).flatMap((item, index) => {
@@ -1578,8 +1586,43 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   if (!atmosphere) throw new Error("世界模型没有返回本周城市气氛；本周拒绝结算，不使用本地替代文本");
   const allowedLoreIds = new Set([...LORE_RECORDS.map((record) => record.id), ...(await listRuntimeChunkIds())]);
   const worldKernel = { ...applyWorldTurn(game.worldKernel, parseWorldKernelDelta(raw, game, chapter, publicSignals, worldMoves, allowedLoreIds)), currentWeek: game.week, currentDate: game.date };
+  // Legacy UI collections are compatibility projections only. Overlapping state is
+  // always read back from the authoritative WorldKernel after applying kernelDelta.
+  const factions = game.factions.map((faction) => {
+    const authoritative = worldKernel.factions.find((item) => item.id === faction.id);
+    return authoritative ? {
+      ...faction,
+      currentPlan: authoritative.posture,
+      suspicion: authoritative.suspicion,
+      lastMove: authoritative.lastAction,
+    } : faction;
+  });
+  const canonActors = game.canonActors.map((actor) => {
+    const authoritative = worldKernel.actors.find((item) => item.id === actor.id);
+    const move = canonMoves.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).actorId === actor.id) as Record<string, unknown> | undefined;
+    const awareness = move && ["未知", "间接听闻", "注意", "直接接触"].includes(String(move.awareness))
+      ? move.awareness as typeof actor.awareness
+      : actor.awareness;
+    if (!authoritative) return { ...actor, awareness };
+    const location = DISTRICTS.find((district) => district.id === authoritative.locationId)?.name ?? authoritative.locationId;
+    return {
+      ...actor,
+      location,
+      agenda: authoritative.agenda,
+      state: authoritative.condition,
+      lastMove: authoritative.lastAction,
+      awareness,
+    };
+  });
   const reflectionMemory = deriveMemoryFromWorldState(game.memory ?? emptyMemoryState(), worldKernel, chapter.week);
-  const worldAgents = advanceAutonomousWorldState(autonomousState, game.worldKernel, worldKernel, chapter.week, reflectionMemory);
+  const worldAgents = advanceAutonomousWorldState(
+    autonomousState,
+    game.worldKernel,
+    worldKernel,
+    chapter.week,
+    reflectionMemory,
+    new Map(autonomousDecisionFrames.map((frame) => [frame.ref, frame.planningSignature])),
+  );
   const worldSnapshot: WorldSnapshot = {
     week: chapter.week,
     date: chapter.date,
@@ -1763,18 +1806,63 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     map: attachIntelligenceToBacklundMap(management.map, publicSignals.map((signal) => ({ id: signal.id, districtId: signal.districtId, text: `${signal.headline} ${signal.body}` }))),
   };
   let worldLedger = game.worldLedger ?? createWorldLedger(game);
+  worldLedger = appendWorldLedgerEvents(worldLedger, autonomousAgentProposals.map((proposal) => {
+    const actorId = proposal.agentRef.startsWith("actor:") ? proposal.agentRef.slice("actor:".length) : null;
+    const factionId = proposal.agentRef.startsWith("faction:") ? proposal.agentRef.slice("faction:".length) : null;
+    const id = `autonomous-proposal:${chapter.week}:${proposal.agentRef}`;
+    return {
+      id,
+      week: chapter.week,
+      phase: "autonomous-actors" as const,
+      kind: "action-proposed" as const,
+      summary: proposal.intent,
+      actorIds: actorId ? [actorId] : [],
+      factionIds: factionId ? [factionId] : [],
+      witnessRefs: [proposal.agentRef],
+      causeEventIds: [],
+      audience: { visibility: "actors" as const, holderRefs: [proposal.agentRef] },
+      payload: {
+        actionId: id,
+        agentRef: proposal.agentRef,
+        disposition: proposal.disposition,
+        intent: proposal.intent,
+        targetRefs: proposal.targetRefs,
+        requiredKnowledgeIds: proposal.requiredKnowledgeIds,
+        usedMemoryIds: proposal.usedMemoryIds,
+        planningSource: proposal.planningSource,
+        planningIssue: proposal.planningIssue,
+      },
+    };
+  }));
   worldLedger = appendWorldLedgerEvents(worldLedger, worldKernel.events.filter((event) => event.week === chapter.week).map((event) => ({
-    id: event.id,
-    week: chapter.week,
-    phase: "autonomous-actors" as const,
-    kind: "world-event-recorded" as const,
-    summary: event.title,
-    actorIds: event.actorIds,
-    factionIds: event.factionIds,
-    witnessRefs: event.witnessRefs ?? [],
-    causeEventIds: [],
-    audience: { visibility: event.visibility, holderRefs: event.witnessRefs ?? [] },
-    payload: { worldEventId: event.id, detail: event.detail, locationId: event.locationId, kernelCauseIds: event.causeIds },
+    ...(() => {
+      const contributingProposals = autonomousAgentProposals.filter((proposal) => {
+        if (proposal.agentRef.startsWith("actor:")) return event.actorIds.includes(proposal.agentRef.slice("actor:".length));
+        if (proposal.agentRef.startsWith("faction:")) return event.factionIds.includes(proposal.agentRef.slice("faction:".length));
+        return false;
+      });
+      const proposalEventIds = contributingProposals.map((proposal) => `autonomous-proposal:${chapter.week}:${proposal.agentRef}`);
+      return {
+        id: event.id,
+        week: chapter.week,
+        phase: "autonomous-actors" as const,
+        kind: "world-event-recorded" as const,
+        summary: event.title,
+        actorIds: event.actorIds,
+        factionIds: event.factionIds,
+        witnessRefs: event.witnessRefs ?? [],
+        causeEventIds: proposalEventIds,
+        audience: { visibility: event.visibility, holderRefs: event.witnessRefs ?? [] },
+        payload: {
+          worldEventId: event.id,
+          detail: event.detail,
+          locationId: event.locationId,
+          kernelCauseIds: event.causeIds,
+          proposalEventIds,
+          usedMemoryIds: [...new Set(contributingProposals.flatMap((proposal) => proposal.usedMemoryIds))],
+        },
+      };
+    })(),
   })));
   worldLedger = appendWorldLedgerEvents(worldLedger, worldKernel.knowledge.filter((node) => node.acquiredWeek === chapter.week).map((node) => ({
     id: `delivery:${node.id}`,
@@ -1881,7 +1969,7 @@ export function advanceSequence(game: GameState) {
     materials: nextRank > 0 ? materialsFor(game.pathwayId, nextRank - 1) : [],
     advancementProcess: null,
     deviation: Math.min(100, game.deviation + 1.2),
-    facts: [...game.facts, { id: `advance-${nextRank}-${Date.now()}`, subject: "组织负责人", statement: `已晋升为序列${nextRank}·${PATHWAYS[game.pathwayId].sequences.find((item) => item.rank === nextRank)?.name}。`, certainty: "确认" as const, source: "组织内部记录", week: game.week }],
+    facts: [...game.facts, { id: `fact:advance:${game.week}:${nextRank}`, subject: "组织负责人", statement: `已晋升为序列${nextRank}·${PATHWAYS[game.pathwayId].sequences.find((item) => item.rank === nextRank)?.name}。`, certainty: "确认" as const, source: "组织内部记录", week: game.week }],
     highSequenceLedger,
     campaignWorld,
   };

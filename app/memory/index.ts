@@ -51,5 +51,6 @@ export {
   AUTONOMOUS_MEMORY_MAX_REFS,
   buildAutonomousMemoryProjection,
   type AutonomousMemoryAudience,
+  type AutonomousMemorySignals,
   type AutonomousMemoryProjection,
 } from "./autonomous.ts";

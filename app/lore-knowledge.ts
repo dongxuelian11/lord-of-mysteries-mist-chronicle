@@ -1,5 +1,5 @@
 export type LoreVisibility = "public" | "restricted" | "secret" | "cosmic";
-export type LoreAudienceKind = "world" | "player" | "actor";
+export type LoreAudienceKind = "world" | "player" | "actor" | "faction";
 
 export type LoreRecord = {
   id: string;

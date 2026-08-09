@@ -31,6 +31,8 @@ export type AutonomousAgentProfile = {
   privateMemoryIds: string[];
   reflection: AutonomousReflection;
   updatedWeek: number;
+  lastActiveWeek?: number;
+  lastPlanningSignature?: string;
 };
 
 export type AutonomousSocialTie = {
@@ -76,6 +78,10 @@ export type AutonomousDecisionFrame = {
   knownObservationIds: string[];
   knownKnowledgeIds: string[];
   privateMemoryIds: string[];
+  planningSignature: string;
+  previousPlanningSignature?: string;
+  allowedTargetRefs: string[];
+  allowedLocationIds: string[];
   relationships: Array<Pick<AutonomousSocialTie, "targetRef" | "familiarity" | "tension" | "leverage">>;
   candidateActions: AutonomousActionCandidate[];
   freeActionAllowed: true;
@@ -179,9 +185,13 @@ export function createAutonomousWorldState(kernel: WorldKernel): AutonomousWorld
     ...kernel.factions.map((faction) => factionProfile(faction, kernel.currentWeek)),
   ];
   const residency = selectAutonomousAgentResidency(profiles, kernel, [], MAX_ACTIVE_AUTONOMOUS_AGENTS);
+  const active = new Set(residency.activeAgentRefs);
   return {
     version: 1,
-    profiles,
+    profiles: profiles.map((profile) => ({
+      ...profile,
+      lastActiveWeek: active.has(profile.ref) ? kernel.currentWeek : Math.max(0, kernel.currentWeek - 1),
+    })),
     socialTies: [],
     ...residency,
     lastPlannedWeek: Math.max(0, kernel.currentWeek - 1),
@@ -194,7 +204,7 @@ function recentParticipationScore(ref: string, kernel: WorldKernel) {
   const eventScore = kernel.events.reduce((score, event) => {
     if (event.week < recentWeek) return score;
     const involved = kind === "actor" ? event.actorIds.includes(entityId) : event.factionIds.includes(entityId);
-    return involved || event.witnessRefs?.includes(ref) ? score + 80 + event.week : score;
+    return involved || event.witnessRefs?.includes(ref) ? Math.max(score, 80 + event.week) : score;
   }, 0);
   const projectScore = kernel.projects.reduce((score, project) => project.ownerId === entityId && project.status === "active" ? score + 60 + project.updatedWeek : score, 0);
   const locationScore = kind === "actor"
@@ -203,17 +213,44 @@ function recentParticipationScore(ref: string, kernel: WorldKernel) {
   return eventScore + projectScore + locationScore;
 }
 
+function memoryResidencyScore(profile: AutonomousAgentProfile, memory: DynamicMemoryState | undefined, currentWeek: number) {
+  if (!memory) return 0;
+  const raw = profile.entityId;
+  const canonical = profile.ref;
+  const involved = (ids: string[]) => ids.includes(raw) || ids.includes(canonical);
+  const commitmentUrgency = (memory.commitments ?? []).reduce((score, commitment) => {
+    if (commitment.status !== "active" || !involved(commitment.participantIds)) return score;
+    const due = commitment.dueWeek === undefined ? 0 : commitment.dueWeek <= currentWeek ? 260 : commitment.dueWeek <= currentWeek + 2 ? 220 : commitment.dueWeek <= currentWeek + 5 ? 100 : 0;
+    return Math.max(score, due + commitment.importance * 40);
+  }, 0);
+  const planUrgency = (memory.plans ?? []).reduce((score, plan) => {
+    if ((plan.status !== "active" && plan.status !== "blocked") || !(plan.ownerId === raw || plan.ownerId === canonical || involved(plan.participantIds))) return score;
+    const blocked = plan.status === "blocked" ? 170 : 60;
+    const due = plan.dueWeek !== undefined && plan.dueWeek <= currentWeek + 2 ? 120 : 0;
+    return Math.max(score, blocked + due + plan.importance * 40);
+  }, 0);
+  const strategicRelationship = (memory.relationshipCauses ?? []).reduce((score, cause) => {
+    if (!cause.active || ![cause.fromCharacterId, cause.toCharacterId].includes(raw) && ![cause.fromCharacterId, cause.toCharacterId].includes(canonical)) return score;
+    return Math.max(score, Math.min(80, Math.abs(cause.delta) * 2));
+  }, 0);
+  return commitmentUrgency + planUrgency + strategicRelationship;
+}
+
 export function selectAutonomousAgentResidency(
   profiles: AutonomousAgentProfile[],
   kernel: WorldKernel,
   previousActiveRefs: string[] = [],
   limit = MAX_ACTIVE_AUTONOMOUS_AGENTS,
+  memory?: DynamicMemoryState,
 ) {
   const previous = new Set(previousActiveRefs);
   const activeAgentRefs = profiles
     .map((profile) => ({
       ref: profile.ref,
-      score: recentParticipationScore(profile.ref, kernel) + (previous.has(profile.ref) ? 20 : 0),
+      score: recentParticipationScore(profile.ref, kernel)
+        + memoryResidencyScore(profile, memory, kernel.currentWeek)
+        + Math.min(160, Math.max(0, kernel.currentWeek - (profile.lastActiveWeek ?? profile.updatedWeek)) * 12)
+        + (previous.has(profile.ref) ? 8 : 0),
     }))
     .sort((left, right) => right.score - left.score || left.ref.localeCompare(right.ref))
     .slice(0, Math.max(0, limit))
@@ -225,7 +262,7 @@ export function selectAutonomousAgentResidency(
   };
 }
 
-export function ensureAutonomousWorldState(state: AutonomousWorldState | undefined, kernel: WorldKernel): AutonomousWorldState {
+export function ensureAutonomousWorldState(state: AutonomousWorldState | undefined, kernel: WorldKernel, memory?: DynamicMemoryState): AutonomousWorldState {
   const current = state?.version === 1 ? state : createAutonomousWorldState(kernel);
   const profileByRef = new Map(current.profiles.map((profile) => [profile.ref, profile]));
   for (const actor of kernel.actors) if (!profileByRef.has(`actor:${actor.id}`)) profileByRef.set(`actor:${actor.id}`, actorProfile(actor, kernel.currentWeek));
@@ -237,10 +274,11 @@ export function ensureAutonomousWorldState(state: AutonomousWorldState | undefin
   const profiles = [...profileByRef.values()]
     .filter((profile) => validRefs.has(profile.ref))
     .map((profile) => ({ ...profile, reflection: normalizeReflection(profile) }));
-  const residency = selectAutonomousAgentResidency(profiles, kernel, current.activeAgentRefs ?? [], MAX_ACTIVE_AUTONOMOUS_AGENTS);
+  const residency = selectAutonomousAgentResidency(profiles, kernel, current.activeAgentRefs ?? [], MAX_ACTIVE_AUTONOMOUS_AGENTS, memory);
+  const active = new Set(residency.activeAgentRefs);
   return {
     version: 1,
-    profiles,
+    profiles: profiles.map((profile) => active.has(profile.ref) ? { ...profile, lastActiveWeek: Math.max(profile.lastActiveWeek ?? 0, kernel.currentWeek) } : profile),
     socialTies: current.socialTies.filter((tie) => validRefs.has(tie.sourceRef) && validRefs.has(tie.targetRef)),
     ...residency,
     lastPlannedWeek: current.lastPlannedWeek,
@@ -289,8 +327,8 @@ function candidateActions(profile: AutonomousAgentProfile, kernel: WorldKernel, 
   return candidates.slice(0, 4);
 }
 
-export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kernel: WorldKernel, week: number): AutonomousDecisionFrame[] {
-  const current = ensureAutonomousWorldState(state, kernel);
+export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kernel: WorldKernel, week: number, memory?: DynamicMemoryState): AutonomousDecisionFrame[] {
+  const current = ensureAutonomousWorldState(state, kernel, memory);
   const activeRefs = new Set(current.activeAgentRefs);
   return current.profiles.filter((profile) => activeRefs.has(profile.ref)).map((profile) => {
     const audience = profile.kind === "actor"
@@ -302,6 +340,70 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
       : kernel.factions.find((faction) => faction.id === profile.entityId);
     const knownKnowledgeIds = view.knowledge.map((node) => node.id);
     const relationships = current.socialTies.filter((tie) => tie.sourceRef === profile.ref).map(({ targetRef, familiarity, tension, leverage }) => ({ targetRef, familiarity, tension, leverage }));
+    const actorIds = new Set(kernel.actors.map((actor) => actor.id));
+    const factionIds = new Set(kernel.factions.map((faction) => faction.id));
+    const projectIds = new Set(kernel.projects.map((project) => project.id));
+    const locationIds = new Set(view.locations.map((location) => location.id));
+    const currentLocation = profile.kind === "actor"
+      ? kernel.locations.find((location) => location.id === (entity as WorldKernel["actors"][number] | undefined)?.locationId)
+      : undefined;
+    const visibleEntityRefs = view.events.flatMap((event) => [
+      ...event.actorIds.map((id) => `actor:${id}`),
+      ...event.factionIds.map((id) => `faction:${id}`),
+    ]);
+    const subjectRefs = view.knowledge.flatMap((node) => {
+      const subject = node.subject.trim();
+      if (actorIds.has(subject)) return [`actor:${subject}`];
+      if (factionIds.has(subject)) return [`faction:${subject}`];
+      if (projectIds.has(subject)) return [`project:${subject}`];
+      if (locationIds.has(subject)) return [`location:${subject}`];
+      if (subject === "player" || subject === "organization") return [subject];
+      if (subject.startsWith("actor:") && actorIds.has(subject.slice("actor:".length))) return [subject];
+      if (subject.startsWith("faction:") && factionIds.has(subject.slice("faction:".length))) return [subject];
+      if (subject.startsWith("project:") && projectIds.has(subject.slice("project:".length))) return [subject];
+      if (subject.startsWith("location:") && locationIds.has(subject.slice("location:".length))) return [subject];
+      return [];
+    });
+    const allowedLocationIds = [...locationIds].sort();
+    const allowedTargetRefs = [...new Set([
+      profile.ref,
+      ...allowedLocationIds.map((id) => `location:${id}`),
+      ...relationships.map((relationship) => relationship.targetRef),
+      ...visibleEntityRefs,
+      ...subjectRefs,
+      ...(currentLocation?.actorIds ?? []).map((id) => `actor:${id}`),
+      ...(currentLocation?.factionIds ?? []).map((id) => `faction:${id}`),
+      ...kernel.projects.filter((project) => project.ownerId === profile.entityId).map((project) => `project:${project.id}`),
+    ])].filter((ref) => {
+      if (ref === "player" || ref === "organization") return true;
+      if (ref.startsWith("actor:")) return actorIds.has(ref.slice("actor:".length));
+      if (ref.startsWith("faction:")) return factionIds.has(ref.slice("faction:".length));
+      if (ref.startsWith("project:")) return projectIds.has(ref.slice("project:".length));
+      if (ref.startsWith("location:")) return locationIds.has(ref.slice("location:".length));
+      return false;
+    }).sort();
+    const memoryAudience = profile.kind === "actor"
+      ? { kind: "actor" as const, actorId: profile.entityId }
+      : { kind: "faction" as const, factionId: profile.entityId };
+    const materialMemory = buildAutonomousMemoryProjection(memory, memoryAudience, week, {
+      objective: profile.currentObjective,
+      nextAction: profile.nextAction,
+      relationshipRefs: relationships.map((relationship) => relationship.targetRef),
+    });
+    const planningSignature = stableNumber(JSON.stringify({
+      ref: profile.ref,
+      objective: profile.currentObjective,
+      nextAction: profile.nextAction,
+      locationId: profile.kind === "actor" ? (entity as WorldKernel["actors"][number] | undefined)?.locationId : undefined,
+      resources: profile.kind === "faction" ? (entity as WorldKernel["factions"][number] | undefined)?.resources : undefined,
+      reflectionSources: profile.reflection.sourceRefs,
+      reflectionIntent: profile.reflection.recommendedIntent,
+      observations: view.observations.map((observation) => observation.id).sort(),
+      knowledge: knownKnowledgeIds.slice().sort(),
+      memory: materialMemory.referenceIds.slice().sort(),
+      relationships,
+      projects: kernel.projects.filter((project) => project.ownerId === profile.entityId && project.status === "active").map((project) => [project.id, project.stage, project.progress, project.nextMilestone, project.blockers]).sort(),
+    })).toString(36);
     return {
       planningWeek: week,
       ref: profile.ref,
@@ -317,6 +419,10 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
       knownObservationIds: view.observations.map((observation) => observation.id),
       knownKnowledgeIds,
       privateMemoryIds: [...new Set([...profile.privateMemoryIds, ...knownKnowledgeIds])].slice(-32),
+      planningSignature,
+      ...(profile.lastPlanningSignature ? { previousPlanningSignature: profile.lastPlanningSignature } : {}),
+      allowedTargetRefs,
+      allowedLocationIds,
       relationships,
       candidateActions: candidateActions(profile, kernel, knownKnowledgeIds, relationships),
       freeActionAllowed: true,
@@ -339,7 +445,10 @@ function buildStructuredReflection(
   const worldView = projectWorldForAudience(after, audience);
   const visibleEvents = worldView.events.filter((event) => event.week === week);
   const visibleKnowledge = worldView.knowledge.filter((knowledge) => knowledge.acquiredWeek === week);
-  const memoryProjection = buildAutonomousMemoryProjection(memory, memoryAudience, week);
+  const memoryProjection = buildAutonomousMemoryProjection(memory, memoryAudience, week, {
+    objective: profile.currentObjective,
+    nextAction: profile.nextAction,
+  });
   const memoryIds = new Set(memoryProjection.referenceIds);
   const visibleBeliefs = (memory?.beliefs ?? []).filter((belief) => memoryIds.has(belief.id));
   const visibleCommitments = (memory?.commitments ?? []).filter((commitment) => memoryIds.has(commitment.id) && commitment.status === "active");
@@ -430,8 +539,9 @@ export function advanceAutonomousWorldState(
   after: WorldKernel,
   week: number,
   memory?: DynamicMemoryState,
+  planningSignatures?: ReadonlyMap<string, string>,
 ): AutonomousWorldState {
-  const current = ensureAutonomousWorldState(state, after);
+  const current = ensureAutonomousWorldState(state, after, memory);
   const profiles = current.profiles.map((profile) => {
     const entity = profile.kind === "actor"
       ? after.actors.find((actor) => actor.id === profile.entityId)
@@ -455,14 +565,17 @@ export function advanceAutonomousWorldState(
       nextAction,
       privateMemoryIds: [...new Set([...profile.privateMemoryIds, ...receivedKnowledgeIds, ...witnessedEvents.map((event) => event.id)])].slice(-32),
       reflection,
+      lastPlanningSignature: planningSignatures?.get(profile.ref) ?? profile.lastPlanningSignature,
       updatedWeek: week,
     };
   });
+  const residency = selectAutonomousAgentResidency(profiles, after, current.activeAgentRefs, MAX_ACTIVE_AUTONOMOUS_AGENTS, memory);
+  const active = new Set(residency.activeAgentRefs);
   return {
     version: 1,
-    profiles,
+    profiles: profiles.map((profile) => active.has(profile.ref) ? { ...profile, lastActiveWeek: Math.max(profile.lastActiveWeek ?? 0, after.currentWeek) } : profile),
     socialTies: updateSocialTies(current.socialTies, after, week),
-    ...selectAutonomousAgentResidency(profiles, after, current.activeAgentRefs, MAX_ACTIVE_AUTONOMOUS_AGENTS),
+    ...residency,
     lastPlannedWeek: week,
   };
 }

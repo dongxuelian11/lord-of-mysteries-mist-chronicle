@@ -12,10 +12,18 @@ import type {
 import type { LegacyLoreRecord } from "./index";
 
 export type RagBridgeAudience = {
-  kind: "world-simulation-internal" | "player-facing-narrator" | "player-known" | "actor-private" | "world" | "player" | "actor";
+  kind: "world-simulation-internal" | "player-facing-narrator" | "player-known" | "actor-private" | "faction-private" | "world" | "player" | "actor" | "faction";
   knownLoreIds: string[];
   topicGrants: string[];
 };
+
+export function normalizeRagAudienceKind(kind: RagBridgeAudience["kind"]): "world" | "player" | "actor" | "faction" {
+  if (kind === "world-simulation-internal") return "world";
+  if (kind === "player-facing-narrator" || kind === "player-known") return "player";
+  if (kind === "actor-private") return "actor";
+  if (kind === "faction-private") return "faction";
+  return kind;
+}
 
 export type RagBridgeSearchRequest = {
   query: string;
@@ -114,7 +122,7 @@ export function reFilter(
 ): RagBridgeChunk[] {
   const filters = {
     audience: {
-      kind: request.audience.kind === "world-simulation-internal" ? "world" : request.audience.kind === "player-facing-narrator" || request.audience.kind === "player-known" ? "player" : request.audience.kind === "actor-private" ? "actor" : request.audience.kind,
+      kind: normalizeRagAudienceKind(request.audience.kind),
       knownLoreIds: request.audience.knownLoreIds,
       topicGrants: request.audience.topicGrants,
     },
@@ -225,15 +233,7 @@ export async function retrieveLoreContextAsync(
     {
       query: request.query,
       audience: {
-        kind:
-          request.audience.kind === "world-simulation-internal"
-            ? "world"
-            : request.audience.kind === "player-facing-narrator" ||
-                request.audience.kind === "player-known"
-              ? "player"
-              : request.audience.kind === "actor-private"
-                ? "actor"
-                : request.audience.kind,
+        kind: normalizeRagAudienceKind(request.audience.kind),
         knownLoreIds: request.audience.knownLoreIds,
         topicGrants: request.audience.topicGrants,
       },

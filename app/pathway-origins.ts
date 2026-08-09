@@ -220,6 +220,15 @@ export function difficultyLabel(value: number) {
 
 const LORE_IDS = new Set(LORE_RECORDS.map((record) => record.id));
 
+function stableOriginHash(value: string) {
+  let output = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    output ^= value.charCodeAt(index);
+    output = Math.imul(output, 16777619);
+  }
+  return (output >>> 0).toString(36);
+}
+
 function parseJsonObject(raw: string): Record<string, unknown> {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
@@ -256,8 +265,25 @@ export function validateDynamicPathwayOrigin(value: unknown, pathwayId: Standard
   const burden = specialBurden || text("burden");
   const factionIds = new Set(["night-church", "steam-church", "royal-project", "witch-sect", "aurora-order", "police", "press", "black-market"]);
   const hostileFactionId = typeof raw.hostileFactionId === "string" && factionIds.has(raw.hostileFactionId) ? raw.hostileFactionId : "police";
+  const identity = stableOriginHash(JSON.stringify({
+    pathwayId,
+    title: text("title", 48),
+    summary: text("summary", 280),
+    startingSequence,
+    source: text("source"),
+    contact: text("contact"),
+    enemy: text("enemy"),
+    firstCrisis: text("firstCrisis"),
+    districtId,
+    blockNumber,
+    resources,
+    exposure: Math.max(0, Math.min(30, Number(raw.exposure) || 8)),
+    reputation: Math.max(-15, Math.min(18, Number(raw.reputation) || 0)),
+    hostileFactionId,
+    evidence: [...new Set(evidence)].sort(),
+  }));
   return {
-    id: `${pathwayId}-dynamic-${Date.now()}`,
+    id: `${pathwayId}-dynamic-${identity}`,
     pathwayId,
     kind: "dynamic",
     title: text("title", 48),

@@ -135,7 +135,7 @@ export type LoreChunk = {
   updatedAt: string;
 };
 
-export type RagAudienceKind = "world" | "player" | "actor";
+export type RagAudienceKind = "world" | "player" | "actor" | "faction";
 
 export type RagAudience = {
   kind: RagAudienceKind;

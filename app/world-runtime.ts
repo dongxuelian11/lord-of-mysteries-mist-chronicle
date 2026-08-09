@@ -29,6 +29,9 @@ export type AgentProposal = {
   locationId?: string;
   targetRefs: string[];
   requiredKnowledgeIds: string[];
+  usedMemoryIds: string[];
+  planningSource: "model" | "materiality-skip" | "deterministic-fallback";
+  planningIssue?: string;
   conditionalOn?: string;
 };
 
@@ -55,7 +58,9 @@ export type IndependentPlanningOptions = {
   concurrency?: number;
   proposalCache?: Map<string, AgentProposal>;
   memory?: DynamicMemoryState;
-  onAgentStage?: (stage: { ref: string; attempt: number; state: "planning" | "retrying" | "ready" }) => void;
+  materialityGate?: boolean;
+  failurePolicy?: "abort" | "fallback-wait";
+  onAgentStage?: (stage: { ref: string; attempt: number; state: "planning" | "retrying" | "ready" | "degraded" }) => void;
 };
 
 type PlanningFailure = { frame: AutonomousDecisionFrame; issue: string };
@@ -89,7 +94,14 @@ function stringList(value: unknown, maximum: number) {
     : [];
 }
 
-export function validateAgentProposal(value: unknown, frame: AutonomousDecisionFrame): { proposal?: AgentProposal; issue?: string } {
+type AgentProposalValidationContext = AutonomousDecisionFrame | AgentPlanningProjection;
+
+function validationFrame(context: AgentProposalValidationContext) {
+  return "agent" in context ? context.agent : context;
+}
+
+export function validateAgentProposal(value: unknown, context: AgentProposalValidationContext): { proposal?: AgentProposal; issue?: string } {
+  const frame = validationFrame(context);
   const input = recordOf(value);
   if (!input) return { issue: "没有返回对象" };
   if (input.agentRef !== frame.ref) return { issue: "agentRef 与当前独立主体不一致" };
@@ -109,10 +121,21 @@ export function validateAgentProposal(value: unknown, frame: AutonomousDecisionF
   // 因此确定性地归位到 requiredKnowledgeIds；未知裸 id 仍然拒绝，不能猜测实体类型。
   const misplacedKnowledgeIds = rawTargetRefs.filter((ref) => allowedKnowledgeIds.has(ref));
   const requiredKnowledgeIds = [...new Set([...explicitKnowledgeIds, ...misplacedKnowledgeIds])].slice(0, 16);
+  const usedMemoryIds = stringList(input.usedMemoryIds, 12);
+  if (usedMemoryIds.length) {
+    if (!("memoryReferenceIds" in context)) return { issue: "缺少记忆引用授权上下文" };
+    const allowedMemoryIds = new Set(context.memoryReferenceIds);
+    const unauthorizedMemory = usedMemoryIds.find((id) => !allowedMemoryIds.has(id));
+    if (unauthorizedMemory) return { issue: `记忆引用不可见或未授权：${unauthorizedMemory}` };
+  }
   const targetRefs = rawTargetRefs.filter((ref) => !allowedKnowledgeIds.has(ref));
   const invalidTarget = targetRefs.find((ref) => !targetRefPattern.test(ref));
   if (invalidTarget) return { issue: `目标引用格式无效：${invalidTarget}` };
+  const allowedTargetRefs = new Set(frame.allowedTargetRefs);
+  const unauthorizedTarget = targetRefs.find((ref) => !allowedTargetRefs.has(ref));
+  if (unauthorizedTarget) return { issue: `目标引用不可见或未授权：${unauthorizedTarget}` };
   const locationId = shortText(input.locationId, 80) || undefined;
+  if (locationId && !frame.allowedLocationIds.includes(locationId)) return { issue: `地点不可见或未授权：${locationId}` };
   const conditionalOn = shortText(input.conditionalOn, 300) || undefined;
   return {
     proposal: {
@@ -125,6 +148,8 @@ export function validateAgentProposal(value: unknown, frame: AutonomousDecisionF
       ...(locationId ? { locationId } : {}),
       targetRefs,
       requiredKnowledgeIds,
+      usedMemoryIds,
+      planningSource: "model",
       ...(conditionalOn ? { conditionalOn } : {}),
     },
   };
@@ -139,7 +164,11 @@ export function buildAgentPlanningProjection(frame: AutonomousDecisionFrame, ker
   const memoryAudience: AutonomousMemoryAudience = frame.kind === "actor"
     ? { kind: "actor", actorId: entityId }
     : { kind: "faction", factionId: entityId };
-  const dynamicMemory = buildAutonomousMemoryProjection(memory, memoryAudience, frame.planningWeek);
+  const dynamicMemory = buildAutonomousMemoryProjection(memory, memoryAudience, frame.planningWeek, {
+    objective: frame.currentObjective,
+    nextAction: frame.nextAction,
+    relationshipRefs: frame.relationships.map((relationship) => relationship.targetRef),
+  });
   return {
     week: frame.planningWeek,
     agent: frame,
@@ -184,7 +213,25 @@ export async function planActiveAgentsIndependently(
   const framesByRef = new Map(frames.map((frame) => [frame.ref, frame]));
   for (const [ref, proposal] of cached) {
     const frame = framesByRef.get(ref);
-    if (!frame || !validateAgentProposal(proposal, frame).proposal) cached.delete(ref);
+    if (!frame || !validateAgentProposal(proposal, buildAgentPlanningProjection(frame, kernel, options.memory)).proposal) cached.delete(ref);
+  }
+  if (options.materialityGate) {
+    for (const frame of frames) {
+      if (cached.has(frame.ref) || !frame.previousPlanningSignature || frame.previousPlanningSignature !== frame.planningSignature) continue;
+      cached.set(frame.ref, {
+        version: 1,
+        planningWeek: frame.planningWeek,
+        agentRef: frame.ref,
+        disposition: frame.nextAction ? "continue" : "wait",
+        intent: frame.nextAction || "本周没有足以改变既定方向的新状态，保持观察。",
+        rationale: "确定性实质变化门确认目标、认知、记忆、关系与项目均未改变，因此不重复调用模型。",
+        targetRefs: [],
+        requiredKnowledgeIds: [],
+        usedMemoryIds: [],
+        planningSource: "materiality-skip",
+      });
+      options.onAgentStage?.({ ref: frame.ref, attempt: 0, state: "ready" });
+    }
   }
   let pending: PlanningFailure[] = frames.filter((frame) => !cached.has(frame.ref)).map((frame) => ({ frame, issue: "尚未规划" }));
 
@@ -194,8 +241,9 @@ export async function planActiveAgentsIndependently(
     const results = await runPool(current.map(({ frame, issue }) => async () => {
       options.onAgentStage?.({ ref: frame.ref, attempt, state: attempt === 1 ? "planning" : "retrying" });
       try {
-        const raw = await planner(buildAgentPlanningProjection(frame, kernel, options.memory), { attempt, ...(attempt > 1 ? { previousIssue: issue } : {}) });
-        const checked = validateAgentProposal(raw, frame);
+        const projection = buildAgentPlanningProjection(frame, kernel, options.memory);
+        const raw = await planner(projection, { attempt, ...(attempt > 1 ? { previousIssue: issue } : {}) });
+        const checked = validateAgentProposal(raw, projection);
         return checked.proposal ? { frame, proposal: checked.proposal } : { frame, issue: checked.issue ?? "未知结构错误" };
       } catch (error) {
         return { frame, issue: error instanceof Error ? error.message : "模型调用失败" };
@@ -209,6 +257,25 @@ export async function planActiveAgentsIndependently(
     }
   }
 
+  if (pending.length && options.failurePolicy === "fallback-wait") {
+    for (const failure of pending) {
+      cached.set(failure.frame.ref, {
+        version: 1,
+        planningWeek: failure.frame.planningWeek,
+        agentRef: failure.frame.ref,
+        disposition: "wait",
+        intent: "本周保持既定安排，不在规划器失效时制造未经授权的新行动。",
+        rationale: "该主体的独立规划在限定重试内未形成合法提案，已隔离降级；其他主体与世界周继续结算。",
+        targetRefs: [],
+        requiredKnowledgeIds: [],
+        usedMemoryIds: [],
+        planningSource: "deterministic-fallback",
+        planningIssue: failure.issue.slice(0, 300),
+      });
+      options.onAgentStage?.({ ref: failure.frame.ref, attempt: maxAttempts, state: "degraded" });
+    }
+    pending = [];
+  }
   if (pending.length) throw new AgentPlanningError(pending, [...cached.keys()]);
   return frames.map((frame) => cached.get(frame.ref)!).filter(Boolean);
 }
@@ -217,11 +284,21 @@ function proposalRefs(proposals: AgentProposal[]) {
   return new Set(proposals.flatMap((proposal) => [proposal.agentRef, ...proposal.targetRefs]));
 }
 
-export function buildAdjudicatorProjection(kernel: WorldKernel, proposals: AgentProposal[]) {
-  const refs = proposalRefs(proposals);
+export function buildAdjudicatorProjection(kernel: WorldKernel, proposals: AgentProposal[], contexts?: AgentProposalValidationContext[]) {
+  const authorizedProposals = contexts ? proposals.map((proposal) => {
+    const context = contexts.find((candidate) => validationFrame(candidate).ref === proposal.agentRef);
+    const checked = context ? validateAgentProposal(proposal, context) : {};
+    if (!checked.proposal) throw new Error(`Agent 提案未通过主体授权校验：${proposal.agentRef}${checked.issue ? `（${checked.issue}）` : ""}`);
+    return {
+      ...checked.proposal,
+      planningSource: proposal.planningSource,
+      ...(proposal.planningIssue ? { planningIssue: proposal.planningIssue } : {}),
+    };
+  }) : proposals;
+  const refs = proposalRefs(authorizedProposals);
   const entityIds = new Set([...refs].filter((ref) => ref.startsWith("actor:") || ref.startsWith("faction:")).map((ref) => ref.slice(ref.indexOf(":") + 1)));
-  const locationIds = new Set(proposals.flatMap((proposal) => [proposal.locationId, ...proposal.targetRefs.filter((ref) => ref.startsWith("location:")).map((ref) => ref.slice("location:".length))]).filter((id): id is string => Boolean(id)));
-  const projectIds = new Set(proposals.flatMap((proposal) => proposal.targetRefs.filter((ref) => ref.startsWith("project:")).map((ref) => ref.slice("project:".length))));
+  const locationIds = new Set(authorizedProposals.flatMap((proposal) => [proposal.locationId, ...proposal.targetRefs.filter((ref) => ref.startsWith("location:")).map((ref) => ref.slice("location:".length))]).filter((id): id is string => Boolean(id)));
+  const projectIds = new Set(authorizedProposals.flatMap((proposal) => proposal.targetRefs.filter((ref) => ref.startsWith("project:")).map((ref) => ref.slice("project:".length))));
   const projects = kernel.projects
     .filter((project) => projectIds.has(project.id) || entityIds.has(project.ownerId) || (project.status === "active" && project.updatedWeek >= kernel.currentWeek - 2))
     .sort((left, right) => right.updatedWeek - left.updatedWeek || left.id.localeCompare(right.id))
@@ -239,7 +316,7 @@ export function buildAdjudicatorProjection(kernel: WorldKernel, proposals: Agent
     currentWeek: kernel.currentWeek,
     currentDate: kernel.currentDate,
     canon: kernel.canon,
-    proposals,
+    proposals: authorizedProposals,
     actors: kernel.actors.filter((actor) => entityIds.has(actor.id)).slice(0, WORLD_RUNTIME_LIMITS.adjudicatorActors),
     factions: kernel.factions.filter((faction) => entityIds.has(faction.id)).slice(0, WORLD_RUNTIME_LIMITS.adjudicatorFactions),
     projects,
@@ -288,8 +365,6 @@ export function fitWorldAdjudicatorPayload<T extends Record<string, unknown>>(in
   trimPayloadArray(payload, "knownEvidence", 16, true);
   trimPayloadArray(payload, "pivots", 8, true);
   trimPayloadArray(payload, "timeline", 16, true);
-  trimPayloadArray(payload, "factions", 12);
-  trimPayloadArray(payload, "canonActors", 12);
   trimPayloadText(payload, "dynamicMemory", 7_000);
   trimPayloadText(payload, "authorizedLore", 10_000);
   trimPayloadText(payload, "designerSupplement", 4_000);
@@ -326,8 +401,6 @@ export function fitWorldAdjudicatorPayload<T extends Record<string, unknown>>(in
     trimPayloadArray(payload, "knownEvidence", 8, true);
     trimPayloadArray(payload, "pivots", 4, true);
     trimPayloadArray(payload, "timeline", 8, true);
-    trimPayloadArray(payload, "factions", 8);
-    trimPayloadArray(payload, "canonActors", 8);
     trimPayloadText(payload, "dynamicMemory", 2_000);
     trimPayloadText(payload, "authorizedLore", 3_500);
     trimPayloadText(payload, "designerSupplement", 500);
@@ -360,7 +433,7 @@ export function fitWorldAdjudicatorPayload<T extends Record<string, unknown>>(in
     trimPayloadArray(highSequence, "sefirot", 5);
     trimPayloadArray(highSequence, "recentEvents", 10, true);
 
-    for (const key of ["recentWorld", "recentSignals", "knownEvidence", "pivots", "timeline", "factions", "canonActors"]) compactPayloadArrayText(payload, key, 240);
+    for (const key of ["recentWorld", "recentSignals", "knownEvidence", "pivots", "timeline"]) compactPayloadArrayText(payload, key, 240);
     for (const key of ["offices", "formulas", "branches", "departments", "members", "recruits", "unresolvedIssues"]) compactPayloadArrayText(organization, key, 240);
     for (const key of ["profiles", "diplomacy", "latestOutcomes"]) compactPayloadArrayText(strategy, key, 240);
     for (const key of ["actors", "factions", "recentEvents", "projects", "locations"]) compactPayloadArrayText(adjudicator, key, 240);

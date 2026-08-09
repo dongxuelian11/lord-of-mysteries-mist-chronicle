@@ -17,7 +17,7 @@ import {
   createAutonomousWorldState,
   ensureAutonomousWorldState,
 } from "../app/autonomous-agents.ts";
-import { deriveMemory, emptyMemoryState } from "../app/memory/index.ts";
+import { buildAutonomousMemoryProjection, deriveMemory, emptyMemoryState } from "../app/memory/index.ts";
 import { applyWorldTurn, createWorldKernel } from "../app/world-kernel.ts";
 
 function crowdedKernel() {
@@ -98,6 +98,13 @@ test("agent planning projections include bounded private memory with explicit ac
   assert.ok(!press.dynamicMemory.includes("记者私有判断"));
   assert.ok(!press.dynamicMemory.includes("书记员秘密"));
   assert.ok(press.memoryReferenceIds.length <= 12);
+
+  const usedMemoryId = reporter.memoryReferenceIds[0];
+  assert.ok(usedMemoryId);
+  const accepted = validateAgentProposal(validProposal(reporter.agent, { usedMemoryIds: [usedMemoryId] }), reporter);
+  assert.deepEqual(accepted.proposal?.usedMemoryIds, [usedMemoryId]);
+  const forged = validateAgentProposal(validProposal(reporter.agent, { usedMemoryIds: [press.memoryReferenceIds[0]] }), reporter);
+  assert.match(forged.issue, /记忆.*不可见|记忆.*未授权/);
 });
 
 test("a cold agent returns to the active set when a new event makes it relevant", () => {
@@ -138,6 +145,159 @@ test("proposal validation rejects knowledge the agent cannot see", () => {
   const frame = buildAutonomousDecisionFrames(createAutonomousWorldState(kernel), kernel, 5)[0];
   const checked = validateAgentProposal(validProposal(frame, { requiredKnowledgeIds: ["someone-elses-secret"] }), frame);
   assert.match(checked.issue, /不可见/);
+});
+
+test("materiality signatures skip unchanged model calls and reopen planning after an objective change", async () => {
+  const kernel = crowdedKernel();
+  const initial = createAutonomousWorldState(kernel);
+  const firstFrames = buildAutonomousDecisionFrames(initial, kernel, 5).slice(0, 2);
+  assert.ok(firstFrames.every((frame) => typeof frame.planningSignature === "string"));
+  initial.profiles = initial.profiles.map((profile) => {
+    const frame = firstFrames.find((candidate) => candidate.ref === profile.ref);
+    return frame ? { ...profile, lastPlanningSignature: frame.planningSignature } : profile;
+  });
+  const unchangedFrames = buildAutonomousDecisionFrames(initial, kernel, 5).filter((frame) => firstFrames.some((candidate) => candidate.ref === frame.ref));
+  let calls = 0;
+  const skipped = await planActiveAgentsIndependently(unchangedFrames, kernel, async ({ agent }) => {
+    calls += 1;
+    return validProposal(agent);
+  }, { materialityGate: true });
+  assert.equal(calls, 0);
+  assert.ok(skipped.every((proposal) => proposal.planningSource === "materiality-skip"));
+
+  const changedRef = unchangedFrames[0].ref;
+  initial.profiles = initial.profiles.map((profile) => profile.ref === changedRef ? { ...profile, currentObjective: `${profile.currentObjective}，立即核对新名单` } : profile);
+  const changedFrames = buildAutonomousDecisionFrames(initial, kernel, 5).filter((frame) => firstFrames.some((candidate) => candidate.ref === frame.ref));
+  calls = 0;
+  await planActiveAgentsIndependently(changedFrames, kernel, async ({ agent }) => {
+    calls += 1;
+    return validProposal(agent);
+  }, { materialityGate: true });
+  assert.equal(calls, 1);
+});
+
+test("a failed agent can degrade to a private wait proposal without discarding successful peers", async () => {
+  const kernel = crowdedKernel();
+  const frames = buildAutonomousDecisionFrames(createAutonomousWorldState(kernel), kernel, 5).slice(0, 2);
+  const proposals = await planActiveAgentsIndependently(frames, kernel, async ({ agent }) => {
+    return agent.ref === frames[0].ref ? validProposal(agent) : { broken: true };
+  }, { maxAttempts: 1, failurePolicy: "fallback-wait" });
+  assert.equal(proposals.length, 2);
+  assert.equal(proposals[0].planningSource, "model");
+  assert.equal(proposals[1].planningSource, "deterministic-fallback");
+  assert.equal(proposals[1].disposition, "wait");
+  assert.match(proposals[1].planningIssue, /agentRef|对象|主体/);
+});
+
+test("urgent commitments, blocked plans and objective-relevant beliefs survive old high-importance event pressure", () => {
+  const actorId = "reporter";
+  const seeds = [
+    ...Array.from({ length: 20 }, (_, index) => ({ kind: "event", sourceEventId: `old-event-${index}`, week: 1, type: "incident", summary: `很久以前的重大事件${index}`, participantIds: [actorId], observerIds: [], importance: 1, emotionalWeight: 1 })),
+    { kind: "belief", characterId: actorId, subjectId: "list", claimType: "source", claim: "核实名单需要比较第二来源的印章", confidence: 0.7, truthStatus: "uncertain", learnedFrom: { type: "deduced", sourceId: "list-source" }, validFromWeek: 8, importance: 0.25 },
+    { kind: "commitment", id: "urgent-source-promise", type: "promise", participantIds: [actorId], summary: "本周必须保护名单的第二来源", createdWeek: 2, dueWeek: 10, sourceEventId: "promise-source", importance: 0.2 },
+    { kind: "plan", id: "blocked-list-plan", ownerId: actorId, participantIds: [actorId], title: "核实名单", objective: "找到第二来源", currentStep: "解决印章样本缺失", createdWeek: 3, dueWeek: 11, status: "blocked", blockerIds: ["missing-seal"], importance: 0.2 },
+  ];
+  const memory = deriveMemory(emptyMemoryState(), seeds).state;
+  const projection = buildAutonomousMemoryProjection(memory, { kind: "actor", actorId }, 10, {
+    objective: "核实名单并找到第二来源",
+    nextAction: "比较两份名单的印章",
+    relationshipRefs: [],
+  });
+
+  assert.ok(projection.referenceIds.includes("urgent-source-promise"));
+  assert.ok(projection.referenceIds.includes("blocked-list-plan"));
+  assert.ok(projection.referenceIds.some((id) => id.startsWith("mem:belief:reporter")));
+  assert.ok(projection.referenceIds.length <= 12);
+  assert.ok(projection.text.length <= 2_800);
+});
+
+test("long-cold agents rotate back in and urgent memory deterministically wakes its owner", () => {
+  const kernel = crowdedKernel();
+  kernel.currentWeek = 20;
+  const state = createAutonomousWorldState(kernel);
+  const coldRef = state.coldAgentRefs.find((ref) => ref.startsWith("actor:"));
+  assert.ok(coldRef);
+  const actorId = coldRef.slice("actor:".length);
+  state.profiles = state.profiles.map((profile) => ({
+    ...profile,
+    lastActiveWeek: state.activeAgentRefs.includes(profile.ref) ? 19 : 2,
+  }));
+  const memory = deriveMemory(emptyMemoryState(), [{
+    kind: "commitment",
+    id: "cold-agent-deadline",
+    type: "promise",
+    participantIds: [actorId],
+    summary: "今天必须完成旧约定",
+    createdWeek: 2,
+    dueWeek: 20,
+    sourceEventId: "old-promise",
+    importance: 0.4,
+  }]).state;
+
+  const refreshed = ensureAutonomousWorldState(state, kernel, memory);
+  assert.ok(refreshed.activeAgentRefs.includes(coldRef));
+  assert.equal(refreshed.activeAgentRefs.length, ACTIVE_AGENT_LIMIT);
+});
+
+test("proposal validation rejects structured entities and locations outside the agent projection", () => {
+  const kernel = crowdedKernel();
+  const frame = buildAutonomousDecisionFrames(createAutonomousWorldState(kernel), kernel, 5)[0];
+  const hiddenActorRef = "actor:actor-29";
+  assert.ok(!frame.allowedTargetRefs.includes(hiddenActorRef));
+
+  const hiddenTarget = validateAgentProposal(validProposal(frame, { targetRefs: [hiddenActorRef] }), frame);
+  assert.match(hiddenTarget.issue, /不可见|未授权/);
+
+  const missingLocation = validateAgentProposal(validProposal(frame, { locationId: "place-does-not-exist" }), frame);
+  assert.match(missingLocation.issue, /地点.*不可见|地点.*未授权/);
+
+  assert.throws(
+    () => buildAdjudicatorProjection(kernel, [validProposal(frame, { targetRefs: [hiddenActorRef] })], [frame]),
+    /未通过主体授权校验/,
+  );
+});
+
+test("visible participants, owned projects and known locations form explicit proposal allowlists", () => {
+  const initial = createWorldKernel({
+    week: 5,
+    date: "1349年2月18日",
+    actors: [
+      { id: "reporter", name: "记者", locationId: "east", agenda: "核实名单" },
+      { id: "clerk", name: "书记员", locationId: "north", agenda: "保住职位" },
+      { id: "hidden", name: "暗线", locationId: "vault", agenda: "保持隐蔽" },
+    ],
+    factions: [{ id: "press", name: "晚报消息网", plan: "保护消息源", progress: 20 }],
+    locations: [
+      { id: "east", name: "东区", risk: 50 },
+      { id: "north", name: "北区", risk: 30 },
+      { id: "vault", name: "地下档案室", risk: 80 },
+    ],
+    timeline: [],
+  });
+  const kernel = applyWorldTurn(initial, {
+    week: 5,
+    playerIssuedNoOrders: true,
+    actorUpdates: [], projectUpdates: [], locationUpdates: [], observations: [],
+    events: [{ id: "public-briefing", title: "公开核对", detail: "记者与书记员核对名单。", locationId: "east", actorIds: ["reporter", "clerk"], factionIds: ["press"], causeIds: [], visibility: "public" }],
+  });
+  const frames = buildAutonomousDecisionFrames(createAutonomousWorldState(kernel), kernel, 6);
+  const reporter = frames.find((frame) => frame.ref === "actor:reporter");
+  const press = frames.find((frame) => frame.ref === "faction:press");
+
+  assert.ok(reporter.allowedTargetRefs.includes("actor:reporter"));
+  assert.ok(reporter.allowedTargetRefs.includes("actor:clerk"));
+  assert.ok(reporter.allowedTargetRefs.includes("faction:press"));
+  assert.ok(reporter.allowedTargetRefs.includes("location:east"));
+  assert.ok(!reporter.allowedTargetRefs.includes("actor:hidden"));
+  assert.ok(reporter.allowedLocationIds.includes("east"));
+  assert.ok(press.allowedTargetRefs.includes("project:faction:press"));
+
+  const checked = validateAgentProposal(validProposal(reporter, {
+    disposition: "act",
+    locationId: "east",
+    targetRefs: ["actor:clerk", "faction:press", "location:east"],
+  }), reporter);
+  assert.ok(checked.proposal);
 });
 
 test("a visible knowledge id misplaced in targetRefs is deterministically normalized", () => {

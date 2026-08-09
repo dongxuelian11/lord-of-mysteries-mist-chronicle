@@ -9,7 +9,7 @@ import {
   UsersRound, WandSparkles, X, Zap,
 } from "lucide-react";
 import {
-  ActionContract, ADVANCEMENT_RITUALS, ChronicleChapter, createInitialGame, DISTRICTS, FIXED_RECRUIT_POOL, GameState, INITIAL_MEMBERS, initializeWorldKernel, materialsFor, organizationKindById, PATHWAYS,
+  ActionContract, ADVANCEMENT_RITUALS, ChronicleChapter, createInitialGame, DISTRICTS, FIXED_RECRUIT_POOL, GameState, INITIAL_MEMBERS, materialsFor, organizationKindById, PATHWAYS,
   Ability, AbilityContext, AbilityUseRecord, PathwayId, PlayerOrigin, RiskLevel, ViewId,
 } from "./game-model";
 import {
@@ -20,7 +20,7 @@ import {
 } from "./game-engine";
 import { assignFinaleResource, autoDeployFinale, chooseFinaleDoctrine, refreshFinaleFronts, resolveFinalePhase } from "./finale-system";
 import OrganizationManagementConsole from "./organization-management-console";
-import { advanceManagedBeyonder, migrateOrganizationManagementState, promoteCandidate, recalculateBacklundControl, startCandidateScreening, type OrganizationManagementState } from "./organization-management";
+import { advanceManagedBeyonder, promoteCandidate, recalculateBacklundControl, startCandidateScreening, type OrganizationManagementState } from "./organization-management";
 import GreatSmogFinale from "./great-smog-finale";
 import AiSettings from "./ai-settings";
 import { AiConfig, DEEPSEEK_FLASH_PRESET, testModelConnection } from "./ai-client";
@@ -32,71 +32,18 @@ import { abilityForFreeIntent, continueAbilityScene, generateAbilityDraft, gener
 import { generateCouncilReplies, generateCouncilSummary, generateDecisionDraft } from "./council-ai";
 import { actingPrinciplesFor, advancementStatus } from "./progression-system";
 import { abilitiesFor } from "./pathway-abilities";
-import { ACTIVE_SAVE_KEY, LEGACY_ACTIVE_SAVE_KEYS, createRecoveryCheckpoint, downloadSave, parseSaveEnvelope, savePreview } from "./save-system";
+import { ACTIVE_SAVE_KEY, LEGACY_ACTIVE_SAVE_KEYS, createRecoveryCheckpoint, downloadSave, migrateStoredGame, normalizeStoredGame, parseSaveEnvelope, savePreview } from "./save-system";
 import { continueAsSuccessor } from "./succession-system";
-import { createWorldLedger, migrateWorldLedger, type LegacyWorldLedger, type WorldLedger } from "./world-ledger.ts";
-import { createAutonomousWorldState } from "./autonomous-agents.ts";
-import { createFactionStrategyState, ensureFactionStrategyState } from "./faction-strategy.ts";
 import ParticipationSceneOverlay from "./participation-scene-overlay";
 import { createParticipationScene, resolveParticipationSceneTurn } from "./participation-scene";
-import { ensureHighSequenceLedger } from "./high-sequence-ledger.ts";
-import { ensureCampaignWorldState } from "./campaign-world.ts";
+import { stableEntityId, stableTextHash } from "./stable-id";
 
 const SAVE_KEY = ACTIVE_SAVE_KEY;
-const LEGACY_SAVE_KEYS = [...LEGACY_ACTIVE_SAVE_KEYS, "mist-chronicle-complete-v15", "mist-chronicle-complete-v14", "mist-chronicle-complete-v13", "mist-chronicle-complete-v12", "mist-chronicle-complete-v11", "mist-chronicle-complete-v10", "mist-chronicle-complete-v9", "mist-chronicle-complete-v8", "mist-chronicle-complete-v7", "mist-chronicle-complete-v6", "mist-chronicle-complete-v5"];
+const LEGACY_SAVE_KEYS = LEGACY_ACTIVE_SAVE_KEYS;
 const AI_KEY = "mist-chronicle-save-v3-ai";
 const AI_SESSION_KEY = "mist-chronicle-session-ai-key";
 const DEV_MODE = typeof window !== "undefined" && window.localStorage.getItem("mist-chronicle-dev-mode") === "1";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-
-function displayNarrative(text: string) {
-  return text.replace(/若继续搁置[，,]\s*若继续(?:搁置|放任)[，,]\s*/g, "若继续搁置，").replace(/([。！？；])\1+/g, "$1");
-}
-
-function normalizeNarrativeGame(game: GameState): GameState {
-  const fresh = createInitialGame(game.pathwayId ?? "seer");
-  const normalized: GameState = {
-    ...game,
-    version: 21,
-    playerOrigin: {
-      ...fresh.playerOrigin,
-      ...(game.playerOrigin ?? {}),
-      gender: game.playerOrigin?.gender ?? "",
-      age: game.playerOrigin?.age ?? "",
-      organizationName: game.playerOrigin?.organizationName || game.organizationName || fresh.playerOrigin.organizationName,
-      organizationKind: game.playerOrigin?.organizationKind ?? "detective",
-      organizationKindLabel: game.playerOrigin?.organizationKindLabel ?? "侦探事务所",
-      organizationCharter: game.playerOrigin?.organizationCharter || game.charter || fresh.playerOrigin.organizationCharter,
-    },
-    actingMarks: game.actingMarks ?? [],
-    activeParticipationScene: game.activeParticipationScene ?? null,
-    advancementProcess: game.advancementProcess ?? null,
-    materials: (game.materials ?? fresh.materials).map((item) => ({ authenticity: item.obtained ? "已确认" : "未知", purity: item.obtained ? 80 : 0, freshness: item.obtained ? 75 : 0, contamination: 0, traceRisk: 0, storage: item.obtained ? "组织材料柜" : "尚未入库", provenance: item.obtained ? item.source : "尚未建立来源链", ...item })),
-    members: (game.members ?? fresh.members).map((item) => ({ relationshipMomentum: 0, personalPressure: 8, personalEventSignals: [], promises: [], lastRelationshipChangeWeek: 0, ...item })),
-    recruitPool: (game.recruitPool ?? fresh.recruitPool).map((item) => ({ relationshipMomentum: 0, personalPressure: 5, personalEventSignals: [], promises: [], lastRelationshipChangeWeek: 0, ...item })),
-    departments: (game.departments ?? fresh.departments).map((item) => ({ memberIds: [item.leadMemberId], capacity: 50, cohesion: 60, exposure: 10, backlog: 20, standingOrder: item.mandate, tensions: [], lastReport: "等待本周汇报", ...item })),
-    departmentReports: game.departmentReports ?? [],
-    organizationIssues: game.organizationIssues ?? [],
-    worldSignals: game.worldSignals ?? [],
-    worldSnapshots: game.worldSnapshots ?? [],
-    worldKernel: game.worldKernel ?? initializeWorldKernel(game),
-    worldAgents: game.worldAgents ?? createAutonomousWorldState(game.worldKernel ?? initializeWorldKernel(game)),
-    factionStrategy: game.factionStrategy ?? createFactionStrategyState(game.management ?? fresh.management, game.worldKernel ?? initializeWorldKernel(game)),
-    routeHypotheses: game.routeHypotheses ?? [],
-    spatialContext: game.spatialContext ?? [],
-    management: migrateOrganizationManagementState(game.management),
-    highSequenceLedger: ensureHighSequenceLedger(game.highSequenceLedger),
-    campaignWorld: ensureCampaignWorldState(game.campaignWorld),
-    chronicle: (game.chronicle ?? []).map((chapter) => ({ ...chapter, sections: chapter.sections.map((section) => ({ ...section, paragraphs: section.paragraphs.map(displayNarrative) })) })),
-  };
-  normalized.factionStrategy = ensureFactionStrategyState(game.factionStrategy, normalized.management, normalized.worldKernel);
-  return {
-    ...normalized,
-    worldLedger: game.worldLedger
-      ? migrateWorldLedger(game.worldLedger as unknown as WorldLedger | LegacyWorldLedger, normalized)
-      : createWorldLedger(normalized),
-  };
-}
 
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Command }[] = [
   { id: "intent", label: "议会", icon: Command },
@@ -180,20 +127,20 @@ export default function CompleteGame() {
       const legacySaved = LEGACY_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       const savedAi = window.localStorage.getItem(AI_KEY);
       if (saved) {
-        try { const value = JSON.parse(saved) as GameState; if (value.version === 21) { setGame(normalizeNarrativeGame(value)); setHasSave(Boolean(value.prologueComplete)); } }
+        try {
+          const migrated = migrateStoredGame(JSON.parse(saved));
+          if (!migrated) throw new Error("unsupported-save-version");
+          setGame(migrated.game);
+          setHasSave(migrated.hasSave);
+        }
         catch { window.localStorage.removeItem(SAVE_KEY); }
       } else if (legacySaved) {
         try {
-          const legacy = JSON.parse(legacySaved) as Partial<GameState>;
-          setHasSave(Boolean(legacy.prologueComplete ?? true));
-          const fresh = createInitialGame(legacy.pathwayId ?? "seer");
-          const migratedWorldKernel = legacy.worldKernel ?? initializeWorldKernel(legacy);
-          const migratedManagement = migrateOrganizationManagementState(legacy.management ?? fresh.management);
-          const abilityFields = { version: 21, spirituality: Math.max(12, legacy.spirituality ?? 12), spiritualityMax: 18, mentalLoad: legacy.mentalLoad ?? 0, lastMeditationWeek: legacy.lastMeditationWeek ?? 0, abilityJournal: legacy.abilityJournal ?? [], hiddenWorldFacts: legacy.hiddenWorldFacts ?? fresh.hiddenWorldFacts, activeAbilityScene: legacy.activeAbilityScene ?? null, activeParticipationScene: legacy.activeParticipationScene ?? null, playerOrigin: legacy.playerOrigin ?? fresh.playerOrigin, councilTopics: legacy.councilTopics ?? [], worldSignals: legacy.worldSignals ?? [], worldSnapshots: legacy.worldSnapshots ?? [], worldKernel: migratedWorldKernel, worldAgents: legacy.worldAgents ?? createAutonomousWorldState(migratedWorldKernel), factionStrategy: legacy.factionStrategy ?? createFactionStrategyState(migratedManagement, migratedWorldKernel), management: migratedManagement, highSequenceLedger: ensureHighSequenceLedger(legacy.highSequenceLedger), campaignWorld: ensureCampaignWorldState(legacy.campaignWorld) };
-          if ([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].includes(legacy.version ?? 0)) setGame(normalizeNarrativeGame({ ...(legacy as GameState), ...abilityFields }));
-          else if (legacy.version === 9) setGame({ ...(legacy as GameState), ...abilityFields, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [] });
-          else if (legacy.version === 8) setGame({ ...(legacy as GameState), ...abilityFields, prologueComplete: true, playerName: "无名负责人", playerAddress: "会长阁下", nameExposure: 4, knownAliases: [], dialogueThreads: [], councilRecords: [{ week: legacy.week ?? 1, status: "convened", decisions: [] }] });
-          else if ([5, 6, 7].includes(legacy.version ?? 0) && Array.isArray(legacy.chronicle)) setGame((current) => ({ ...current, chronicle: legacy.chronicle!.map((chapter) => ({ ...chapter, id: `legacy-${chapter.id}`, title: `旧历史分支 · ${chapter.title}` })) }));
+          const migrated = migrateStoredGame(JSON.parse(legacySaved));
+          if (migrated) {
+            setGame(migrated.game);
+            setHasSave(migrated.hasSave);
+          }
         } catch { /* 旧存档只用于读取纪事，损坏时不影响新游戏。 */ }
       }
       let secureResult: Awaited<ReturnType<NonNullable<typeof window.mistCredentials>["load"]>> = { available: false, apiKey: "" };
@@ -520,9 +467,10 @@ export default function CompleteGame() {
     const raw = text.trim();
     if (!raw) return null;
     if (!aiReady) { setShowSettings(true); setToast("自由讨论需要先连接AI模型；离线规则不会伪装成人物发言"); return null; }
-    const topicId = `council-topic-${Date.now()}`;
+    const topicOrdinal = game.councilTopics.filter((topic) => topic.week === game.week).length + 1;
+    const topicId = `council-topic:${game.week}:${topicOrdinal}:${stableTextHash(raw)}`;
     let replies: Awaited<ReturnType<typeof generateCouncilReplies>> = [];
-    try { replies = await generateCouncilReplies(aiConfig, game, raw); }
+    try { replies = await generateCouncilReplies(aiConfig, game, raw, topicId); }
     catch (error) { setToast(error instanceof Error ? error.message : "成员没有形成可用回应"); return null; }
     setGame((current) => ({
       ...current,
@@ -532,7 +480,7 @@ export default function CompleteGame() {
         title: raw.replace(/^请|围绕|关于/, "").slice(0, 42),
         pinned: false,
         status: "open" as const,
-        messages: [{ id: `council-player-${Date.now()}`, speakerId: "player", text: raw }, ...replies],
+        messages: [{ id: stableEntityId("council-message", topicId, "player", 1, raw), speakerId: "player", text: raw }, ...replies],
       }, ...current.councilTopics].slice(0, 30),
     }));
     return topicId;
@@ -613,7 +561,7 @@ export default function CompleteGame() {
       const confirmed = window.confirm(`导入预览\n\n${preview.organization} · ${preview.leader}\n第${preview.week}周 · ${preview.date}\n序列${preview.sequence} · ${preview.chapters}篇纪事\n\n确认后将覆盖当前唯一存档；现存游戏会先写入隐藏恢复点。`);
       if (!confirmed) return;
       if (game.prologueComplete) createRecoveryCheckpoint(game, "import");
-      const next = normalizeNarrativeGame(envelope.game);
+      const next = normalizeStoredGame(envelope.game);
       window.localStorage.setItem(SAVE_KEY, JSON.stringify(next));
       setGame(next); setHasSave(true); setEntry("title"); setToast("存档校验通过并已导入；仍从标题页进入游戏");
     } catch (error) {
@@ -714,14 +662,14 @@ export default function CompleteGame() {
       facilities: base.facilities.map((facility) => ({ ...facility, assignedMemberId: chosen.some((member) => member.id === facility.assignedMemberId) ? facility.assignedMemberId : undefined })),
       departments: base.departments.map((department) => ({ ...department, leadMemberId: department.id === "field" ? fieldLead?.id ?? chosen[0].id : supportLead?.id ?? chosen[0].id, memberIds: department.id === "field" ? chosen.filter((member) => /追踪|调查|灵体|警|路线|急救/.test(`${member.specialty}${member.role}`)).map((member) => member.id) : chosen.filter((member) => !/追踪|调查|灵体|警|路线|急救/.test(`${member.specialty}${member.role}`)).map((member) => member.id) })),
       facts: [...base.facts,
-        { id: `fact-player-name-${Date.now()}`, subject: "组织负责人", statement: `${name}以“${address}”的称谓主持组织第一次正式密议。`, certainty: "确认" as const, source: "密议室会议记录", week: base.week },
-        { id: `fact-player-origin-${Date.now()}`, subject: "组织负责人", statement: `公开身份为${origin.identityLabel}；关键经历是${origin.experienceLabel}${origin.experienceDetail ? `：${origin.experienceDetail}` : ""}。`, certainty: "确认" as const, source: "创立档案", week: base.week },
-        { id: `fact-player-persona-${Date.now()}`, subject: "组织负责人", statement: `性别${origin.gender || "未公开"}，年龄${origin.age || "未公开"}。`, certainty: "确认" as const, source: "创立档案", week: base.week },
-        { id: `fact-organization-${Date.now()}`, subject: "组织", statement: `组织定名为“${origin.organizationName || kind.cover}”，类型为${origin.organizationKindLabel}；章程：${origin.organizationCharter || base.charter}。`, certainty: "确认" as const, source: "创立档案", week: base.week },
+        { id: "fact:opening:player-name", subject: "组织负责人", statement: `${name}以“${address}”的称谓主持组织第一次正式密议。`, certainty: "确认" as const, source: "密议室会议记录", week: base.week },
+        { id: "fact:opening:player-origin", subject: "组织负责人", statement: `公开身份为${origin.identityLabel}；关键经历是${origin.experienceLabel}${origin.experienceDetail ? `：${origin.experienceDetail}` : ""}。`, certainty: "确认" as const, source: "创立档案", week: base.week },
+        { id: "fact:opening:player-persona", subject: "组织负责人", statement: `性别${origin.gender || "未公开"}，年龄${origin.age || "未公开"}。`, certainty: "确认" as const, source: "创立档案", week: base.week },
+        { id: "fact:opening:organization", subject: "组织", statement: `组织定名为“${origin.organizationName || kind.cover}”，类型为${origin.organizationKindLabel}；章程：${origin.organizationCharter || base.charter}。`, certainty: "确认" as const, source: "创立档案", week: base.week },
         ...(scenario ? [
-          { id: `fact-origin-source-${Date.now()}`, subject: "组织负责人", statement: `非凡来源为“${scenario.title}”：${scenario.source}。可靠联系人是${scenario.contact}；主要追索者是${scenario.enemy}。`, certainty: "确认" as const, source: `创立档案·${scenario.loreEvidenceIds.join("/")}`, week: base.week },
-          { id: `fact-origin-crisis-${Date.now()}`, subject: "组织", statement: `第一场危机：${scenario.firstCrisis}`, certainty: "确认" as const, source: "创立档案", week: base.week },
-          ...(origin.traits ?? []).map((trait) => ({ id: `fact-trait-${trait.id}-${Date.now()}`, subject: "组织负责人", statement: `${trait.kind === "burden" ? "负担" : "特质"}“${trait.name}”：${trait.description} 触发条件：${trait.triggers.join("、")}。`, certainty: "确认" as const, source: "人物特质档案", week: base.week })),
+          { id: `fact:opening:origin-source:${scenario.id}`, subject: "组织负责人", statement: `非凡来源为“${scenario.title}”：${scenario.source}。可靠联系人是${scenario.contact}；主要追索者是${scenario.enemy}。`, certainty: "确认" as const, source: `创立档案·${scenario.loreEvidenceIds.join("/")}`, week: base.week },
+          { id: `fact:opening:origin-crisis:${scenario.id}`, subject: "组织", statement: `第一场危机：${scenario.firstCrisis}`, certainty: "确认" as const, source: "创立档案", week: base.week },
+          ...(origin.traits ?? []).map((trait) => ({ id: `fact:opening:trait:${trait.id}`, subject: "组织负责人", statement: `${trait.kind === "burden" ? "负担" : "特质"}“${trait.name}”：${trait.description} 触发条件：${trait.triggers.join("、")}。`, certainty: "确认" as const, source: "人物特质档案", week: base.week })),
         ] : []),
       ],
     };
@@ -872,7 +820,14 @@ export default function CompleteGame() {
     const member = game.members.find((item) => item.id === chatMemberId);
     if (!text || !member || chatLoading) return;
     if (!aiReady) { setShowSettings(true); setToast("自由人物对话需要先连接AI模型；游戏不会再用固定台词冒充回应"); return; }
-    const playerMessage = { id: `dialogue-${Date.now()}-player`, role: "player" as const, text, week: game.week, context: chatContext };
+    const existingMessageCount = game.dialogueThreads.find((thread) => thread.memberId === member.id)?.messages.length ?? 0;
+    const playerMessage = {
+      id: stableEntityId("dialogue-message", game.week, member.id, existingMessageCount + 1, "player", text),
+      role: "player" as const,
+      text,
+      week: game.week,
+      context: chatContext,
+    };
     setGame((current) => ({ ...current, dialogueThreads: current.dialogueThreads.map((thread) => thread.memberId === member.id ? { ...thread, messages: [...thread.messages, playerMessage], lastUpdatedWeek: current.week } : thread) }));
     setChatInput(""); setChatLoading(true);
     try {
@@ -909,8 +864,8 @@ export default function CompleteGame() {
               ...thread,
               messages: [
                 ...thread.messages,
-                { id: `dialogue-${Date.now()}-member`, role: "member" as const, text: result.reply, week: current.week, context: chatContext, mood: result.mood },
-                ...(dossierMessage ? [{ id: `dialogue-${Date.now()}-dossier`, role: "member" as const, text: dossierMessage, week: current.week, context: chatContext, mood: screeningError ? "执行受阻" : "档案已呈交" }] : []),
+                { id: stableEntityId("dialogue-message", current.week, member.id, thread.messages.length + 1, "member", result.reply), role: "member" as const, text: result.reply, week: current.week, context: chatContext, mood: result.mood },
+                ...(dossierMessage ? [{ id: stableEntityId("dialogue-message", current.week, member.id, thread.messages.length + 2, "dossier", dossierMessage), role: "member" as const, text: dossierMessage, week: current.week, context: chatContext, mood: screeningError ? "执行受阻" : "档案已呈交" }] : []),
               ],
               memories: result.memory && !thread.memories.includes(result.memory) ? [...thread.memories, result.memory].slice(-8) : thread.memories,
               lastMood: result.mood,

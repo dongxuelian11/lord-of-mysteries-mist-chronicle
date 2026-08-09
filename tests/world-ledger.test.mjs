@@ -42,7 +42,7 @@ test("the append-only ledger snapshots and replays authoritative world state", (
   const verification = verifyWorldLedger(ledger);
   assert.equal(verification.ok, true, verification.issues.join("\n"));
   assert.equal(replayWorldLedger(ledger)?.week, 2);
-  assert.equal(ledger.snapshots.at(-1).checksum, ledgerChecksum(replayWorldLedger(ledger)));
+  assert.deepEqual(replayWorldLedger(ledger, { useSnapshots: true }), replayWorldLedger(ledger, { useSnapshots: false }));
   assert.equal(ledger.events.filter((event) => event.kind === "week-committed").length, 1);
 });
 
@@ -134,6 +134,23 @@ test("authoritative events rebuild from zero and match snapshot-accelerated repl
   assert.equal(fromZero.members.find((member) => member.id === next.members[0].id).fatigue, next.members[0].fatigue);
   assert.ok(ledger.events.some((event) => event.kind === "projection-patched"));
   assert.ok(ledger.events.filter((event) => event.kind === "week-committed").every((event) => !("projection" in event.payload)));
+});
+
+test("long-running ledgers keep bounded checkpoint snapshots while retaining full replay history", () => {
+  const game = createInitialGame("spectator");
+  let ledger = createWorldLedger(game);
+  let current = game;
+  for (let week = 2; week <= 42; week += 1) {
+    current = { ...current, week, date: `1349-week-${week}`, money: game.money + week * 3 };
+    ledger = commitWorldLedgerWeek(ledger, current);
+  }
+
+  assert.ok(ledger.snapshots.length <= 6, `expected bounded snapshots, received ${ledger.snapshots.length}`);
+  assert.ok(ledger.snapshotArchive?.archivedCount > 0);
+  assert.equal(ledger.events.filter((event) => event.kind === "week-committed").length, 41);
+  assert.deepEqual(replayWorldLedger(ledger, { useSnapshots: true }), replayWorldLedger(ledger, { useSnapshots: false }));
+  assert.equal(replayWorldLedger(ledger, { throughWeek: 17, useSnapshots: true }).week, 17);
+  assert.equal(verifyWorldLedger(ledger).ok, true, verifyWorldLedger(ledger).issues.join("\n"));
 });
 
 test("ordinary authoritative event reducers advance action, world, knowledge, and phase state", () => {

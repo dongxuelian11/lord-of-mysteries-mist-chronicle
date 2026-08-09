@@ -10,6 +10,8 @@ export function buildWorldAdjudicatorPrompt(payload: unknown, kernelProtocol: st
   return `裁决本周 adjudicatorWorld.proposals 与玩家已经锁定的行动结果。
 
 约束：
+- worldAuthority.entityState 指向 adjudicatorWorld；主体与势力的当前状态只以该投影为准，不能假设另有 legacy factions/canonActors 输入。
+- 所有跨周状态变化必须写入 kernelDelta。factionMoves 与 canonMoves 只是旧 UI 的可见叙述兼容输出，不是第二套状态 authority，且必须与 kernelDelta 对同一主体的变化一致。
 - 只有确实改变状态或发生相互作用的提案才形成事件；events、factionMoves、canonMoves、projectUpdates 都可以为空。
 - 固定报纸必须给出 2 至 4 条 publicSignals。重大消息必须来自本周结算事实；安静周可以使用天气、物价、交通或不改变世界状态的社会消息填充。
 - 不得为了热闹制造事件，不得把所有事件都牵向玩家组织。
@@ -44,9 +46,7 @@ export function buildWorldAdjudicatorPrompt(payload: unknown, kernelProtocol: st
     "factionId": "已有id",
     "title": "短标题",
     "detail": "裁决后实际发生的行动",
-    "visibility": "迹象|获知|确认",
-    "suspicionDelta": -4,
-    "progressDelta": 0
+    "visibility": "迹象|获知|确认"
   }],
   "canonMoves": [{
     "actorId": "已有id",

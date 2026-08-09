@@ -1,6 +1,6 @@
 # 《灰雾纪事》自治运行时修复上下文
 
-最后更新：2026-08-09（阶段 5 记忆审计与评测扩展完成）
+最后更新：2026-08-09（第二轮规则、权限、认知与长期运行修复开始）
 
 > 自动压缩恢复规则：本文件是本任务唯一恢复锚点。发生上下文压缩或会话恢复后，必须先完整读取本文件，再执行第 9 节的立即动作；不得根据聊天摘要重新推测计划。长测试、关键架构决策、阶段切换和预计压缩前必须先更新本文件。
 
@@ -232,3 +232,141 @@
 - 提交范围包括本任务的自治 Agent、动态记忆、结构化反思、世界账本 V2、自动评测、测试与文档改动。
 - `.qa-prodserver3.err.log` 和 `.qa-prodserver3.out.log` 必须继续保持未跟踪，不纳入提交。
 - 本次只创建本地提交，不推送、不发布。最终 commit SHA 在交付消息中记录；本文件不自引用 SHA，避免 amend 改变哈希。
+
+## 12. 第二轮缺陷修复任务（当前唯一进行中任务）
+
+### 任务目标
+
+- 修复审计确认的规则级问题，不只更新说明或降低校验。
+- 保持当前 `main` 的 Autonomous Reflection、Actor/Faction 显式受众、Dynamic Memory 接线和 WorldLedger V2 能力。
+- 每个阶段先增加能复现缺陷的测试，再实现并运行专项回归。
+- 自动压缩或会话恢复后必须先完整读取本文件；以本节状态为准，不根据聊天摘要重建进度。
+- 不触碰、删除或提交 `.qa-prodserver3.err.log`、`.qa-prodserver3.out.log`。
+
+### 当前基线
+
+- 分支 `main`，HEAD `debb4f9ceb6a5471a6dd33a7439f09502cea9b56`，与 `origin/main` 同步。
+- 项目版本 `0.4.0`。
+- 第二轮开始前专项测试 60/60 通过；`npm.cmd run typecheck` 通过。
+- 最小运行探针已证明：未知结构化 `targetRefs` 和不存在的 `locationId` 会被 validator 接受；`faction:*` knowledge holder 不会派生 belief；12 条高 importance 旧事件会挤掉紧急承诺；连续提交 10 周后 Ledger 有 11 个完整快照。
+- 默认 `emergence:eval` 仍为 `synthetic-framework-fixture`；真人 5–20 小时记录仍为 0。
+
+### 已确认优先级与阶段
+
+1. **阶段 A，规则确定性**：移除 ActionContract、规则 WorldFact、finale fact/chapter 等权威或持久对象的 wall-clock ID；为同一周多行动提供持久、确定且不碰撞的 action ordinal/nonce；验证冲突排序和材料品质不再受点击毫秒影响。
+2. **阶段 B，Agent 目标权限**：从 Agent 的局部投影构建 `allowedTargetRefs` 和 `allowedLocationIds`；校验引用存在且主体有权知道；未知目标只能留在自然语言 intent，不能生成结构化实体引用。
+3. **阶段 C，Faction 认知生产与决策 provenance**：补齐 faction holder 到 belief/event/plan/commitment/relationship 的派生；为正式 proposal/action/outcome 接入 `usedMemoryIds` 或等价 evidence refs，只允许引用本次投影展示的记忆。
+4. **阶段 D，记忆相关性与 residency**：自治记忆排序加入 objective/nextAction/relationship/未决承诺/blocked plan 信号和类型配额；residency 加 deterministic wake-up、承诺期限、战略重要性和轮转，避免 active 自增强饿死冷角色。
+5. **阶段 E，运行时可用性与成本**：增加 deterministic materiality gate，仅状态实质变化的主体重新调用模型；设计单 Agent 失败隔离，保持已完成提案缓存且不让一个主体永久阻断整周。
+6. **阶段 F，Ledger 长线有界**：增加快照间隔和保留/归档策略；事件仍是事实来源，不能通过删除必要事件伪造有界。
+7. **阶段 G，架构清理**：逐步从裁决 payload 退出 legacy 世界表示；增加 faction RAG audience；统一存档迁移 authority；拆分 God modules。
+8. **阶段 H，产品与证据**：Great Smog authored spine 需要产品裁决后再改；真人 5–20 小时测试必须真实执行，不能由自动夹具代替。
+
+### 当前进度
+
+- [x] 完成第二轮源码审计、13 项分级、最小运行探针、专项测试和类型检查。
+- [x] 将第二轮目标、基线、优先级和恢复规则写入本文件。
+- [x] 阶段 A：新增确定性 ID 红测；已证明 action、chapter 的旧实现受 `Date.now()` 影响。
+- [x] 阶段 A：实现确定性、持久、无碰撞的权威 ID。
+- [x] 阶段 A：专项回归、类型检查并更新本节。
+- [x] 阶段 B：Agent 目标与地点授权修复。
+- [x] 阶段 C：Faction 认知派生与 `usedMemoryIds` 决策来源。
+- [x] 阶段 D：记忆相关性排序与 Agent residency 唤醒。
+- [x] 阶段 E：实质变化门与单 Agent 失败隔离。
+- [x] 阶段 F：Ledger 快照间隔、保留与归档。
+- [x] 阶段 G：双世界/RAG/迁移 authority/God modules 的本轮可验证拆分。
+- [ ] 阶段 H：产品裁决与真人证据（需要用户产品选择与真实参与者，不能由代码代理伪造）。
+
+### 当前立即动作
+
+1. 执行本轮全量测试、typecheck、build、集成评测和 diff 检查。
+2. Great Smog authored spine 保持现状，等待产品明确选择“canon campaign core”或“可选 sandbox”；未获选择前不得擅自删除主线。
+3. 真人 5–20 小时证据保持 0，等待真实参与者按 `docs/HUMAN_LONG_PLAYTEST_PROTOCOL.md` 执行；自动夹具不得冒充。
+
+### 阶段 A 完成证据（2026-08-09）
+
+- `ActionContract` 增加持久 `actionOrdinal`；最终 ID 由周次、ordinal 和规则字段哈希组成，草稿 ID 也不依赖时钟。
+- 本地章节、晋升事实、finale 章节/事实、开局事实、动态出身、议会议题/消息和人物对话消息均改为确定性身份。
+- 新增 `app/stable-id.ts`，仅用于持久实体身份；剩余 `Date.now()` 只用于耗时遥测、UI 防抖和本地恢复检查点，不进入世界规则实体。
+- 红测首次精确失败：同一状态在 `Date.now()=1000` 与 `9999999` 下得到 `action-1000`/`action-9999999`；章节得到 `chapter-1-100`/`chapter-1-200`。
+- `node --test --test-concurrency=1 tests/deterministic-authority.test.mjs`：3 通过、0 失败、1 条因公共 lore 空壳条件跳过。
+- `node --test --test-concurrency=1 tests/deterministic-authority.test.mjs tests/turn-transaction.test.mjs tests/memory-save.test.mjs tests/pathway-origins.test.mjs tests/world-ledger.test.mjs`：35 通过、0 失败、3 条条件跳过。
+- `npm.cmd run typecheck`：退出码 0，`tsc --noEmit` 无错误。
+
+### 阶段 B 完成证据（2026-08-09）
+
+- `AutonomousDecisionFrame` 新增 `allowedTargetRefs`、`allowedLocationIds`；集合由主体自身、可见事件参与者、当前地点共同在场者、已知关系、可见知识主题、合法地点和自有项目确定性推导。
+- `validateAgentProposal` 在格式校验之后验证每个结构化 target/location 的可见性与授权；未知目标仍可写在自然语言 intent，但不得伪造结构化引用。
+- 独立规划 Prompt 明确要求逐字使用允许列表；`buildAdjudicatorProjection` 在扩展实体详情前按原决策帧二次复核，避免猜中隐藏 ID 后泄露详情。
+- 阶段 B 红测首次运行：12 通过、2 失败；失败均为 `allowedTargetRefs` 尚不存在，精确覆盖缺陷。
+- `node --test --test-concurrency=1 tests/world-runtime.test.mjs`：14/14 通过。
+- `node --test --test-concurrency=1 tests/world-runtime.test.mjs tests/autonomous-agents.test.mjs tests/turn-transaction.test.mjs tests/three-week-regression.test.mjs`：37/37 通过。
+- `npm.cmd run typecheck`：退出码 0，`tsc --noEmit` 无错误。
+
+### 阶段 C 完成证据（2026-08-09）
+
+- 世界状态派生会保留 `faction:*` observation holder，并为 faction 私有 knowledge 生成规范化 belief；faction 项目 owner/participant 规范化为 `faction:*`。
+- `MemoryRegistry.organizationIds` 现在可校验 faction 参与的 belief/event/plan/commitment/relationship，不再把 faction 当未知角色拒绝。
+- `AgentProposal` 新增 `usedMemoryIds`；独立规划只能引用本次 `AgentPlanningProjection.memoryReferenceIds` 的子集，伪造或跨主体引用会失败并进入原有重试流程。
+- 每个自治提案写入仅该主体可见的 `autonomous-proposal:*` 账本事件；相关世界结果以 proposal event 为 cause，并在 payload 中保留 `usedMemoryIds` 来源。
+- 阶段 C 红测首次运行：38 项中 35 通过、3 失败，分别精确覆盖 faction observer/belief/plan 未派生、proposal 来源未保留、账本无提案来源。
+- 修复测试夹具使结果事件明确包含被测 faction 后，`tests/turn-transaction.test.mjs` 17/17 通过；没有通过放宽产品校验修复测试。
+- 记忆/运行时/事务/Ledger 联合专项最终通过；`memory:integration:audit` 与 `memory:integration:eval` 均 `RESULT=PASS`，后者 10,000 事件、30,000 派生记忆 P95 37.01ms。
+- `npm.cmd run typecheck`：退出码 0，`tsc --noEmit` 无错误。
+
+### 阶段 D 完成证据（2026-08-09）
+
+- 自治记忆排序加入 objective/nextAction/relationship 信号相关度、到期承诺提升、blocked/due plan 提升，并对 commitment/plan/relationship/belief/event 各保留最低类型席位。
+- 选择算法仍逐条验证渲染预算，保持最多 12 refs、2800 chars；没有放宽隐私过滤。
+- `AutonomousAgentProfile.lastActiveWeek` 持久化最近获得规划席位的周次；residency 加入承诺期限、blocked/active plan、战略关系和长期冷却分，最近事件改为有限最大值而非无界累加。
+- previous-active 奖励从 20 降为 8，长期 cold 主体可确定性轮转回来；新事件唤醒逻辑保持。
+- 阶段 D 红测首次 16 项中 14 通过、2 失败，精确证明旧事件挤掉紧急记忆及冷主体无法回归；实现后 world-runtime/autonomous 21/21 通过。
+- 记忆/受众/事务/三周回归 29/29 通过；`memory:integration:eval` `RESULT=PASS`（10,000 事件、30,000 派生，P95 48.46ms）。
+- `npm.cmd run typecheck`：退出码 0，`tsc --noEmit` 无错误。
+
+### 阶段 E 完成证据（2026-08-09）
+
+- `AutonomousAgentProfile.lastPlanningSignature` 持久化上一轮输入签名；签名覆盖 objective/nextAction、地点/资源、反思来源、可见 observation/knowledge、被选记忆、关系和活跃项目，不包含墙上时钟或周次噪声。
+- 生产独立规划启用 `materialityGate`：签名未变时不调用模型，生成 `materiality-skip` 的本地 continue/wait 提案；目标变化只重开对应主体。
+- 单主体在限定重试后使用 `deterministic-fallback` 私有等待提案，空 target/knowledge/memory 引用；成功 peer 缓存与世界周继续，降级原因写入 proposal ledger payload。
+- 默认低层 API 仍支持 `abort`，用于需要严格失败语义的调用和回归；生产世界周显式选择 `fallback-wait`。
+- 阶段 E 红测首次 18 项中 16 通过、2 失败，分别证明 planning signature/materiality gate 与 fallback policy 尚不存在；实现后 world-runtime 18/18 通过。
+- 真实周事务测试已从“单 Agent 阻断整周”改为验证隔离降级、一次裁决、世界快照/账本提交、输入状态不被部分写回和成功提交后回执；17/17 通过。
+- 三周回归通过；`memory:integration:eval` `RESULT=PASS`；`npm.cmd run typecheck` 通过。
+
+### 阶段 F 完成证据（2026-08-09）
+
+- 新增长线红测首次在 42 周产生 42 个完整 snapshots，精确证明按周线性增长。
+- 新策略每 4 周生成检查点、最多保留最近 6 个；淘汰检查点累计 `snapshotArchive` 的 archivedCount/throughWeek/throughSequence/lastChecksum。
+- 只压缩快照，不删除任何权威事件、原因引用或 hash chain；早期 `throughWeek` 在无对应快照时自动从事件流重放。
+- 已有 V2 存档经 `migrateWorldLedger` 读取时同样归一化到保留上限；V1 仍按原有结构化迁移重建。
+- 42 周测试确认 41 个 `week-committed` 全部保留、快照不超过 6、归档元数据存在、从零与快照重放相等、早期 week 17 可重放且完整性校验通过。
+- Ledger/事务/存档联合专项修正旧“每周必有快照”断言后全部通过；`npm.cmd run typecheck` 通过，`git diff --check` 无空白错误。
+
+### 阶段 G 完成证据（2026-08-09）
+
+- RAG 类型、renderer bridge、Electron Main/Worker 和旧版 fallback 正式增加 `faction` / `faction-private`；自治规划根据显式 memory audience 选择 actor 或 faction，不再语义复用。
+- `save-system.ts` 新增纯 `normalizeStoredGame` / `migrateStoredGame`，统一本地 v5–v21、导入 envelope 和当前存档规范化；`CompleteGame` 删除版本分支、世界/组织/账本重复拼装及相关迁移依赖。
+- v5–v7 旧档继续作为带“旧历史分支”标记的历史纪事迁移；v8/v9 身份与议会默认值、v10–v20 能力字段均由中央入口兼容。
+- 世界裁决 payload 删除顶层 legacy `game.factions` / `game.canonActors`，新增 `worldAuthority` 明确 `adjudicatorWorld` 是实体输入、`kernelDelta` 是状态变化 authority。
+- `factionMoves` / `canonMoves` 降为旧 UI 可见叙述兼容输出；重叠的势力姿态/怀疑、人物地点/目标/处境/行动在应用 `kernelDelta` 后从 `WorldKernel` 反向投影，避免第二套数值状态写入。
+- 新增 `app/autonomous-planning.ts`，从 `game-engine.ts` 提取自治 RAG 授权、检索和提案模型调用；存档恢复逻辑则从 `complete-game.tsx` 提取到 `save-system.ts`，God modules 本轮完成两条高风险边界的实质拆分，但没有宣称整个大文件已一次性消失。
+- RAG 专项 6/6、迁移专项与静态架构回归通过；世界运行时/事务/玩法回归 42/42；自治规划+事务 22/22；`npm.cmd run typecheck` 通过。
+
+### 第二轮最终自动验收（2026-08-09）
+
+- `npm.cmd test`：生产构建成功；全量 261 项中 256 通过、0 失败、5 条条件跳过（公共空壳知识库或可选 Playwright）。
+- `npm.cmd run lint`：0 error、0 warning。
+- `npm.cmd run typecheck`：退出码 0。
+- `memory:integration:audit`：`RESULT=PASS`；七类真实接线、孤立事件与边界检查通过。
+- `memory:integration:eval`：`RESULT=PASS`；10,000 events / 30,000 derived，P95 43.2ms，50 周路线通过。
+- `emergence:eval`：`RESULT=PASS`，但来源明确仍是 `synthetic-framework-fixture`，只证明评测框架，不计真人或产品质量证据。
+- 最终专项复验覆盖 deterministic authority、RAG audience、存档迁移、事务、WorldRuntime、WorldLedger：57 通过、0 失败、1 条公共知识条件跳过；随后存档/Ledger 14/14 通过。
+- `git diff --check`：退出码 0；仅 Git 的 LF→CRLF 提示，无空白错误。
+- 用户原有未跟踪 `.qa-prodserver3.err.log`、`.qa-prodserver3.out.log` 仍存在且未修改、未删除、未提交。
+
+### 仍需外部决定/执行（不得被自动压缩改写为“已完成”）
+
+- Great Smog authored spine：这是产品定位选择，不是可安全自动判定的 correctness fix。当前保持“原著历史惯性上的 authored campaign + emergent world”。若用户选择纯/可选 sandbox，下一任务需设计 campaign mode、存档迁移、开局内容、时间线与终局入口，不能直接删除第 24 周代码。
+- 真人 5–20 小时：当前完成记录仍为 0。必须由真实参与者依协议执行；默认合成夹具和 20 周模型技术回归均不得冒充。
+- 本轮没有 commit、push 或发布。

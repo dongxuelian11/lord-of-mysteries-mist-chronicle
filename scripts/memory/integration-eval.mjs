@@ -110,6 +110,7 @@ function makeMockFetch(captured) {
           rationale: "当前自身可见信息不足以支持改变既定行动。",
           targetRefs: [],
           requiredKnowledgeIds: [],
+          usedMemoryIds: autonomousProjection.memoryReferenceIds.slice(0, 1),
         },
       });
     } else if (name === "world") {
@@ -263,6 +264,10 @@ export async function runIntegrationEval() {
   assert(worldResult.memory.receipts.some((receipt) => receipt.actionId === `autonomous-agent:20:${autonomousActorRef}` && receipt.kind === "presented" && receipt.audience.kind === "actor"), "autonomous-agent(actor): commit writes presented receipt");
   assert(worldResult.memory.receipts.some((receipt) => receipt.actionId === `autonomous-agent:20:${autonomousFactionRef}` && receipt.kind === "delivered" && receipt.audience.kind === "faction"), "autonomous-agent(faction): commit writes delivered receipt");
   assert(worldResult.memory.receipts.some((receipt) => receipt.actionId === `autonomous-agent:20:${autonomousFactionRef}` && receipt.kind === "presented" && receipt.audience.kind === "faction"), "autonomous-agent(faction): commit writes presented receipt");
+  const actorProposalEvent = worldResult.worldLedger.events.find((event) => event.id === `autonomous-proposal:20:${autonomousActorRef}`);
+  const factionProposalEvent = worldResult.worldLedger.events.find((event) => event.id === `autonomous-proposal:20:${autonomousFactionRef}`);
+  assert(JSON.stringify(actorProposalEvent?.payload?.usedMemoryIds) === JSON.stringify(autonomousActor.memoryReferenceIds.slice(0, 1)), "autonomous-agent(actor): usedMemoryIds are validated and persisted as proposal provenance");
+  assert(JSON.stringify(factionProposalEvent?.payload?.usedMemoryIds) === JSON.stringify(autonomousFaction.memoryReferenceIds.slice(0, 1)), "autonomous-agent(faction): usedMemoryIds are validated and persisted as proposal provenance");
   assert(game.memory.receipts.some((receipt) => receipt.actionId === "dialogue:mara:20" && receipt.kind === "delivered"), "dialogue: 成功后写入 delivered");
   assert(game.memory.receipts.some((receipt) => receipt.actionId === "dialogue:mara:20" && receipt.kind === "presented"), "dialogue: 成功后写入 presented（NPC 展示）");
   assert(game.memory.receipts.some((receipt) => receipt.actionId?.startsWith("council:20:") && receipt.kind === "presented"), "council: 成员级 presented 回执");
