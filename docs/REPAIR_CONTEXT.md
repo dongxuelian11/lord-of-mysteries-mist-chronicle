@@ -480,3 +480,17 @@
 - `game-engine.ts` 从本轮开始时 1975 行降至 1884 行；`world-output-adapter.ts` 现为 219 行。行数不是目标本身，验收重点是调用者只依赖一个深 interface，解析 implementation 与 authority 规则具有 locality。
 - 工作树核对：除用户原有两份未跟踪 QA 日志外，只包含本轮第 1、2 项的代码、测试和本进度文件。
 - 下一步仅剩：精确暂存任务文件（排除 `.qa-prodserver3.*.log`）、创建 commit、push `origin/main`、核验远端跟踪状态。
+
+### 14.3 提交完成、推送等待明确远端授权
+
+- 已创建提交 `6c02799`（完整 hash 由 Git 历史核验），提交信息为 `refactor: deepen world authority modules`；包含 11 个任务文件，802 insertions、221 deletions。
+- 两份 `.qa-prodserver3.*.log` 未进入提交，仍保持未跟踪。
+- 当前 `main` 相对 `origin/main` 有两个待推送提交：此前的 `0b56b1b` 与本次 `6c02799`。
+- 已尝试按用户指令执行 `git push origin main`，但安全审查在建立网络推送前拒绝：需要用户明确确认确切远端与源码 payload。没有任何提交被推送。
+- 待用户明确确认：允许把上述两个包含仓库源码与测试的提交推送到 `https://github.com/dongxuelian11/lord-of-mysteries-mist-chronicle.git` 的 `main` 分支。获得确认后立即推送并核验远端。
+
+### 14.4 GitHub 推送授权已明确确认
+
+- 用户已明确授权：将 `0b56b1b`、`6c02799`（包含仓库源码和测试），以及仅用于记录本次进度/推送结果的提交，推送到 `https://github.com/dongxuelian11/lord-of-mysteries-mist-chronicle.git` 的 `main` 分支。
+- 当前动作：提交本进度记录；执行 `git push origin main`；读取本地跟踪状态与远端 `main` 引用进行核验。
+- 两份 `.qa-prodserver3.*.log` 继续排除，不提交、不推送。
