@@ -114,7 +114,8 @@ embedding 接口也不影响游玩。桌面版由 Electron RAG Worker 在本地�
 第一阶段的贝克兰德经营规格见
 [docs/BACKLUND_MANAGEMENT_REFACTOR.md](./docs/BACKLUND_MANAGEMENT_REFACTOR.md)，
 自治角色与势力见
-[docs/AUTONOMOUS_WORLD_PHASE_2.md](./docs/AUTONOMOUS_WORLD_PHASE_2.md)，
+[docs/AUTONOMOUS_WORLD_PHASE_2.md](./docs/AUTONOMOUS_WORLD_PHASE_2.md)，世界账本事件重放、分支和兼容迁移见
+[docs/WORLD_LEDGER_V2.md](./docs/WORLD_LEDGER_V2.md)，
 多势力战略竞争见
 [docs/FACTION_STRATEGY_PHASE_3.md](./docs/FACTION_STRATEGY_PHASE_3.md)，
 经营闭环与亲历任务见
@@ -170,7 +171,7 @@ npm run dist:win
 
 ## 长线世界可靠性
 
-自治世界采用 24 Agent 活跃集、逐主体独立规划、冷存储与 72,000 字符硬预算。公开消息、行动报告和文学越权只做局部重试；已接受的世界事实不会被整周重算，模型连续失败会直接报错，不使用降级文本。v0.4.0 已完成连续 20 周真实模型回归。详见 [docs/WORLD_RUNTIME_RELIABILITY.md](./docs/WORLD_RUNTIME_RELIABILITY.md)。
+自治世界采用 24 Agent 活跃集、逐主体独立规划、冷存储与 72,000 字符硬预算。公开消息、行动报告和文学越权只做局部重试；已接受的世界事实不会被整周重算，模型连续失败会直接报错，不使用降级文本。v0.4.0 已完成连续 20 周真实模型技术回归；该记录不等于玩法或真人体验验收。可靠性边界见 [docs/WORLD_RUNTIME_RELIABILITY.md](./docs/WORLD_RUNTIME_RELIABILITY.md)，自动涌现指标见 [docs/EMERGENCE_EVALUATION.md](./docs/EMERGENCE_EVALUATION.md)，真人 5–20 小时协议见 [docs/HUMAN_LONG_PLAYTEST_PROTOCOL.md](./docs/HUMAN_LONG_PLAYTEST_PROTOCOL.md)。
 
 ## 测试与 QA
 

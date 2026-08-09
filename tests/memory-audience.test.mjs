@@ -44,6 +44,32 @@ test("受众隔离：presented 只更新对应受众，narrator/world 无副作�
   assert.equal(JSON.stringify(current.audienceStates), before);
 });
 
+test("faction memory receipts use an explicit audience and remain idempotent", async () => {
+  const memory = await memoryModule();
+  const { state } = memory.deriveMemory(memory.emptyMemoryState(), [
+    { kind: "event", sourceEventId: "faction-event", week: 4, type: "briefing", summary: "消息网转移联络点", participantIds: [], observerIds: [], organizationIds: ["press"] },
+  ]);
+  const eventId = state.events[0].id;
+  const descriptor = {
+    actionId: "autonomous-agent:5:faction:press",
+    modelCallId: "autonomous-agent:5:faction:press",
+    stage: "autonomous-agent",
+    audience: memory.factionAudience("press", true),
+    memoryIds: [eventId],
+    week: 5,
+  };
+  const delivered = memory.submitMemoryDelivery(state, descriptor);
+  const presented = memory.markMemoryPresented(delivered, descriptor);
+  const repeated = memory.markMemoryPresented(memory.submitMemoryDelivery(presented, descriptor), descriptor);
+  const factionState = repeated.audienceStates.find(
+    (item) => item.memoryId === eventId && item.audienceKind === "faction" && item.factionId === "press",
+  );
+  assert.equal(repeated.receipts.filter((receipt) => receipt.actionId === descriptor.actionId).length, 2);
+  assert.equal(factionState.presentationCount, 1);
+  assert.equal(factionState.lastPresentedWeek, 5);
+  assert.ok(!repeated.audienceStates.some((item) => item.audienceKind === "actor"));
+});
+
 test("旧档迁移：legacy 字段只迁移给该角色，幂等且不串线", async () => {
   const memory = await memoryModule();
   const legacy = {

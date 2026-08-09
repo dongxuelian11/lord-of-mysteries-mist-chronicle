@@ -77,6 +77,7 @@
     "memory:receipt:eval": "node scripts/memory/receipt-eval.mjs",
     "memory:audience:audit": "node scripts/memory/audience-audit.mjs",
     "memory:audience:eval": "node scripts/memory/audience-eval.mjs",
+    "emergence:eval": "node scripts/emergence/eval.mjs",
     "ability:audit": "node scripts/abilities/audit.mjs",
     "ability:eval": "node scripts/abilities/eval.mjs",
     "ability:longrun": "node scripts/abilities/longrun.mjs",

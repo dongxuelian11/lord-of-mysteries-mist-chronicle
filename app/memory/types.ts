@@ -13,11 +13,12 @@ export type BeliefSourceType =
 export type Secrecy = "public" | "restricted" | "secret" | "cosmic";
 export type MemoryCreatedBy = "deterministic-rule" | "validated-llm-proposal" | "migration";
 export type RecallState = "active" | "blurred" | "dormant" | "superseded";
-export type MemoryAudienceKind = "actor" | "player" | "narrator" | "world-system";
+export type MemoryAudienceKind = "actor" | "faction" | "player" | "narrator" | "world-system";
 
 export type MemoryAudience = {
   kind: MemoryAudienceKind;
   actorId?: string;
+  factionId?: string;
   affectsActivation: boolean;
 };
 
@@ -45,8 +46,9 @@ export type MemoryReceiptLedger = {
 
 export type AudienceMemoryState = {
   memoryId: string;
-  audienceKind: "actor" | "player";
+  audienceKind: "actor" | "faction" | "player";
   actorId?: string;
+  factionId?: string;
   lastPresentedWeek?: number;
   presentationCount: number;
   lastRecalledWeek?: number;
@@ -293,7 +295,8 @@ export type SceneType =
   | "investigation"
   | "action"
   | "world"
-  | "player";
+  | "player"
+  | "autonomous";
 
 export type DynamicMemoryContext = {
   sceneType: SceneType;

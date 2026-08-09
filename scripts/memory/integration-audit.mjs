@@ -1,4 +1,4 @@
-// 动态记忆集成审计：六类调用点接线、孤立事件、计划一致性、propositionKey、检索副作用。
+// 动态记忆集成审计：七类调用点接线、孤立事件、计划一致性、propositionKey、检索副作用。
 import fs from "node:fs";
 import { loadRuntimeModule } from "../rag/lib/load-runtime.mjs";
 
@@ -6,6 +6,8 @@ function wiredSites() {
   const engine = fs.readFileSync("app/game-engine.ts", "utf8");
   const council = fs.readFileSync("app/council-ai.ts", "utf8");
   const ability = fs.readFileSync("app/ability-system.ts", "utf8");
+  const runtime = fs.readFileSync("app/world-runtime.ts", "utf8");
+  const autonomousMemory = fs.readFileSync("app/memory/autonomous.ts", "utf8");
   return {
     dialogue: engine.includes("memoryPromptBlockWithIds(game.memory, \"dialogue\""),
     council: council.includes("speakerDynamicMemory"),
@@ -13,6 +15,13 @@ function wiredSites() {
     world: engine.includes("worldMemoryView") && engine.includes("worldSystemAudience"),
     playerBrief: engine.includes("situationMemoryView"),
     playerLiterary: engine.includes("literaryMemoryView"),
+    autonomousAgent:
+      runtime.includes("dynamicMemory: dynamicMemory.text") &&
+      runtime.includes("memoryReferenceIds: dynamicMemory.referenceIds") &&
+      autonomousMemory.includes("AutonomousMemoryAudience") &&
+      engine.includes("memory: game.memory ?? emptyMemoryState()") &&
+      engine.includes('stage: "autonomous-agent"') &&
+      engine.includes("factionAudience"),
   };
 }
 
@@ -114,7 +123,7 @@ export async function runIntegrationAudit() {
 if (import.meta.url === `file:///${process.argv[1]?.replace(/\\/g, "/")}`) {
   const result = await runIntegrationAudit();
   console.log("[memory:integration:audit]");
-  console.log(`  六类接线: ${JSON.stringify(result.sites)}`);
+  console.log(`  七类接线: ${JSON.stringify(result.sites)}`);
   console.log(`  状态: ${JSON.stringify(result.counts)}`);
   console.log(`  旧存档信念（无 propositionKey）：${result.legacyCount} 条，已可用兼容键读取`);
   if (result.unexpected.length) {

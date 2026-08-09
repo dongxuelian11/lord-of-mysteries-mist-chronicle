@@ -59,8 +59,8 @@ npm run memory:audit       # 重复/孤立引用/互斥事实/无效角色/失�
 npm run memory:eval        # 固定第 1–50 周长期场景 + 权限/衰减/原子性
 npm run memory:longrun     # 三条 50 周路线（保守/高冲突/原著偏离）
 npm run memory:benchmark   # 1k/5k/10k 事件与 30k 派生记忆压力测试
-npm run memory:integration:audit # 六类调用点接线/孤立事件/计划一致性/propositionKey/检索副作用
-npm run memory:integration:eval  # 六类真实 Prompt 接入/只读检索/回忆提交/50 周路线/性能
+npm run memory:integration:audit # 七类调用点接线/孤立事件/计划一致性/propositionKey/检索副作用
+npm run memory:integration:eval  # 七类真实 Prompt 接入/只读检索/回忆提交/50 周路线/性能
 npm run memory:receipt:audit     # 回执受众语义/重复/幂等账本/actor 隔离/有界性
 npm run memory:receipt:eval      # 成功/失败路径、重试幂等、审计淘汰、50 周路线、性能
 npm run memory:audience:audit    # 共享对象纯内容/受众级幂等/迁移正确/narrator·world 无副作用
@@ -75,6 +75,7 @@ npm run memory:audience:eval     # 多角色共享事件/玩家·NPC 隔离/激�
 - 议会（`generateCouncilReplies`）：每名成员独立 `speakerDynamicMemory`，禁止全局秘密上下文；
 - 调查/行动（`generateAbilityDraft`、`generateSceneResponse`）：`sceneType=investigation|action`、actor=player；
 - 世界推进（`generateAiWorldDelta`）：`sceneType=world`，成功结算后写入 `presented` 回执；
+- 自治规划（`planActiveAgentsIndependently`）：为每个 actor/faction 建立显式受众、最多 12 引用/2,800 字符的私有投影；只在整周成功提交后写入该受众的 `delivered/presented` 回执；
 - 玩家叙事（`generateSituationBrief`、`generateLiteraryChapter`）：`sceneType=player`，只含玩家可见记忆。
 
 ## 回执语义（retrieved / delivered / presented / recalled）
@@ -84,7 +85,7 @@ npm run memory:audience:eval     # 多角色共享事件/玩家·NPC 隔离/激�
 - `presented`：记忆进入某个游戏内认知主体（NPC/玩家）的有效上下文——更新 `lastPresentedWeek`，不增加 `recallCount`；
 - `recalled`：确定性角色行为/正式决策确认使用——唯一允许增加 `recallCount/lastRecalledWeek` 的路径。
 
-受众模型：`actor`（可 presented/recalled）、`player`（可 presented，不改 NPC 激活度）、
+受众模型：`actor` 与 `faction`（可 presented/recalled）、`player`（可 presented，不改 NPC 激活度）、
 `narrator`（导演/作者/编辑/现状简报，仅 delivered）、`world-system`（仅 delivered）。
 后台模型看到记忆 ≠ 角色回忆记忆。
 

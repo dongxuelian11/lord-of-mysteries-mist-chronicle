@@ -40,8 +40,16 @@ export {
 } from "./prompt.ts";
 export {
   actorAudience,
+  factionAudience,
   playerAudience,
   narratorAudience,
   worldSystemAudience,
   runAcceptedModelCall,
 } from "./receipts.ts";
+export {
+  AUTONOMOUS_MEMORY_MAX_CHARS,
+  AUTONOMOUS_MEMORY_MAX_REFS,
+  buildAutonomousMemoryProjection,
+  type AutonomousMemoryAudience,
+  type AutonomousMemoryProjection,
+} from "./autonomous.ts";

@@ -29,6 +29,7 @@ import {
   submitMemoryDelivery,
   markMemoryPresented,
   actorAudience,
+  factionAudience,
   narratorAudience,
   worldSystemAudience,
 } from "./memory/index";
@@ -58,6 +59,7 @@ import {
 } from "./autonomous-agents.ts";
 import {
   assertWorldAdjudicatorPayloadBudget,
+  buildAgentPlanningProjection,
   buildAdjudicatorProjection,
   fitWorldAdjudicatorPayload,
   planActiveAgentsIndependently,
@@ -1438,6 +1440,12 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   const worldMemoryView = memoryPromptBlockWithIds(game.memory, "world", undefined, chapter.week);
   const autonomousState = ensureAutonomousWorldState(game.worldAgents, game.worldKernel);
   const autonomousDecisionFrames = buildAutonomousDecisionFrames(autonomousState, game.worldKernel, chapter.week);
+  const autonomousPlanningProjections = new Map(
+    autonomousDecisionFrames.map((frame) => [
+      frame.ref,
+      buildAgentPlanningProjection(frame, game.worldKernel, game.memory ?? emptyMemoryState()),
+    ]),
+  );
   const proposalCache = uncommittedAgentProposalCache.get(game) ?? new Map();
   uncommittedAgentProposalCache.set(game, proposalCache);
   let readyAgents = 0;
@@ -1449,6 +1457,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
       maxAttempts: 2,
       concurrency: 4,
       proposalCache,
+      memory: game.memory ?? emptyMemoryState(),
       onAgentStage: ({ state }) => {
         if (state === "ready") readyAgents += 1;
         onStage(`独立 Agent 规划中（${Math.min(readyAgents, autonomousDecisionFrames.length)}/${autonomousDecisionFrames.length}）`);
@@ -1569,7 +1578,8 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   if (!atmosphere) throw new Error("世界模型没有返回本周城市气氛；本周拒绝结算，不使用本地替代文本");
   const allowedLoreIds = new Set([...LORE_RECORDS.map((record) => record.id), ...(await listRuntimeChunkIds())]);
   const worldKernel = { ...applyWorldTurn(game.worldKernel, parseWorldKernelDelta(raw, game, chapter, publicSignals, worldMoves, allowedLoreIds)), currentWeek: game.week, currentDate: game.date };
-  const worldAgents = advanceAutonomousWorldState(autonomousState, game.worldKernel, worldKernel, chapter.week);
+  const reflectionMemory = deriveMemoryFromWorldState(game.memory ?? emptyMemoryState(), worldKernel, chapter.week);
+  const worldAgents = advanceAutonomousWorldState(autonomousState, game.worldKernel, worldKernel, chapter.week, reflectionMemory);
   const worldSnapshot: WorldSnapshot = {
     week: chapter.week,
     date: chapter.date,
@@ -1764,7 +1774,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     witnessRefs: event.witnessRefs ?? [],
     causeEventIds: [],
     audience: { visibility: event.visibility, holderRefs: event.witnessRefs ?? [] },
-    payload: { detail: event.detail, locationId: event.locationId, kernelCauseIds: event.causeIds },
+    payload: { worldEventId: event.id, detail: event.detail, locationId: event.locationId, kernelCauseIds: event.causeIds },
   })));
   worldLedger = appendWorldLedgerEvents(worldLedger, worldKernel.knowledge.filter((node) => node.acquiredWeek === chapter.week).map((node) => ({
     id: `delivery:${node.id}`,
@@ -1777,10 +1787,36 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     witnessRefs: node.holderRefs ?? node.holderIds.map((id) => id === "player" ? "player" : `actor:${id}`),
     causeEventIds: node.sourceEventId && worldLedger.events.some((event) => event.id === node.sourceEventId) ? [node.sourceEventId] : [],
     audience: { visibility: node.visibility, holderRefs: node.holderRefs ?? node.holderIds.map((id) => id === "player" ? "player" : `actor:${id}`) },
-    payload: { statement: node.statement, truth: node.truth, loreRecordIds: node.loreRecordIds },
+    payload: { knowledgeId: node.id, statement: node.statement, truth: node.truth, loreRecordIds: node.loreRecordIds },
   })));
   worldLedger = recordWorldLedgerPhase(worldLedger, chapter.week, "autonomous-actors", "独立角色、势力与持续计划已完成世界推演", { eventCount: worldKernel.events.filter((event) => event.week === chapter.week).length, signalCount: publicSignals.length, factionMoveCount: worldMoves.length, autonomousAgentCount: worldAgents.activeAgentRefs.length, coldAgentCount: worldAgents.coldAgentRefs.length, socialTieCount: worldAgents.socialTies.length });
   worldLedger = recordWorldLedgerPhase(worldLedger, chapter.week, "narrative-ready", "本周权威事实已锁定，可以生成文学叙事", { chapterId: chapter.id });
+  let committedMemory = game.memory ?? emptyMemoryState();
+  for (const proposal of autonomousAgentProposals) {
+    const projection = autonomousPlanningProjections.get(proposal.agentRef);
+    if (!projection) continue;
+    const audience = projection.memoryAudience.kind === "actor"
+      ? actorAudience(projection.memoryAudience.actorId, true)
+      : factionAudience(projection.memoryAudience.factionId, true);
+    const descriptor = {
+      actionId: `autonomous-agent:${chapter.week}:${proposal.agentRef}`,
+      modelCallId: `autonomous-agent:${chapter.week}:${proposal.agentRef}`,
+      stage: "autonomous-agent",
+      audience,
+      memoryIds: projection.memoryReferenceIds,
+      week: chapter.week,
+    };
+    committedMemory = submitMemoryDelivery(committedMemory, descriptor);
+    committedMemory = markMemoryPresented(committedMemory, descriptor);
+  }
+  committedMemory = submitMemoryDelivery(committedMemory, {
+    actionId: `world:${chapter.week}`,
+    modelCallId: `world:${chapter.week}`,
+    stage: "world",
+    audience: worldSystemAudience(),
+    memoryIds: worldMemoryView.ids,
+    week: chapter.week,
+  });
   const nextGame: GameState = {
     ...game,
     factions,
@@ -1793,21 +1829,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     worldSnapshots: [worldSnapshot, ...(game.worldSnapshots ?? []).filter((snapshot) => snapshot.week !== chapter.week)].slice(0, 60),
     worldKernel,
     worldAgents,
-    memory: deriveMemoryFromWorldState(
-      submitMemoryDelivery(
-        game.memory ?? emptyMemoryState(),
-        {
-          actionId: `world:${chapter.week}`,
-          modelCallId: `world:${chapter.week}`,
-          stage: "world",
-          audience: worldSystemAudience(),
-          memoryIds: worldMemoryView.ids,
-          week: chapter.week,
-        }
-      ),
-      worldKernel,
-      chapter.week
-    ),
+    memory: deriveMemoryFromWorldState(committedMemory, worldKernel, chapter.week),
     chronicle,
     departments,
     departmentReports,

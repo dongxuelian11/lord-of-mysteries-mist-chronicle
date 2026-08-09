@@ -72,7 +72,7 @@ export default function AiSettings({ config, rememberKey, secureStorageAvailable
 
     <small className="settings-note">存档与规则账本始终留在本地。DeepSeek 预设只允许访问官方 api.deepseek.com；自定义兼容接口由浏览器直接请求，需要服务商允许跨域访问。</small>
 
-    <div className="settings-divider"><span>建立新历史分支</span></div>
+    <div className="settings-divider"><span>开始全新游戏</span></div>
     <div className="pathway-choice">{Object.values(PATHWAYS).map((item) => <button key={item.id} className={draftPathway === item.id ? "selected" : ""} onClick={() => onPathway(item.id)}><span>{item.name}</span><small>序列9 · {item.sequences[0].name}</small></button>)}</div>
     <button className="danger-reset" disabled={!ready} onClick={onNewGame}><RotateCcw size={14} />{ready ? "以所选途径开始新游戏" : "连接模型后开始新游戏"}</button>
   </>;

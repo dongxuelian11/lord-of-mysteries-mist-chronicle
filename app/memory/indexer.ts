@@ -93,7 +93,7 @@ export function buildMemoryIndexes(state: DynamicMemoryState): MemoryIndexes {
     for (const id of plan.participantIds) push(index.plansByCharacter, id, plan.id);
   }
   for (const audienceState of state.audienceStates ?? []) {
-    const key = `${audienceState.audienceKind}:${audienceState.actorId ?? ""}`;
+    const key = `${audienceState.audienceKind}:${audienceState.actorId ?? audienceState.factionId ?? ""}`;
     const byMemory = index.audienceByKey.get(key) ?? new Map();
     byMemory.set(audienceState.memoryId, audienceState);
     index.audienceByKey.set(key, byMemory);

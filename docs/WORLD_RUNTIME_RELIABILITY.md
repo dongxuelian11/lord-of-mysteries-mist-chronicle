@@ -56,3 +56,9 @@ npx electron scripts/secure-real-week-regression.cjs 20 --resume
 ```
 
 断点文件仅用于开发 QA，不属于正式游戏存档格式，也不包含 API Key。
+
+## 证据边界与后续验收
+
+上述 DeepSeek 连续 20 周记录只证明当时配置下的技术可靠性：Prompt 保持有界、事务没有重复结算或回滚、文学输出非空。它不证明玩法有趣、社会涌现可信、长期行动多样，也不是 5–20 小时真人体验。
+
+结构化自动涌现指标、输入格式和跨模型比较见 [EMERGENCE_EVALUATION.md](./EMERGENCE_EVALUATION.md)。真人长线验证必须独立执行 [HUMAN_LONG_PLAYTEST_PROTOCOL.md](./HUMAN_LONG_PLAYTEST_PROTOCOL.md) 并使用空白会话模板；截至 2026-08-09，仓库没有已完成的真人长线体验数据。

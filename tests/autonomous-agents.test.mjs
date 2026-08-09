@@ -7,6 +7,7 @@ import {
   createAutonomousWorldState,
   ensureAutonomousWorldState,
 } from "../app/autonomous-agents.ts";
+import { deriveMemory, emptyMemoryState } from "../app/memory/index.ts";
 import { applyWorldTurn, createWorldKernel } from "../app/world-kernel.ts";
 
 function baseKernel() {
@@ -73,4 +74,58 @@ test("a world turn updates private memory, reflection, plans, and social ties wi
   const nextFrame = buildAutonomousDecisionFrames(advanced, after, 4).find((frame) => frame.ref === "actor:reporter");
   assert.ok(nextFrame.candidateActions.some((candidate) => candidate.id.includes(":relationship:")));
   assert.equal(advanced.lastPlannedWeek, 3);
+});
+
+test("structured reflection cites only visible experience and changes the next decision frame", () => {
+  const before = baseKernel();
+  const memory = deriveMemory(emptyMemoryState(), [
+    { kind: "belief", characterId: "reporter", subjectId: "list", claimType: "source", claim: "第二份名单的印章更可信", confidence: 0.78, truthStatus: "uncertain", learnedFrom: { type: "deduced", sourceId: "old-list-event" }, validFromWeek: 2, secrecy: "secret" },
+    { kind: "belief", characterId: "clerk", subjectId: "list", claimType: "source", claim: "书记员知道名单由警察厅伪造", confidence: 0.95, truthStatus: "true", learnedFrom: { type: "observed", sourceId: "clerk-secret-event" }, validFromWeek: 2, secrecy: "secret" },
+    { kind: "commitment", id: "protect-source", type: "promise", participantIds: ["reporter", "ally"], summary: "保护提供名单的消息源", createdWeek: 2, status: "active", sourceEventId: "promise-event", secrecy: "secret" },
+    { kind: "relationship", sourceEventId: "trust-event", fromCharacterId: "reporter", toCharacterId: "ally", dimension: "trust", delta: 15, summary: "共同避开跟踪建立了信任", createdWeek: 2 },
+    { kind: "plan", id: "verify-list-plan", ownerId: "reporter", participantIds: ["reporter"], title: "核实名单", objective: "找到独立的第二来源", currentStep: "比较两枚印章", createdWeek: 2, status: "active", secrecy: "secret" },
+  ]).state;
+  const reporterBeliefId = memory.beliefs.find((belief) => belief.characterId === "reporter").id;
+  const clerkBeliefId = memory.beliefs.find((belief) => belief.characterId === "clerk").id;
+  const after = applyWorldTurn(before, {
+    week: 3,
+    playerIssuedNoOrders: true,
+    actorUpdates: [{ actorId: "reporter", lastAction: "比较了两枚印章" }],
+    factionUpdates: [], projectUpdates: [], locationUpdates: [], observations: [],
+    events: [{ id: "visible-followup", title: "印章差异", detail: "记者确认两枚印章来自不同批次。", locationId: "east", actorIds: ["reporter"], factionIds: [], causeIds: [], visibility: "actors", witnessRefs: ["actor:reporter"] }],
+    knowledge: [{ id: "reporter-knowledge", subject: "印章", statement: "第二枚印章比第一枚晚三个月", truth: "confirmed", visibility: "actors", holderIds: [], holderRefs: ["actor:reporter"], sourceEventId: "visible-followup" }],
+  });
+  const advanced = advanceAutonomousWorldState(createAutonomousWorldState(before), before, after, 3, memory);
+  const reporter = advanced.profiles.find((profile) => profile.ref === "actor:reporter");
+  assert.equal(reporter.reflection.version, 1);
+  assert.equal(reporter.reflection.provenance, "deterministic-visible-state");
+  assert.equal(reporter.reflection.audienceRef, "actor:reporter");
+  assert.ok(reporter.reflection.sourceRefs.includes("visible-followup"));
+  assert.ok(reporter.reflection.sourceRefs.includes("reporter-knowledge"));
+  assert.ok(reporter.reflection.sourceRefs.includes(reporterBeliefId));
+  assert.ok(reporter.reflection.sourceRefs.includes("protect-source"));
+  assert.ok(reporter.reflection.sourceRefs.includes("verify-list-plan"));
+  assert.ok(!reporter.reflection.sourceRefs.includes(clerkBeliefId));
+  assert.ok(!reporter.reflection.summary.includes("警察厅伪造"));
+  assert.equal(reporter.reflection.recommendedObjective, "找到独立的第二来源");
+  assert.equal(reporter.reflection.recommendedIntent, "比较两枚印章");
+
+  const nextFrame = buildAutonomousDecisionFrames(advanced, after, 4).find((frame) => frame.ref === "actor:reporter");
+  assert.deepEqual(nextFrame.reflection, reporter.reflection);
+  assert.ok(nextFrame.drives.includes("找到独立的第二来源"));
+  const reflectionCandidate = nextFrame.candidateActions.find((candidate) => candidate.id.includes(":reflection:"));
+  assert.equal(reflectionCandidate.intent, "比较两枚印章");
+  assert.ok(reflectionCandidate.reason.includes("核实名单"));
+  assert.deepEqual(reflectionCandidate.requiredKnowledgeIds, ["reporter-knowledge"]);
+});
+
+test("legacy string reflection migrates deterministically without losing its text", () => {
+  const kernel = baseKernel();
+  const legacy = createAutonomousWorldState(kernel);
+  legacy.profiles[0].reflection = "旧存档反思：继续核实名单来源。";
+  const migrated = ensureAutonomousWorldState(legacy, kernel);
+  assert.equal(migrated.profiles[0].reflection.version, 1);
+  assert.match(migrated.profiles[0].reflection.summary, /旧存档反思/);
+  assert.equal(migrated.profiles[0].reflection.provenance, "migration");
+  assert.deepEqual(migrated.profiles[0].reflection.sourceRefs, []);
 });

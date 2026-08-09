@@ -10,6 +10,10 @@ export function actorAudience(actorId: string, affectsActivation = true): Memory
   return { kind: "actor", actorId, affectsActivation };
 }
 
+export function factionAudience(factionId: string, affectsActivation = true): MemoryAudience {
+  return { kind: "faction", factionId, affectsActivation };
+}
+
 export function playerAudience(affectsActivation = false): MemoryAudience {
   return { kind: "player", affectsActivation };
 }

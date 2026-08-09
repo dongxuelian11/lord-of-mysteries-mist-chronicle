@@ -314,7 +314,7 @@ test("schema 15 saves migrate into schema 21 management, ledger, autonomous-agen
   const migrated = parseSaveEnvelope(JSON.stringify(legacy));
   assert.equal(migrated.schemaVersion, 21);
   assert.equal(migrated.game.version, 21);
-  assert.equal(migrated.game.worldLedger.version, 1);
+  assert.equal(migrated.game.worldLedger.version, 2);
   assert.ok(migrated.game.worldAgents.profiles.length > 0);
   assert.ok(migrated.game.factionStrategy.profiles.length > 0);
   assert.equal(migrated.game.management.resources.manpower, 24);

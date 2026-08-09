@@ -259,33 +259,37 @@ export function deriveMemory(
   };
 }
 
-export function audienceKey(kind: "actor" | "player", actorId?: string): string {
-  return kind === "actor" ? `actor:${actorId ?? ""}` : "player";
+type ActivatingAudienceKind = "actor" | "faction" | "player";
+
+export function audienceKey(kind: ActivatingAudienceKind, actorId?: string, factionId?: string): string {
+  if (kind === "actor") return `actor:${actorId ?? ""}`;
+  if (kind === "faction") return `faction:${factionId ?? ""}`;
+  return "player";
 }
 
 function getAudienceState(
   state: DynamicMemoryState,
   memoryId: string,
-  kind: "actor" | "player",
-  actorId?: string
+  kind: ActivatingAudienceKind,
+  audienceId?: string
 ): AudienceMemoryState | undefined {
   return (state.audienceStates ?? []).find(
     (item) =>
       item.memoryId === memoryId &&
       item.audienceKind === kind &&
-      (actorId === undefined || item.actorId === actorId)
+      (kind === "actor" ? item.actorId === audienceId : kind === "faction" ? item.factionId === audienceId : true)
   );
 }
 
 function upsertAudienceState(
   state: DynamicMemoryState,
   memoryId: string,
-  kind: "actor" | "player",
-  actorId: string | undefined,
+  kind: ActivatingAudienceKind,
+  audienceId: string | undefined,
   week: number,
   update: (item: AudienceMemoryState) => AudienceMemoryState
 ): DynamicMemoryState {
-  const existing = getAudienceState(state, memoryId, kind, actorId);
+  const existing = getAudienceState(state, memoryId, kind, audienceId);
   if (existing) {
     return {
       ...state,
@@ -301,7 +305,8 @@ function upsertAudienceState(
       update({
         memoryId,
         audienceKind: kind,
-        actorId: kind === "actor" ? actorId : undefined,
+        actorId: kind === "actor" ? audienceId : undefined,
+        factionId: kind === "faction" ? audienceId : undefined,
         presentationCount: 0,
         recallCount: 0,
         updatedAtWeek: week,
@@ -327,6 +332,7 @@ function receiptId(descriptor: MemoryReceiptDescriptor, kind: "delivered" | "pre
     kind,
     descriptor.audience.kind,
     descriptor.audience.actorId ?? "",
+    descriptor.audience.factionId ?? "",
     [...descriptor.memoryIds].sort().join(","),
   ].join("|");
 }
@@ -353,7 +359,7 @@ function appendReceipt(
   };
   const nextReceipts = [...receipts, receipt].slice(-RECEIPT_LIMIT);
   if (kind === "presented") {
-    if (descriptor.audience.kind !== "actor" && descriptor.audience.kind !== "player") {
+    if (descriptor.audience.kind !== "actor" && descriptor.audience.kind !== "faction" && descriptor.audience.kind !== "player") {
       return state; // narrator/world-system 不产生角色展示状态
     }
     let next = { ...state, receipts: nextReceipts };
@@ -362,7 +368,7 @@ function appendReceipt(
         next,
         memoryId,
         descriptor.audience.kind,
-        descriptor.audience.actorId,
+        descriptor.audience.kind === "actor" ? descriptor.audience.actorId : descriptor.audience.kind === "faction" ? descriptor.audience.factionId : undefined,
         descriptor.week,
         (item) => ({
           ...item,
@@ -376,13 +382,13 @@ function appendReceipt(
   }
   if (kind === "recalled") {
     if (
-      (descriptor.audience.kind !== "actor" && descriptor.audience.kind !== "player") ||
+      (descriptor.audience.kind !== "actor" && descriptor.audience.kind !== "faction" && descriptor.audience.kind !== "player") ||
       !descriptor.audience.affectsActivation
     ) {
       return state;
     }
     const ledger = state.receiptLedger ?? { recalledByAudience: {}, recalledWeeks: {} };
-    const key = audienceKey(descriptor.audience.kind, descriptor.audience.actorId);
+    const key = audienceKey(descriptor.audience.kind, descriptor.audience.actorId, descriptor.audience.factionId);
     const byMemory = { ...(ledger.recalledByAudience ?? {}) };
     const memoryWeeks = { ...(byMemory[key] ?? {}) };
     const pending = descriptor.memoryIds.filter((memoryId) => {
@@ -404,7 +410,7 @@ function appendReceipt(
         next,
         memoryId,
         descriptor.audience.kind,
-        descriptor.audience.kind === "actor" ? descriptor.audience.actorId : undefined,
+        descriptor.audience.kind === "actor" ? descriptor.audience.actorId : descriptor.audience.kind === "faction" ? descriptor.audience.factionId : undefined,
         descriptor.week,
         (item) => ({
           ...item,
@@ -435,7 +441,7 @@ export function markMemoryPresented(
   state: DynamicMemoryState,
   descriptor: MemoryReceiptDescriptor
 ): DynamicMemoryState {
-  if (descriptor.audience.kind !== "actor" && descriptor.audience.kind !== "player") {
+  if (descriptor.audience.kind !== "actor" && descriptor.audience.kind !== "faction" && descriptor.audience.kind !== "player") {
     return state; // narrator/world-system 不产生角色展示回执
   }
   return appendReceipt(state, descriptor, "presented");
@@ -447,7 +453,7 @@ export function markMemoryRecalled(
   descriptor: MemoryReceiptDescriptor
 ): DynamicMemoryState {
   if (
-    (descriptor.audience.kind !== "actor" && descriptor.audience.kind !== "player") ||
+    (descriptor.audience.kind !== "actor" && descriptor.audience.kind !== "faction" && descriptor.audience.kind !== "player") ||
     !descriptor.audience.affectsActivation
   ) {
     return state;

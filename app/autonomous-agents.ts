@@ -1,6 +1,22 @@
 import { projectWorldForAudience, type WorldKernel } from "./world-kernel.ts";
+import { buildAutonomousMemoryProjection, type DynamicMemoryState } from "./memory/index.ts";
 
 export type AutonomousEntityKind = "actor" | "faction";
+
+export type AutonomousReflection = {
+  version: 1;
+  createdWeek: number;
+  audienceRef: string;
+  summary: string;
+  conclusions: string[];
+  sourceRefs: string[];
+  sourceEventIds: string[];
+  recommendedObjective: string;
+  recommendedIntent: string;
+  requiredKnowledgeIds: string[];
+  driveSignals: string[];
+  provenance: "deterministic-visible-state" | "migration";
+};
 
 export type AutonomousAgentProfile = {
   ref: string;
@@ -13,7 +29,7 @@ export type AutonomousAgentProfile = {
   riskTolerance: number;
   planningHorizonWeeks: number;
   privateMemoryIds: string[];
-  reflection: string;
+  reflection: AutonomousReflection;
   updatedWeek: number;
 };
 
@@ -49,12 +65,14 @@ export type AutonomousDecisionFrame = {
   ref: string;
   kind: AutonomousEntityKind;
   displayName: string;
+  drives: string[];
   currentObjective: string;
   nextAction: string;
   locationId?: string;
   resources?: number;
   riskTolerance: number;
   planningHorizonWeeks: number;
+  reflection: AutonomousReflection;
   knownObservationIds: string[];
   knownKnowledgeIds: string[];
   privateMemoryIds: string[];
@@ -75,6 +93,52 @@ function stableNumber(value: string) {
   return output >>> 0;
 }
 
+function baselineReflection(
+  audienceRef: string,
+  objective: string,
+  nextAction: string,
+  week: number,
+  legacySummary?: string,
+): AutonomousReflection {
+  return {
+    version: 1,
+    createdWeek: week,
+    audienceRef,
+    summary: legacySummary?.trim() || "尚未形成有新来源支持的跨周反思。",
+    conclusions: [],
+    sourceRefs: [],
+    sourceEventIds: [],
+    recommendedObjective: objective,
+    recommendedIntent: nextAction,
+    requiredKnowledgeIds: [],
+    driveSignals: [],
+    provenance: legacySummary ? "migration" : "deterministic-visible-state",
+  };
+}
+
+function normalizeReflection(profile: AutonomousAgentProfile | (Omit<AutonomousAgentProfile, "reflection"> & { reflection?: unknown })): AutonomousReflection {
+  const value = profile.reflection;
+  if (value && typeof value === "object" && !Array.isArray(value) && (value as AutonomousReflection).version === 1) {
+    const reflection = value as AutonomousReflection;
+    return {
+      ...reflection,
+      audienceRef: reflection.audienceRef || profile.ref,
+      conclusions: Array.isArray(reflection.conclusions) ? reflection.conclusions.slice(0, 8) : [],
+      sourceRefs: Array.isArray(reflection.sourceRefs) ? [...new Set(reflection.sourceRefs)].slice(0, 32) : [],
+      sourceEventIds: Array.isArray(reflection.sourceEventIds) ? [...new Set(reflection.sourceEventIds)].slice(0, 24) : [],
+      requiredKnowledgeIds: Array.isArray(reflection.requiredKnowledgeIds) ? [...new Set(reflection.requiredKnowledgeIds)].slice(0, 12) : [],
+      driveSignals: Array.isArray(reflection.driveSignals) ? [...new Set(reflection.driveSignals)].slice(0, 6) : [],
+    };
+  }
+  return baselineReflection(
+    profile.ref,
+    profile.currentObjective,
+    profile.nextAction,
+    profile.updatedWeek,
+    typeof value === "string" ? value : undefined,
+  );
+}
+
 function actorProfile(actor: WorldKernel["actors"][number], week: number): AutonomousAgentProfile {
   return {
     ref: `actor:${actor.id}`,
@@ -87,7 +151,7 @@ function actorProfile(actor: WorldKernel["actors"][number], week: number): Auton
     riskTolerance: 25 + stableNumber(actor.id) % 51,
     planningHorizonWeeks: 2 + stableNumber(`horizon:${actor.id}`) % 5,
     privateMemoryIds: actor.knowledgeIds.slice(-24),
-    reflection: "尚未形成新的跨周反思。",
+    reflection: baselineReflection(`actor:${actor.id}`, actor.shortTermGoal, actor.lastAction, week),
     updatedWeek: week,
   };
 }
@@ -104,7 +168,7 @@ function factionProfile(faction: WorldKernel["factions"][number], week: number):
     riskTolerance: clamp(35 + faction.suspicion / 2),
     planningHorizonWeeks: 3 + stableNumber(`horizon:${faction.id}`) % 6,
     privateMemoryIds: [],
-    reflection: "尚未形成新的跨周反思。",
+    reflection: baselineReflection(`faction:${faction.id}`, faction.posture, faction.lastAction, week),
     updatedWeek: week,
   };
 }
@@ -170,7 +234,9 @@ export function ensureAutonomousWorldState(state: AutonomousWorldState | undefin
     ...kernel.actors.map((actor) => `actor:${actor.id}`),
     ...kernel.factions.map((faction) => `faction:${faction.id}`),
   ]);
-  const profiles = [...profileByRef.values()].filter((profile) => validRefs.has(profile.ref));
+  const profiles = [...profileByRef.values()]
+    .filter((profile) => validRefs.has(profile.ref))
+    .map((profile) => ({ ...profile, reflection: normalizeReflection(profile) }));
   const residency = selectAutonomousAgentResidency(profiles, kernel, current.activeAgentRefs ?? [], MAX_ACTIVE_AUTONOMOUS_AGENTS);
   return {
     version: 1,
@@ -186,6 +252,12 @@ function candidateActions(profile: AutonomousAgentProfile, kernel: WorldKernel, 
     .filter((project) => project.ownerId === profile.entityId && project.status === "active")
     .sort((left, right) => right.progress - left.progress || left.id.localeCompare(right.id))[0];
   const candidates: AutonomousActionCandidate[] = [];
+  if (profile.reflection.sourceRefs.length && profile.reflection.recommendedIntent) candidates.push({
+    id: `${profile.ref}:reflection:${profile.reflection.createdWeek}`,
+    intent: profile.reflection.recommendedIntent,
+    reason: profile.reflection.summary,
+    requiredKnowledgeIds: profile.reflection.requiredKnowledgeIds.filter((id) => knownKnowledgeIds.includes(id)),
+  });
   if (ownedProject) candidates.push({
     id: `${profile.ref}:continue:${ownedProject.id}`,
     intent: ownedProject.nextMilestone,
@@ -214,7 +286,7 @@ function candidateActions(profile: AutonomousAgentProfile, kernel: WorldKernel, 
     reason: "没有更紧迫的已知变化时维持长期连续性",
     requiredKnowledgeIds: [],
   });
-  return candidates.slice(0, 3);
+  return candidates.slice(0, 4);
 }
 
 export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kernel: WorldKernel, week: number): AutonomousDecisionFrame[] {
@@ -235,11 +307,13 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
       ref: profile.ref,
       kind: profile.kind,
       displayName: profile.displayName,
+      drives: [...new Set([...profile.drives, ...profile.reflection.driveSignals])].slice(0, 8),
       currentObjective: profile.currentObjective,
       nextAction: profile.nextAction,
       ...(profile.kind === "actor" ? { locationId: (entity as WorldKernel["actors"][number] | undefined)?.locationId } : { resources: (entity as WorldKernel["factions"][number] | undefined)?.resources }),
       riskTolerance: profile.riskTolerance,
       planningHorizonWeeks: profile.planningHorizonWeeks,
+      reflection: profile.reflection,
       knownObservationIds: view.observations.map((observation) => observation.id),
       knownKnowledgeIds,
       privateMemoryIds: [...new Set([...profile.privateMemoryIds, ...knownKnowledgeIds])].slice(-32),
@@ -248,6 +322,76 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
       freeActionAllowed: true,
     };
   });
+}
+
+function buildStructuredReflection(
+  profile: AutonomousAgentProfile,
+  after: WorldKernel,
+  week: number,
+  memory?: DynamicMemoryState,
+): AutonomousReflection {
+  const audience = profile.kind === "actor"
+    ? { kind: "actor" as const, holderId: profile.entityId }
+    : { kind: "faction" as const, holderId: profile.entityId };
+  const memoryAudience = profile.kind === "actor"
+    ? { kind: "actor" as const, actorId: profile.entityId }
+    : { kind: "faction" as const, factionId: profile.entityId };
+  const worldView = projectWorldForAudience(after, audience);
+  const visibleEvents = worldView.events.filter((event) => event.week === week);
+  const visibleKnowledge = worldView.knowledge.filter((knowledge) => knowledge.acquiredWeek === week);
+  const memoryProjection = buildAutonomousMemoryProjection(memory, memoryAudience, week);
+  const memoryIds = new Set(memoryProjection.referenceIds);
+  const visibleBeliefs = (memory?.beliefs ?? []).filter((belief) => memoryIds.has(belief.id));
+  const visibleCommitments = (memory?.commitments ?? []).filter((commitment) => memoryIds.has(commitment.id) && commitment.status === "active");
+  const visibleRelationships = (memory?.relationshipCauses ?? []).filter((cause) => memoryIds.has(cause.id) && cause.active);
+  const visiblePlans = (memory?.plans ?? []).filter((plan) => memoryIds.has(plan.id) && (plan.status === "active" || plan.status === "blocked"));
+  const plan = visiblePlans.sort((left, right) => right.importance - left.importance || left.id.localeCompare(right.id))[0];
+  const knowledge = visibleKnowledge[0];
+  const belief = visibleBeliefs.sort((left, right) => right.importance - left.importance || left.id.localeCompare(right.id))[0];
+  const commitment = visibleCommitments.sort((left, right) => right.importance - left.importance || left.id.localeCompare(right.id))[0];
+  const relationship = visibleRelationships.sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta) || left.id.localeCompare(right.id))[0];
+  const event = visibleEvents[0];
+  const conclusions = [
+    ...(plan ? [`计划“${plan.title}”仍要求：${plan.currentStep}`] : []),
+    ...(knowledge ? [`新认知“${knowledge.statement}”需要纳入下一步判断`] : []),
+    ...(belief ? [`当前信念：“${belief.claim}”`] : []),
+    ...(commitment ? [`仍受承诺约束：“${commitment.summary}”`] : []),
+    ...(relationship ? [`关系依据：“${relationship.summary}”`] : []),
+    ...(event ? [`本周亲历：“${event.title}”`] : []),
+  ].slice(0, 8);
+  const recommendedObjective = plan?.objective || profile.currentObjective;
+  const recommendedIntent = plan?.currentStep
+    || (knowledge ? `核验或利用关于${knowledge.subject}的新认知` : "")
+    || (relationship ? `根据既有关系调整对${relationship.fromCharacterId === profile.entityId ? relationship.toCharacterId : relationship.fromCharacterId}的行动` : "")
+    || profile.nextAction;
+  const summary = conclusions.length
+    ? conclusions.join("；").slice(0, 720)
+    : `没有新的主体可见依据足以改变“${profile.currentObjective}”；维持既定方向。`;
+  return {
+    version: 1,
+    createdWeek: week,
+    audienceRef: profile.ref,
+    summary,
+    conclusions,
+    sourceRefs: [...new Set([
+      ...visibleEvents.map((item) => item.id),
+      ...visibleKnowledge.map((item) => item.id),
+      ...memoryProjection.referenceIds,
+    ])].slice(0, 32),
+    sourceEventIds: [...new Set([
+      ...visibleEvents.map((item) => item.id),
+      ...visibleKnowledge.flatMap((item) => item.sourceEventId ? [item.sourceEventId] : []),
+      ...memoryProjection.sourceEventIds,
+    ])].slice(0, 24),
+    recommendedObjective,
+    recommendedIntent,
+    requiredKnowledgeIds: visibleKnowledge.map((item) => item.id).slice(0, 12),
+    driveSignals: [...new Set([
+      ...(plan ? [plan.objective] : []),
+      ...(commitment ? [commitment.summary] : []),
+    ])].slice(0, 6),
+    provenance: "deterministic-visible-state",
+  };
 }
 
 function eventParticipantRefs(event: WorldKernel["events"][number]) {
@@ -285,6 +429,7 @@ export function advanceAutonomousWorldState(
   before: WorldKernel,
   after: WorldKernel,
   week: number,
+  memory?: DynamicMemoryState,
 ): AutonomousWorldState {
   const current = ensureAutonomousWorldState(state, after);
   const profiles = current.profiles.map((profile) => {
@@ -296,22 +441,20 @@ export function advanceAutonomousWorldState(
       .filter((node) => node.acquiredWeek === week && (node.visibility === "public" || node.holderRefs?.includes(holderRef) || node.holderIds.includes(profile.entityId)))
       .map((node) => node.id);
     const witnessedEvents = after.events.filter((event) => event.week === week && (event.visibility === "public" || event.witnessRefs?.includes(holderRef)));
-    const previousEventCount = before.events.filter((event) => event.week === week && (event.visibility === "public" || event.witnessRefs?.includes(holderRef))).length;
-    const newEventCount = Math.max(0, witnessedEvents.length - previousEventCount);
     const currentObjective = profile.kind === "actor"
       ? (entity as WorldKernel["actors"][number] | undefined)?.shortTermGoal ?? profile.currentObjective
       : (entity as WorldKernel["factions"][number] | undefined)?.posture ?? profile.currentObjective;
     const nextAction = profile.kind === "actor"
       ? (entity as WorldKernel["actors"][number] | undefined)?.lastAction ?? profile.nextAction
       : (entity as WorldKernel["factions"][number] | undefined)?.lastAction ?? profile.nextAction;
+    const reflection = buildStructuredReflection(profile, after, week, memory);
     return {
       ...profile,
+      drives: [...new Set([...profile.drives, ...reflection.driveSignals])].slice(0, 8),
       currentObjective,
       nextAction,
       privateMemoryIds: [...new Set([...profile.privateMemoryIds, ...receivedKnowledgeIds, ...witnessedEvents.map((event) => event.id)])].slice(-32),
-      reflection: newEventCount || receivedKnowledgeIds.length
-        ? `本周有${newEventCount}项新事件和${receivedKnowledgeIds.length}项新认知进入自身视野；下一步仍围绕“${currentObjective}”。`
-        : `本周没有新的可感知变化；继续维持“${currentObjective}”。`,
+      reflection,
       updatedWeek: week,
     };
   });

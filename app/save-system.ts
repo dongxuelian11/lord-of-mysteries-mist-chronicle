@@ -3,7 +3,7 @@ import { emptyMemoryState, ensureAudienceStates } from "./memory/index.ts";
 import { createInitialFateState, type FateAberrationState } from "./fate/index.ts";
 import { createInitialControlState, type ControlState } from "./loss-of-control/index.ts";
 import { migrateOrganizationManagementState, type OrganizationManagementState } from "./organization-management.ts";
-import { createWorldLedger, type WorldLedger } from "./world-ledger.ts";
+import { createWorldLedger, migrateWorldLedger, type LegacyWorldLedger, type WorldLedger } from "./world-ledger.ts";
 import { ensureAutonomousWorldState, type AutonomousWorldState } from "./autonomous-agents.ts";
 import { ensureFactionStrategyState, type FactionStrategyState } from "./faction-strategy.ts";
 import { ensureHighSequenceLedger, type HighSequenceLedger } from "./high-sequence-ledger.ts";
@@ -163,8 +163,12 @@ export function ensureWorldLedger(game: GameState): void {
       ...node.holderIds.map(legacyHolderRef),
     ])];
   }
-  const current = game.worldLedger as WorldLedger | undefined;
-  if (!current || current.version !== 1 || !Array.isArray(current.events) || !Array.isArray(current.snapshots) || !Number.isFinite(current.nextSequence)) {
+  const current = game.worldLedger as unknown as WorldLedger | LegacyWorldLedger | undefined;
+  if (!current || !Array.isArray(current.events) || !Array.isArray(current.snapshots) || !Number.isFinite(current.nextSequence)) {
+    game.worldLedger = createWorldLedger(game);
+  } else if (current.version === 1) {
+    game.worldLedger = migrateWorldLedger(current, game);
+  } else if (current.version !== 2) {
     game.worldLedger = createWorldLedger(game);
   }
 }

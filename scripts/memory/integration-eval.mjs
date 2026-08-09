@@ -1,4 +1,4 @@
-// 动态记忆集成评测：六类真实 Prompt 接入、只读检索、presented/recalled、
+// 动态记忆集成评测：七类真实 Prompt 接入、只读检索、presented/recalled、
 // propositionKey、计划/事件一致性、50 周路线与性能。
 import { createServer } from "vite";
 import { loadRuntimeModule } from "../rag/lib/load-runtime.mjs";
@@ -74,8 +74,12 @@ function makeMockFetch(captured) {
     } catch {
       // 忽略
     }
-    const name = text.includes("worldSummary")
-      ? "world"
+    const autonomousProjection = payload?.projection;
+    const autonomousAgent = autonomousProjection?.agent;
+    const name = typeof autonomousAgent?.ref === "string" && Number.isFinite(Number(autonomousProjection?.week))
+      ? "autonomous-agent"
+      : text.includes("worldSummary")
+        ? "world"
       : text.includes("非凡能力即时结算器")
         ? "ability"
         : text.includes("让一至三名最相关的内部成员")
@@ -95,7 +99,20 @@ function makeMockFetch(captured) {
                       : "unknown";
     captured.push({ name, payload });
     let content;
-    if (name === "world") {
+    if (name === "autonomous-agent") {
+      content = JSON.stringify({
+        proposal: {
+          version: 1,
+          planningWeek: Number(autonomousProjection.week),
+          agentRef: autonomousAgent.ref,
+          disposition: "wait",
+          intent: "保持当前计划并观察本周局势。",
+          rationale: "当前自身可见信息不足以支持改变既定行动。",
+          targetRefs: [],
+          requiredKnowledgeIds: [],
+        },
+      });
+    } else if (name === "world") {
       content = JSON.stringify(envelopeFor(globalThis.__game, Number(text.match(/第(\d+)周/)?.[1] ?? 1)));
     } else if (name === "ability") {
       content = JSON.stringify({ observation: "灯影里有人快速合上一本册子。", interpretation: "存在被刻意隐藏的记录活动。", confidence: "较低", unknown: "对方身份无法确认。", detection: "未察觉", mentalLoad: 1, deepLayer: null, lockedFact: null });
@@ -112,9 +129,14 @@ function makeMockFetch(captured) {
   };
 }
 
-function scenarioMemory(memoryModule) {
+function scenarioMemory(memoryModule, game) {
   const { emptyMemoryState, deriveMemory } = memoryModule;
-  const registry = { characterIds: new Set(["player", "mara", "rowan", "ines", "cedric"]), organizationIds: new Set() };
+  const autonomousActorId = game.worldKernel.actors[0].id;
+  const autonomousFactionId = game.worldKernel.factions[0].id;
+  const registry = {
+    characterIds: new Set(["player", "mara", "rowan", "ines", "cedric", ...game.worldKernel.actors.map((actor) => actor.id)]),
+    organizationIds: new Set(game.worldKernel.factions.map((faction) => faction.id)),
+  };
   const seeds = [
     { kind: "commitment", id: "c-w1", type: "promise", debtorId: "player", creditorId: "mara", participantIds: ["player", "mara"], summary: "承诺保护证人", createdWeek: 1, dueWeek: 18, sourceEventId: "w1-promise", importance: 0.85, secrecy: "restricted" },
     { kind: "event", sourceEventId: "w3-rescue", week: 3, type: "rescue", summary: "玩家救助了玛拉", participantIds: ["player", "mara"], observerIds: ["rowan"], importance: 0.9, emotionalWeight: 0.8, tags: ["rescue"] },
@@ -128,6 +150,9 @@ function scenarioMemory(memoryModule) {
     { kind: "plan", id: "p-12", sourcePlanId: "proj-12", ownerId: "player", participantIds: ["player", "mara"], title: "长期反制计划", objective: "瓦解情报网", currentStep: "收集名单", createdWeek: 12, status: "active", secrecy: "restricted", importance: 0.8 },
     { kind: "belief", characterId: "cedric", subjectId: "org-funds", claimType: "rumor", claim: "账目复核证明资金链正常", confidence: 0.9, truthStatus: "true", learnedFrom: { type: "report", sourceId: "w15-audit" }, validFromWeek: 15, secrecy: "public" },
     { kind: "commitment", id: "c-w1", type: "promise", debtorId: "player", creditorId: "mara", participantIds: ["player", "mara"], summary: "承诺保护证人", createdWeek: 1, dueWeek: 18, status: "fulfilled", sourceEventId: "w1-promise", resolvedByEventId: "w18", importance: 0.85, secrecy: "restricted" },
+    { kind: "belief", characterId: autonomousActorId, subjectId: "autonomous-route", claimType: "route", claim: "自治角色只信任旧桥路线", confidence: 0.8, truthStatus: "uncertain", learnedFrom: { type: "deduced", sourceId: "autonomous-actor-source" }, validFromWeek: 19, secrecy: "secret" },
+    { kind: "plan", id: "autonomous-actor-plan", ownerId: autonomousActorId, participantIds: [autonomousActorId], title: "核验旧桥路线", objective: "找到安全的联络路径", currentStep: "比较两次交接记录", createdWeek: 19, status: "active", secrecy: "secret", importance: 0.9 },
+    { kind: "event", sourceEventId: "autonomous-faction-source", week: 19, type: "briefing", summary: "自治势力内部决定分散档案", participantIds: [], observerIds: [], organizationIds: [autonomousFactionId], importance: 0.9 },
   ];
   return { memory: deriveMemory(emptyMemoryState(), seeds, registry).state, registry };
 }
@@ -152,7 +177,7 @@ export async function runIntegrationEval() {
   };
 
   let game = model.createInitialGame("seer");
-  const scenario = scenarioMemory(memoryModule);
+  const scenario = scenarioMemory(memoryModule, game);
   game = { ...game, prologueComplete: true, playerName: "会长", playerAddress: "会长阁下", week: 20, date: "1349年12月1日", memory: scenario.memory, worldKernel: { ...game.worldKernel, currentWeek: 20, lastResolvedWeek: 19, projects: [...game.worldKernel.projects, { id: "proj-12", ownerId: "player", title: "长期反制计划", stage: "推进", progress: 40, secrecy: 60, nextMilestone: "名单", blockers: [], status: "active", updatedWeek: 12 }] } };
   globalThis.__game = game;
   const captured = [];
@@ -206,11 +231,38 @@ export async function runIntegrationEval() {
   // 6. world
   const chapter = { id: "ch-w", week: 20, date: "1349年12月1日", title: "x", source: "local", sections: [], results: [], summary: "" };
   const worldResult = await modules.engine.generateAiWorldDelta(config, game, chapter, () => {});
+  const autonomousRequests = captured.filter((item) => item.name === "autonomous-agent");
+  assert(autonomousRequests.length === 12, `autonomous-agent: expected 12 independent requests, received ${autonomousRequests.length}`);
+  assert(
+    new Set(autonomousRequests.map((item) => item.payload?.projection?.agent?.ref)).size === autonomousRequests.length,
+    "autonomous-agent: every active subject is planned exactly once",
+  );
+  assert(
+    autonomousRequests.every((item) => typeof item.payload?.projection?.agent?.ref === "string"),
+    "autonomous-agent: every request carries a structured subject reference",
+  );
+  const autonomousActorRef = `actor:${game.worldKernel.actors[0].id}`;
+  const autonomousFactionRef = `faction:${game.worldKernel.factions[0].id}`;
+  const autonomousActor = autonomousRequests.find((item) => item.payload?.projection?.agent?.ref === autonomousActorRef)?.payload?.projection;
+  const autonomousFaction = autonomousRequests.find((item) => item.payload?.projection?.agent?.ref === autonomousFactionRef)?.payload?.projection;
+  assert(autonomousActor?.dynamicMemory?.includes("自治角色只信任旧桥路线"), "autonomous-agent(actor): private memory enters its own Prompt");
+  assert(!autonomousActor?.dynamicMemory?.includes("自治势力内部决定分散档案"), "autonomous-agent(actor): faction-private memory is isolated");
+  assert(autonomousActor?.memoryReferenceIds?.length > 0 && autonomousActor.memoryReferenceIds.length <= 12, "autonomous-agent(actor): bounded reference ids enter Prompt");
+  assert(autonomousActor?.memoryAudience?.kind === "actor", "autonomous-agent(actor): explicit actor audience");
+  assert(Array.isArray(autonomousActor?.agent?.drives) && autonomousActor.agent.drives.length > 0, "autonomous-agent(actor): drives enter next planning frame");
+  assert(autonomousActor?.agent?.reflection?.version === 1, "autonomous-agent(actor): structured reflection enters next planning frame");
+  assert(autonomousFaction?.dynamicMemory?.includes("自治势力内部决定分散档案"), "autonomous-agent(faction): organization memory enters its own Prompt");
+  assert(!autonomousFaction?.dynamicMemory?.includes("自治角色只信任旧桥路线"), "autonomous-agent(faction): actor-private memory is isolated");
+  assert(autonomousFaction?.memoryAudience?.kind === "faction", "autonomous-agent(faction): explicit faction audience");
   const world = captured.find((item) => item.name === "world")?.payload;
   assert(Boolean(world?.dynamicMemory), "world: 动态记忆进入 Prompt");
   assert(world?.dynamicMemory.includes("WORLD FACTS"), "world: 世界事实标签");
   assert(worldResult.memory.receipts.some((receipt) => receipt.actionId === "world:20" && receipt.kind === "delivered"), "world: 成功后写入 delivered 回执");
   assert(!worldResult.memory.receipts.some((receipt) => receipt.actionId === "world:20" && receipt.kind === "presented"), "world: 不写入 presented（不改变 NPC 激活度）");
+  assert(worldResult.memory.receipts.some((receipt) => receipt.actionId === `autonomous-agent:20:${autonomousActorRef}` && receipt.kind === "delivered" && receipt.audience.kind === "actor"), "autonomous-agent(actor): commit writes delivered receipt");
+  assert(worldResult.memory.receipts.some((receipt) => receipt.actionId === `autonomous-agent:20:${autonomousActorRef}` && receipt.kind === "presented" && receipt.audience.kind === "actor"), "autonomous-agent(actor): commit writes presented receipt");
+  assert(worldResult.memory.receipts.some((receipt) => receipt.actionId === `autonomous-agent:20:${autonomousFactionRef}` && receipt.kind === "delivered" && receipt.audience.kind === "faction"), "autonomous-agent(faction): commit writes delivered receipt");
+  assert(worldResult.memory.receipts.some((receipt) => receipt.actionId === `autonomous-agent:20:${autonomousFactionRef}` && receipt.kind === "presented" && receipt.audience.kind === "faction"), "autonomous-agent(faction): commit writes presented receipt");
   assert(game.memory.receipts.some((receipt) => receipt.actionId === "dialogue:mara:20" && receipt.kind === "delivered"), "dialogue: 成功后写入 delivered");
   assert(game.memory.receipts.some((receipt) => receipt.actionId === "dialogue:mara:20" && receipt.kind === "presented"), "dialogue: 成功后写入 presented（NPC 展示）");
   assert(game.memory.receipts.some((receipt) => receipt.actionId?.startsWith("council:20:") && receipt.kind === "presented"), "council: 成员级 presented 回执");
@@ -284,7 +336,7 @@ export async function runIntegrationEval() {
   void eventBefore;
 
   // 50 周确定性路线（含失败重试）
-  const route = scenarioMemory(memoryModule);
+  const route = scenarioMemory(memoryModule, game);
   let routeMemory = route.memory;
   for (let week = 21; week <= 50; week += 1) {
     const derived = deriveMemory(routeMemory, [
@@ -352,13 +404,13 @@ export async function runIntegrationEval() {
 if (import.meta.url === `file:///${process.argv[1]?.replace(/\\/g, "/")}`) {
   const result = await runIntegrationEval();
   console.log("[memory:integration:eval]");
-  console.log(`  六类调用捕获: ${result.capturedNames.join(", ")}`);
+  console.log(`  七类调用捕获: ${result.capturedNames.join(", ")}`);
   console.log(`  性能: ${JSON.stringify(result.perf)}`);
   if (result.failures.length) {
     console.log(`  失败 ${result.failures.length} 项:`);
     for (const failure of result.failures.slice(0, 20)) console.log(`  - ${failure}`);
   } else {
-    console.log("  六类 Prompt 接入、只读检索、presented/recalled、propositionKey、计划/事件一致性、50 周路线全部通过");
+    console.log("  七类 Prompt 接入、只读检索、presented/recalled、propositionKey、计划/事件一致性、50 周路线全部通过");
   }
   const pass = result.failures.length === 0 && result.capturedNames.length >= 5;
   console.log(`[memory:integration:eval] RESULT=${pass ? "PASS" : "FAIL"}`);

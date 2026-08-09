@@ -5,6 +5,7 @@ import {
   AgentPlanningError,
   ACTIVE_AGENT_LIMIT,
   assertWorldAdjudicatorPayloadBudget,
+  buildAgentPlanningProjection,
   buildAdjudicatorProjection,
   fitWorldAdjudicatorPayload,
   planActiveAgentsIndependently,
@@ -16,6 +17,7 @@ import {
   createAutonomousWorldState,
   ensureAutonomousWorldState,
 } from "../app/autonomous-agents.ts";
+import { deriveMemory, emptyMemoryState } from "../app/memory/index.ts";
 import { applyWorldTurn, createWorldKernel } from "../app/world-kernel.ts";
 
 function crowdedKernel() {
@@ -50,6 +52,52 @@ test("autonomous world keeps every profile but plans only the 24-agent active se
   assert.equal(state.coldAgentRefs.length, 12);
   assert.equal(buildAutonomousDecisionFrames(state, kernel, 5).length, ACTIVE_AGENT_LIMIT);
   assert.equal(new Set([...state.activeAgentRefs, ...state.coldAgentRefs]).size, state.profiles.length);
+});
+
+test("agent planning projections include bounded private memory with explicit actor and faction audiences", () => {
+  const kernel = createWorldKernel({
+    week: 5,
+    date: "1349年2月18日",
+    actors: [
+      { id: "reporter", name: "记者", locationId: "east", agenda: "核实名单" },
+      { id: "clerk", name: "书记员", locationId: "east", agenda: "保住职位" },
+    ],
+    factions: [{ id: "press", name: "晚报消息网", plan: "保护消息源", progress: 20 }],
+    locations: [{ id: "east", name: "东区", risk: 50 }],
+    timeline: [],
+  });
+  const memory = deriveMemory(emptyMemoryState(), [
+    { kind: "event", sourceEventId: "reporter-event", week: 4, type: "meeting", summary: "记者在雨夜接到名单", participantIds: ["reporter"], observerIds: [], organizationIds: [] },
+    { kind: "event", sourceEventId: "press-event", week: 4, type: "briefing", summary: "消息网转移了一处联络点", participantIds: [], observerIds: [], organizationIds: ["press"] },
+    { kind: "belief", characterId: "reporter", subjectId: "list", claimType: "source", claim: "记者私有判断：第二份名单更可信", confidence: 0.8, truthStatus: "uncertain", learnedFrom: { type: "deduced", sourceId: "reporter-event" }, validFromWeek: 4, secrecy: "secret" },
+    { kind: "belief", characterId: "clerk", subjectId: "list", claimType: "source", claim: "书记员秘密：名单来自警察厅", confidence: 0.9, truthStatus: "true", learnedFrom: { type: "observed", sourceId: "clerk-event" }, validFromWeek: 4, secrecy: "secret" },
+    { kind: "belief", characterId: "faction:press", subjectId: "network", claimType: "risk", claim: "消息网判断旧联络点已经暴露", confidence: 0.75, truthStatus: "uncertain", learnedFrom: { type: "report", sourceId: "press-event" }, validFromWeek: 4, secrecy: "restricted" },
+    { kind: "commitment", id: "reporter-promise", type: "promise", participantIds: ["reporter", "ally"], summary: "记者答应保护消息源", createdWeek: 3, status: "active", sourceEventId: "promise-event", secrecy: "secret" },
+    { kind: "relationship", sourceEventId: "trust-event", fromCharacterId: "reporter", toCharacterId: "ally", dimension: "trust", delta: 12, summary: "共同核实名单建立了信任", createdWeek: 3 },
+    { kind: "plan", id: "reporter-plan", ownerId: "reporter", participantIds: ["reporter"], title: "核实名单", objective: "找到第二来源", currentStep: "比较印章", createdWeek: 3, status: "active", secrecy: "secret" },
+    { kind: "plan", id: "press-plan", ownerId: "press", participantIds: ["faction:press"], title: "转移联络点", objective: "保存消息网", currentStep: "分散档案", createdWeek: 3, status: "active", secrecy: "restricted" },
+  ]).state;
+  const frames = buildAutonomousDecisionFrames(createAutonomousWorldState(kernel), kernel, 5);
+  const reporter = buildAgentPlanningProjection(frames.find((frame) => frame.ref === "actor:reporter"), kernel, memory);
+  const press = buildAgentPlanningProjection(frames.find((frame) => frame.ref === "faction:press"), kernel, memory);
+
+  assert.deepEqual(reporter.memoryAudience, { kind: "actor", actorId: "reporter" });
+  assert.ok(reporter.dynamicMemory.includes("记者私有判断"));
+  assert.ok(reporter.dynamicMemory.includes("记者答应保护消息源"));
+  assert.ok(reporter.dynamicMemory.includes("共同核实名单建立了信任"));
+  assert.ok(reporter.dynamicMemory.includes("核实名单"));
+  assert.ok(!reporter.dynamicMemory.includes("书记员秘密"));
+  assert.ok(!reporter.dynamicMemory.includes("消息网判断"));
+  assert.ok(reporter.memoryReferenceIds.length <= 12);
+  assert.ok(reporter.dynamicMemory.length <= 2_800);
+
+  assert.deepEqual(press.memoryAudience, { kind: "faction", factionId: "press" });
+  assert.ok(press.dynamicMemory.includes("消息网转移了一处联络点"));
+  assert.ok(press.dynamicMemory.includes("消息网判断旧联络点已经暴露"));
+  assert.ok(press.dynamicMemory.includes("转移联络点"));
+  assert.ok(!press.dynamicMemory.includes("记者私有判断"));
+  assert.ok(!press.dynamicMemory.includes("书记员秘密"));
+  assert.ok(press.memoryReferenceIds.length <= 12);
 });
 
 test("a cold agent returns to the active set when a new event makes it relevant", () => {

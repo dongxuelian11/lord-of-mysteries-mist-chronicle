@@ -34,7 +34,7 @@ import { actingPrinciplesFor, advancementStatus } from "./progression-system";
 import { abilitiesFor } from "./pathway-abilities";
 import { ACTIVE_SAVE_KEY, LEGACY_ACTIVE_SAVE_KEYS, createRecoveryCheckpoint, downloadSave, parseSaveEnvelope, savePreview } from "./save-system";
 import { continueAsSuccessor } from "./succession-system";
-import { createWorldLedger } from "./world-ledger.ts";
+import { createWorldLedger, migrateWorldLedger, type LegacyWorldLedger, type WorldLedger } from "./world-ledger.ts";
 import { createAutonomousWorldState } from "./autonomous-agents.ts";
 import { createFactionStrategyState, ensureFactionStrategyState } from "./faction-strategy.ts";
 import ParticipationSceneOverlay from "./participation-scene-overlay";
@@ -90,7 +90,12 @@ function normalizeNarrativeGame(game: GameState): GameState {
     chronicle: (game.chronicle ?? []).map((chapter) => ({ ...chapter, sections: chapter.sections.map((section) => ({ ...section, paragraphs: section.paragraphs.map(displayNarrative) })) })),
   };
   normalized.factionStrategy = ensureFactionStrategyState(game.factionStrategy, normalized.management, normalized.worldKernel);
-  return { ...normalized, worldLedger: game.worldLedger ?? createWorldLedger(normalized) };
+  return {
+    ...normalized,
+    worldLedger: game.worldLedger
+      ? migrateWorldLedger(game.worldLedger as unknown as WorldLedger | LegacyWorldLedger, normalized)
+      : createWorldLedger(normalized),
+  };
 }
 
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Command }[] = [
@@ -620,7 +625,7 @@ export default function CompleteGame() {
     if (!aiReady) { setShowSettings(true); setToast("先连接 AI 模型，再建立新的世界分支"); return; }
     if (!(await ensureModelConnection())) return;
     const next = createInitialGame(draftPathway);
-    setGame(next); setEntry("game"); setSituationBrief(null); setSelectedRank(9); setAbilityPanelOpen(false); setAbilityResult(null); setCouncilDecisionSignal(0); setShowSettings(false); setView("intent"); setToast("新的历史分支已经建立");
+    setGame(next); setEntry("game"); setSituationBrief(null); setSelectedRank(9); setAbilityPanelOpen(false); setAbilityResult(null); setCouncilDecisionSignal(0); setShowSettings(false); setView("intent"); setToast("全新游戏已经建立");
   }
 
   function completePrologue(name: string, address: string, pathwayId: PathwayId, origin: PlayerOrigin) {

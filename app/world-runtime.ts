@@ -1,4 +1,5 @@
 import type { AutonomousDecisionFrame } from "./autonomous-agents.ts";
+import { buildAutonomousMemoryProjection, type AutonomousMemoryAudience, type DynamicMemoryState } from "./memory/index.ts";
 import { projectWorldForAudience, type WorldKernel } from "./world-kernel.ts";
 
 export const ACTIVE_AGENT_LIMIT = 24;
@@ -39,6 +40,9 @@ export type AgentPlanningProjection = {
   visibleEvents: WorldKernel["events"];
   visibleObservations: WorldKernel["observations"];
   visibleKnowledge: WorldKernel["knowledge"];
+  memoryAudience: AutonomousMemoryAudience;
+  dynamicMemory: string;
+  memoryReferenceIds: string[];
 };
 
 export type AgentPlanner = (
@@ -50,6 +54,7 @@ export type IndependentPlanningOptions = {
   maxAttempts?: number;
   concurrency?: number;
   proposalCache?: Map<string, AgentProposal>;
+  memory?: DynamicMemoryState;
   onAgentStage?: (stage: { ref: string; attempt: number; state: "planning" | "retrying" | "ready" }) => void;
 };
 
@@ -125,12 +130,16 @@ export function validateAgentProposal(value: unknown, frame: AutonomousDecisionF
   };
 }
 
-export function buildAgentPlanningProjection(frame: AutonomousDecisionFrame, kernel: WorldKernel): AgentPlanningProjection {
+export function buildAgentPlanningProjection(frame: AutonomousDecisionFrame, kernel: WorldKernel, memory?: DynamicMemoryState): AgentPlanningProjection {
   const audience = frame.kind === "actor"
     ? { kind: "actor" as const, holderId: frame.ref.slice("actor:".length) }
     : { kind: "faction" as const, holderId: frame.ref.slice("faction:".length) };
   const visible = projectWorldForAudience(kernel, audience);
   const entityId = frame.ref.slice(frame.ref.indexOf(":") + 1);
+  const memoryAudience: AutonomousMemoryAudience = frame.kind === "actor"
+    ? { kind: "actor", actorId: entityId }
+    : { kind: "faction", factionId: entityId };
+  const dynamicMemory = buildAutonomousMemoryProjection(memory, memoryAudience, frame.planningWeek);
   return {
     week: frame.planningWeek,
     agent: frame,
@@ -142,6 +151,9 @@ export function buildAgentPlanningProjection(frame: AutonomousDecisionFrame, ker
     visibleEvents: visible.events.slice(-WORLD_RUNTIME_LIMITS.visibleEventsPerAgent),
     visibleObservations: visible.observations.slice(-WORLD_RUNTIME_LIMITS.visibleObservationsPerAgent),
     visibleKnowledge: visible.knowledge.slice(-WORLD_RUNTIME_LIMITS.visibleKnowledgePerAgent),
+    memoryAudience,
+    dynamicMemory: dynamicMemory.text,
+    memoryReferenceIds: dynamicMemory.referenceIds,
   };
 }
 
@@ -182,7 +194,7 @@ export async function planActiveAgentsIndependently(
     const results = await runPool(current.map(({ frame, issue }) => async () => {
       options.onAgentStage?.({ ref: frame.ref, attempt, state: attempt === 1 ? "planning" : "retrying" });
       try {
-        const raw = await planner(buildAgentPlanningProjection(frame, kernel), { attempt, ...(attempt > 1 ? { previousIssue: issue } : {}) });
+        const raw = await planner(buildAgentPlanningProjection(frame, kernel, options.memory), { attempt, ...(attempt > 1 ? { previousIssue: issue } : {}) });
         const checked = validateAgentProposal(raw, frame);
         return checked.proposal ? { frame, proposal: checked.proposal } : { frame, issue: checked.issue ?? "未知结构错误" };
       } catch (error) {
