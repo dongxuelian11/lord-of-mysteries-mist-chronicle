@@ -24,6 +24,7 @@ import { advanceManagedBeyonder, promoteCandidate, recalculateBacklundControl, s
 import GreatSmogFinale from "./great-smog-finale";
 import AiSettings from "./ai-settings";
 import { AiConfig, DEEPSEEK_FLASH_PRESET, testModelConnection } from "./ai-client";
+import { AI_SESSION_KEY, AI_SETTINGS_STORAGE_KEY, parseStoredAiSettings, resolveLoadedAiSettings, serializeAiSettings } from "./ai-settings-storage";
 import WeeklyCouncil from "./weekly-council";
 import OpeningPrologue from "./opening-prologue";
 import AbilityConsole from "./ability-console";
@@ -40,8 +41,7 @@ import { stableEntityId, stableTextHash } from "./stable-id";
 
 const SAVE_KEY = ACTIVE_SAVE_KEY;
 const LEGACY_SAVE_KEYS = LEGACY_ACTIVE_SAVE_KEYS;
-const AI_KEY = "mist-chronicle-save-v3-ai";
-const AI_SESSION_KEY = "mist-chronicle-session-ai-key";
+const AI_KEY = AI_SETTINGS_STORAGE_KEY;
 const DEV_MODE = typeof window !== "undefined" && window.localStorage.getItem("mist-chronicle-dev-mode") === "1";
 const DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
@@ -152,7 +152,7 @@ export default function CompleteGame() {
       setSecureStorageAvailable(secureResult.available);
       if (savedAi) {
         try {
-          const value = JSON.parse(savedAi) as Partial<AiConfig> & { rememberKey?: boolean };
+          const value = parseStoredAiSettings(savedAi);
           const sessionKey = window.sessionStorage.getItem(AI_SESSION_KEY) ?? "";
           const legacyPlaintextKey = value.apiKey ?? "";
           let secureKey = secureResult.apiKey ?? "";
@@ -163,12 +163,11 @@ export default function CompleteGame() {
             secureKey = rememberKey ? legacyPlaintextKey : "";
           }
           if (cancelled) return;
-          const apiKey = rememberKey ? secureKey : (sessionKey || legacyPlaintextKey);
-          const sanitized = { ...value, apiKey: "", rememberKey };
-          window.localStorage.setItem(AI_KEY, JSON.stringify(sanitized));
-          if (!rememberKey && legacyPlaintextKey) window.sessionStorage.setItem(AI_SESSION_KEY, legacyPlaintextKey);
-          setAiConfig({ ...DEEPSEEK_FLASH_PRESET, ...value, provider: value.provider ?? (value.endpoint?.includes("api.deepseek.com") ? "deepseek" : "compatible"), apiKey });
-          setRememberApiKey(rememberKey);
+          const loaded = resolveLoadedAiSettings(value, { secureStorageAvailable: secureResult.available, secureKey, sessionKey, rememberKey });
+          window.localStorage.setItem(AI_KEY, JSON.stringify(loaded.sanitized));
+          if (loaded.sessionKeyToPersist) window.sessionStorage.setItem(AI_SESSION_KEY, loaded.sessionKeyToPersist);
+          setAiConfig(loaded.config);
+          setRememberApiKey(loaded.rememberKey);
         }
         catch { window.localStorage.removeItem(AI_KEY); }
       }
@@ -687,7 +686,7 @@ export default function CompleteGame() {
         remembered = Boolean(result.saved);
       } catch { remembered = false; }
     }
-    const stored = { ...aiConfig, apiKey: "", rememberKey: remembered };
+    const stored = serializeAiSettings(aiConfig, remembered);
     window.localStorage.setItem(AI_KEY, JSON.stringify(stored));
     if (remembered) window.sessionStorage.removeItem(AI_SESSION_KEY);
     else window.sessionStorage.setItem(AI_SESSION_KEY, aiConfig.apiKey);
@@ -701,7 +700,7 @@ export default function CompleteGame() {
 
   async function clearSavedKey() {
     try { await window.mistCredentials?.clear(); } catch { /* 本地状态仍然清除 */ }
-    const stored = { ...aiConfig, apiKey: "", rememberKey: false };
+    const stored = serializeAiSettings(aiConfig, false);
     window.localStorage.setItem(AI_KEY, JSON.stringify(stored));
     window.sessionStorage.removeItem(AI_SESSION_KEY);
     setAiConfig((current) => ({ ...current, apiKey: "" }));

@@ -23,21 +23,27 @@ test("free ability use defaults to player intent and reports rule rejection inli
 });
 
 test("NPC speech is AI generated and a quiet week uses independent planning plus a fixed newspaper", async () => {
-  const [game, engine, council, adjudicatorPrompt] = await Promise.all([
+  const [game, engine, council, adjudicatorPrompt, authority, outputAdapter] = await Promise.all([
     read("app/complete-game.tsx"),
     read("app/game-engine.ts"),
     read("app/council-ai.ts"),
     read("app/world-adjudicator-prompt.ts"),
+    read("app/world-authority.ts"),
+    read("app/world-output-adapter.ts"),
   ]);
   assert.match(game, /自由人物对话需要先连接AI模型/);
   assert.match(game, /本周没有完成世界推演，你可以检查接口后从已锁定事实继续/);
   assert.match(game, /本地规则不会伪造世界事件/);
   assert.doesNotMatch(game, /我分四层讲|亲历、下属报告、个人推断与未知分别说清/);
   assert.match(engine, /playerIssuedNoOrders/);
-  assert.match(engine, /entityState: "adjudicatorWorld"/);
+  assert.match(authority, /entityState: "adjudicatorWorld"/);
   assert.doesNotMatch(engine, /factions: game\.factions\.map\(\(item\) => \(\{ id: item\.id/);
   assert.doesNotMatch(engine, /canonActors: game\.canonActors\.map\(\(item\) => \(\{ id: item\.id/);
   assert.match(engine, /Legacy UI collections are compatibility projections only/);
+  assert.match(engine, /adaptWorldAdjudication/);
+  assert.doesNotMatch(engine, /function parseWorldKernelDelta/);
+  assert.match(outputAdapter, /function parseWorldKernelDelta/);
+  assert.match(outputAdapter, /export function adaptWorldAdjudication/);
   assert.match(engine, /planActiveAgentsIndependently/);
   assert.match(adjudicatorPrompt, /允许真正安静的一周/);
   assert.match(adjudicatorPrompt, /固定报纸必须给出 2 至 4 条/);

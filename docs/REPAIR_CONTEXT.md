@@ -370,3 +370,113 @@
 - Great Smog authored spine：这是产品定位选择，不是可安全自动判定的 correctness fix。当前保持“原著历史惯性上的 authored campaign + emergent world”。若用户选择纯/可选 sandbox，下一任务需设计 campaign mode、存档迁移、开局内容、时间线与终局入口，不能直接删除第 24 周代码。
 - 真人 5–20 小时：当前完成记录仍为 0。必须由真实参与者依协议执行；默认合成夹具和 20 周模型技术回归均不得冒充。
 - 本轮没有 commit、push 或发布。
+
+## 13. 提交后继续清理（当前进行中）
+
+- 已完成提交：`0b56b1b1d25589857d4a9c8bc084d60a56dfec19`（`fix: harden autonomous world authority`）；未推送。
+- 用户要求继续。当前目标是在不改变玩法与产品定位的前提下，继续降低 `game-engine.ts` 的 God module 风险。
+- 当前立即动作：提取纯 `world-adjudicator-input` 模块，统一构造模型裁决输入并集中维护 `worldAuthority`；同时提取 WorldKernel → legacy UI 的兼容投影，增加直接回归，确保 legacy 输出不能成为第二状态 authority。
+- Great Smog 与真人长线证据仍维持上一节外部依赖状态，不得因“继续”而自动选择或伪造。
+- `.qa-prodserver3.err.log`、`.qa-prodserver3.out.log` 仍必须保持未跟踪且不修改。
+
+### 13.1 World authority 边界提取（已完成）
+
+- 新增 `app/world-authority.ts`：纯 `buildWorldAdjudicatorInput` 集中维护裁决 payload、组织/战役/高序列投影和 `worldAuthority`；`game-engine.ts` 不再内联拼装该大对象。
+- 同模块的 `projectLegacyWorldCompatibility` 统一在 `kernelDelta` 应用后把 WorldKernel 的势力姿态/怀疑/行动与人物地点/目标/处境/行动投影回旧 UI；`canonMoves` 只能补 UI awareness，不能覆盖内核行动。
+- 新增 `tests/world-authority.test.mjs`，直接证明裁决输入没有顶层 legacy factions/canonActors、designer supplement 有界、compatibility projection 不修改输入且以内核状态覆盖冲突输出。
+- 首次组合测试因测试加载器同时加载两个 Vite runtime 模块而挂起，无产品异常；终止进程后把新测试改成顺序加载，单文件 2/2 通过。
+- 最终 world-authority/事务/WorldRuntime/玩法专项 44/44 通过；`npm.cmd run typecheck` 通过。
+
+### 当前立即动作（继续）
+
+1. 从 `game-engine.ts` 提取世界模型输出的 faction move / public signal 结构化解析，形成纯、可单测的 adapter，继续缩小世界周事务函数。
+2. 运行专项、lint、typecheck 与全量构建测试并更新本节。
+3. 不处理 Great Smog 产品选择或伪造真人长线证据。
+
+### 13.2 世界输出 adapter（已完成）
+
+- 新增 `app/world-output-adapter.ts`，集中解析 `factionMoves`、`canonMoves`、`publicSignals` 与 `worldSummary` 基础字段；保留原有 ID 算法、数量/长度预算、枚举 fallback 和事务拒绝错误文本。
+- 无效 faction/city/district 引用会被过滤或移除；模型少于两条公开消息、缺失城市气氛仍会拒绝整周结算，没有引入降级伪造。
+- `game-engine.ts` 的世界周主事务改为消费 adapter 结果，不再内联维护格式白名单和消息 ID 生成。
+- 新增 `tests/world-output-adapter.test.mjs`，覆盖确定性、字段有界、未知引用、默认枚举、过长暗流截断与两个拒绝条件。
+- adapter/world-authority/三周/事务专项 22/22 通过；`npm.cmd run typecheck` 与 `npm.cmd run lint` 均通过。
+
+### 当前立即动作（继续）
+
+1. 评估 `CompleteGame` 剩余可纯化边界；优先提取 AI 设置与凭据持久化的纯解析/序列化逻辑，避免触碰 UI 行为。
+2. 完成后运行专项与全量验收，再形成独立提交候选。
+
+### 13.3 AI 设置存储纯化（已完成）
+
+- 新增 `app/ai-settings-storage.ts`，集中定义 storage/session keys，并提供有类型白名单的解析、secure/session/legacy key 优先级解析和永不持久化明文 key 的序列化。
+- `CompleteGame` 仍负责 Electron safeStorage 与 local/sessionStorage 副作用，但不再自己推断 provider、拼装 sanitization 或混合三种 key 来源。
+- 旧 localStorage 明文 key 仍按原行为迁移到 OS 凭据库或当前 session；解析会忽略无效 provider/timeout 类型，配置对象不再意外携带 `rememberKey` UI 字段。
+- 新增 `tests/ai-settings-storage.test.mjs`；安全静态回归改为检查中央 serializer。
+- AI settings/security/render/save 专项 11/11 通过；`npm.cmd run typecheck` 与 `npm.cmd run lint` 均通过。
+
+### 当前立即动作（最终验收）
+
+1. 运行最终 `npm.cmd test`、lint、typecheck、diff check。
+2. 核对工作树只包含本次继续清理和原有两个未跟踪日志。
+3. 更新本节最终结果；等待用户决定是否提交本次后续清理。
+
+### 13.4 提交后清理最终验收（2026-08-09）
+
+- `npm.cmd test`：生产构建成功；全量 267 项中 262 通过、0 失败、5 条条件跳过（公共空壳知识库或可选 Playwright 条件）。
+- `npm.cmd run lint`：退出码 0，ESLint 无错误。
+- `npm.cmd run typecheck`：退出码 0，`tsc --noEmit` 无错误。
+- `git diff --check`：退出码 0；仅有 Git 的 LF→CRLF 提示，无空白错误。
+- `game-engine.ts` 当前 1975 行；本轮继续把世界裁决输入、兼容投影和模型输出解析移出主事务函数。`complete-game.tsx` 当前 1036 行；AI 设置的纯解析与序列化已移出组件。
+- 当前未提交代码只涉及本轮继续清理：`world-authority`、`world-output-adapter`、`ai-settings-storage` 及其接线和回归测试；`docs/REPAIR_CONTEXT.md` 同步更新。
+- 用户原有 `.qa-prodserver3.err.log`、`.qa-prodserver3.out.log` 仍为未跟踪状态，未修改、未删除、未纳入提交。
+- 本轮后续清理尚未 commit、未 push；上一个已完成提交仍为 `0b56b1b1d25589857d4a9c8bc084d60a56dfec19`。
+- Great Smog 产品定位与真人 5–20 小时证据仍是外部依赖，不因本轮代码验收而标记完成。
+
+### 下一步
+
+1. 本轮后续清理已达到可提交状态；等待用户下达提交指令。
+2. 提交时继续排除两份 `.qa-prodserver3.*.log`，且不自动 push。
+
+## 14. 用户指令：执行第 1、2 项并提交推送（当前进行中）
+
+- 用户明确要求同时执行上一轮清单的第 1 项和第 2 项：保留并提交当前后续清理，并继续对 God modules 做实质拆分；完成后直接 commit 并 push 到 GitHub。
+- 本轮已获得 push 授权；目标远端为 `origin`（`https://github.com/dongxuelian11/lord-of-mysteries-mist-chronicle.git`），当前分支为 `main`，本地相对 `origin/main` ahead 1。
+- 必须先保留当前未提交的 `world-authority`、`world-output-adapter`、`ai-settings-storage` 及其测试，再选择下一条具有 locality/leverage 的 God module seam，补回归并运行全量质量门禁。
+- 完成标准：本轮架构拆分通过专项测试、全量 `npm.cmd test`、lint、typecheck、`git diff --check`；创建新 commit；把此前未推送的 `0b56b1b` 与新 commit 一并推送到 `origin/main`；核验远端跟踪状态。
+- 用户原有 `.qa-prodserver3.err.log`、`.qa-prodserver3.out.log` 必须保持未跟踪、未修改、未删除、未提交。
+- Great Smog 产品选择与真人 5–20 小时证据不在本轮授权范围内，继续保持外部依赖状态。
+
+### 当前进度
+
+- [x] 把新目标、push 授权、远端和排除项写入持久记录。
+- [ ] 审查 God modules 并选定下一条深模块 seam。
+- [ ] 实施拆分与回归测试。
+- [ ] 全量验收并更新本节。
+- [ ] commit 并 push `origin/main`，核验远端。
+
+### 14.1 God module 深化方案与实现（已完成，待全量验收）
+
+- 按 `improve-codebase-architecture` 的 deletion test、locality 与 leverage 规则审查后，选择把世界裁决输出适配深化进现有 `world-output-adapter`，而不是整体搬迁已经具有深 interface 的 `resolveWeek`，也不搬移未被运行时调用的遗留函数。
+- 架构报告生成于系统临时目录：`C:\Users\Administrator\AppData\Local\Temp\architecture-review-20260809-203853.html`，不进入仓库。
+- `world-output-adapter.ts` 新增唯一公开深 interface `adaptWorldAdjudication`；一次调用同时完成公开消息、势力动作、城市气氛、WorldKernel 增量、ID 重映射、引用过滤、知识来源白名单与 canon 偏转门槛。
+- 原 `parseWorldAdjudicationBasics` 与从 `game-engine.ts` 移入的 `parseWorldKernelDelta` 均成为 adapter 内部 implementation；`game-engine.ts` 不再持有 WorldKernel 模型输出字段知识，只消费适配后的 `kernelDelta`。
+- 专项红测发现并修复原有来源缺口：模型显式引用不存在的 observation `eventId` 时，旧实现会静默挂到 fallback 事件；现在显式引用必须命中本周 ID 映射或已存在权威事件，否则该观察被拒绝。完全未提供引用时才允许使用本周 fallback。
+- `tests/world-output-adapter.test.mjs` 改为只穿过新深 interface，覆盖确定性、公开输出拒绝、未知实体过滤、临时 cause ID 重映射、悬空因果删除、actor/faction holderRefs、loreRecordIds 白名单与低偏转 canon 锚定。
+- `tests/gameplay-loop.regression-1.test.mjs` 增加静态架构防回流断言：`game-engine.ts` 不得重新定义 `parseWorldKernelDelta`。
+- world-output/gameplay/事务/三周专项最终 27/27 通过；迁移后的首次 `npm.cmd run typecheck` 通过。
+
+### 当前立即动作
+
+1. 运行全量 `npm.cmd test`、lint、typecheck、`git diff --check`。
+2. 核对 diff、未跟踪日志排除项和提交内容。
+3. 创建提交并把本地两个提交推送到 `origin/main`，随后核验跟踪状态与远端 HEAD。
+
+### 14.2 提交前最终验收（2026-08-09）
+
+- `npm.cmd test`：生产构建成功；全量 267 项中 262 通过、0 失败、5 条条件跳过。
+- `npm.cmd run lint`：迁移后首次发现并清除 `game-engine.ts` 的一个未使用 `WorldSignal` 类型；复跑退出码 0，0 error、0 warning。
+- `npm.cmd run typecheck`：退出码 0，`tsc --noEmit` 无错误。
+- `git diff --check`：退出码 0；仅 Git 的 LF→CRLF 提示，无空白错误。
+- `game-engine.ts` 从本轮开始时 1975 行降至 1884 行；`world-output-adapter.ts` 现为 219 行。行数不是目标本身，验收重点是调用者只依赖一个深 interface，解析 implementation 与 authority 规则具有 locality。
+- 工作树核对：除用户原有两份未跟踪 QA 日志外，只包含本轮第 1、2 项的代码、测试和本进度文件。
+- 下一步仅剩：精确暂存任务文件（排除 `.qa-prodserver3.*.log`）、创建 commit、push `origin/main`、核验远端跟踪状态。

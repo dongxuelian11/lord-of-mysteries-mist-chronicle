@@ -14,7 +14,6 @@ import {
   TimelineEvent,
   WorldFact,
   WorldMove,
-  WorldSignal,
   WorldSnapshot,
 } from "./game-model";
 import { createFinaleCampaign } from "./finale-system";
@@ -34,7 +33,7 @@ import {
   worldSystemAudience,
 } from "./memory/index";
 export type LoreRecord = LegacyLoreRecord;
-import { applyWorldTurn, type WorldTurnDelta } from "./world-kernel";
+import { applyWorldTurn } from "./world-kernel";
 import { abilitiesFor, abilityRuleSummary } from "./pathway-abilities";
 import { advanceAdvancementStage, createAdvancementProcess, evaluateActing } from "./progression-system";
 import { advanceOrganizationCausality } from "./organization-causality";
@@ -68,12 +67,14 @@ import {
 import { buildWorldAdjudicatorPrompt, WORLD_ADJUDICATOR_SYSTEM } from "./world-adjudicator-prompt.ts";
 import { resolveFactionStrategyRound } from "./faction-strategy.ts";
 import { participationSceneModelView, type ParticipationScene } from "./participation-scene.ts";
-import { applyHighSequenceActionResults, highSequenceAdvancementRequirement, incorporateAdvancementAsset, projectHighSequenceLedgerForSimulation } from "./high-sequence-ledger.ts";
-import { advanceCampaignWorld, applyCampaignActionResults, applyCampaignSignals, campaignWeeklyYield, projectCampaignWorldForSimulation } from "./campaign-world.ts";
+import { applyHighSequenceActionResults, highSequenceAdvancementRequirement, incorporateAdvancementAsset } from "./high-sequence-ledger.ts";
+import { advanceCampaignWorld, applyCampaignActionResults, applyCampaignSignals, campaignWeeklyYield } from "./campaign-world.ts";
 import { extractJson, textSimilarity } from "./model-output.ts";
 import { actionTextBoundaryIssue } from "./action-boundaries.ts";
 import { repairActionReports, requestWorldEnvelope } from "./world-envelope.ts";
 import { requestAutonomousAgentProposal } from "./autonomous-planning.ts";
+import { buildWorldAdjudicatorInput, projectLegacyWorldCompatibility } from "./world-authority.ts";
+import { adaptWorldAdjudication } from "./world-output-adapter.ts";
 export type { AiConfig } from "./ai-client";
 export { actionTextBoundaryIssue } from "./action-boundaries.ts";
 export const callModel = invokeModel;
@@ -207,101 +208,6 @@ async function loreForWorld(records: LoreRecord[], game: GameState, query: strin
   });
 }
 
-function parseWorldKernelDelta(raw: Record<string, unknown>, game: GameState, chapter: ChronicleChapter, publicSignals: WorldSignal[], worldMoves: WorldMove[], allowedLoreIds: Set<string>): WorldTurnDelta {
-  const source = raw.kernelDelta && typeof raw.kernelDelta === "object" && !Array.isArray(raw.kernelDelta) ? raw.kernelDelta as Record<string, unknown> : {};
-  const list = (key: string) => Array.isArray(source[key]) ? source[key] as unknown[] : [];
-  const actorIds = new Set(game.worldKernel.actors.map((item) => item.id));
-  const factionIds = new Set(game.worldKernel.factions.map((item) => item.id));
-  const projectIds = new Set(game.worldKernel.projects.map((item) => item.id));
-  const locationIds = new Set(game.worldKernel.locations.map((item) => item.id));
-  const newActors = list("newActors").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 8).flatMap((value, index) => {
-    const name = typeof value.name === "string" ? value.name.trim().slice(0, 60) : "";
-    if (!name) return [];
-    const requested = typeof value.id === "string" ? value.id.trim().replace(/[^a-z0-9:_-]/gi, "-").slice(0, 64) : "";
-    const id = requested && !actorIds.has(requested) ? requested : `emergent-actor-${chapter.week}-${index}-${hash(name)}`;
-    actorIds.add(id);
-    return [{ id, name, locationId: typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : "unknown", agenda: typeof value.agenda === "string" ? value.agenda.slice(0, 220) : "在世界中维护自身处境", shortTermGoal: typeof value.shortTermGoal === "string" ? value.shortTermGoal.slice(0, 220) : "完成眼前事务", condition: typeof value.condition === "string" ? value.condition.slice(0, 140) : "正常活动", lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 280) : undefined, knowledgeIds: [] }];
-  });
-  const newFactions = list("newFactions").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 4).flatMap((value, index) => {
-    const name = typeof value.name === "string" ? value.name.trim().slice(0, 60) : "";
-    if (!name) return [];
-    const requested = typeof value.id === "string" ? value.id.trim().replace(/[^a-z0-9:_-]/gi, "-").slice(0, 64) : "";
-    const id = requested && !factionIds.has(requested) ? requested : `emergent-faction-${chapter.week}-${index}-${hash(name)}`;
-    factionIds.add(id);
-    return [{ id, name, posture: typeof value.posture === "string" ? value.posture.slice(0, 220) : "维持自身利益", resources: Math.max(0, Math.min(100, Number(value.resources) || 40)), suspicion: Math.max(0, Math.min(100, Number(value.suspicion) || 0)), lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 280) : undefined }];
-  });
-  const newProjects = list("newProjects").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 8).flatMap((value, index) => {
-    const title = typeof value.title === "string" ? value.title.trim().slice(0, 80) : "";
-    const ownerId = typeof value.ownerId === "string" ? value.ownerId : "world";
-    if (!title) return [];
-    const requested = typeof value.id === "string" ? value.id.trim().replace(/[^a-z0-9:_-]/gi, "-").slice(0, 72) : "";
-    const id = requested && !projectIds.has(requested) ? requested : `emergent-project-${chapter.week}-${index}-${hash(title)}`;
-    projectIds.add(id);
-    return [{ id, ownerId, title, stage: typeof value.stage === "string" ? value.stage.slice(0, 60) : "形成", progress: Math.max(0, Math.min(100, Number(value.progress) || 0)), momentum: Math.max(-10, Math.min(10, Number(value.momentum) || 1)), secrecy: Math.max(0, Math.min(100, Number(value.secrecy) || 50)), nextMilestone: typeof value.nextMilestone === "string" ? value.nextMilestone.slice(0, 220) : "等待下一步因果变化", blockers: Array.isArray(value.blockers) ? value.blockers.map(String).slice(0, 4) : [], status: ["active", "paused", "completed", "failed"].includes(String(value.status)) ? String(value.status) as "active" | "paused" | "completed" | "failed" : "active" as const }];
-  });
-  const rawEvents = list("events").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 12);
-  const eventIdMap = new Map<string, string>();
-  const events = rawEvents.flatMap((value, index) => {
-    const title = typeof value.title === "string" ? value.title.trim().slice(0, 80) : "";
-    const detail = typeof value.detail === "string" ? value.detail.trim().slice(0, 520) : "";
-    if (!title || !detail) return [];
-    const sourceId = typeof value.id === "string" && value.id.trim() ? value.id.trim() : `event-${index}`;
-    const id = `world-${chapter.week}-${hash(`${sourceId}:${title}`)}`;
-    eventIdMap.set(sourceId, id);
-    const visibility = ["world", "public", "player", "actors"].includes(String(value.visibility)) ? String(value.visibility) as "world" | "public" | "player" | "actors" : "world";
-    const eventActorIds = Array.isArray(value.actorIds) ? value.actorIds.map(String).filter((id) => actorIds.has(id)).slice(0, 6) : [];
-    const eventFactionIds = Array.isArray(value.factionIds) ? value.factionIds.map(String).filter((id) => factionIds.has(id)).slice(0, 6) : [];
-    const witnessRefs = [...new Set([
-      ...(Array.isArray(value.witnessRefs) ? value.witnessRefs.map(String).slice(0, 12) : []),
-      ...eventActorIds.map((actorId) => `actor:${actorId}`),
-      ...eventFactionIds.map((factionId) => `faction:${factionId}`),
-    ])];
-    return [{ id, title, detail, locationId: typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : undefined, actorIds: eventActorIds, factionIds: eventFactionIds, causeIds: Array.isArray(value.causeIds) ? value.causeIds.map(String).slice(0, 6) : [], visibility, witnessRefs }];
-  });
-  const existingEventIds = new Set(game.worldKernel.events.map((event) => event.id));
-  const incomingEventIds = new Set(events.map((event) => event.id));
-  for (const event of events) {
-    event.causeIds = event.causeIds
-      .map((id) => eventIdMap.get(id) ?? id)
-      .filter((id) => existingEventIds.has(id) || incomingEventIds.has(id))
-      .slice(0, 6);
-  }
-  const fallbackEventId = events.find((event) => event.visibility !== "world")?.id ?? events[0]?.id;
-  const observations = list("observations").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 12).flatMap((value, index) => {
-    const text = typeof value.text === "string" ? value.text.trim().slice(0, 420) : "";
-    if (!text) return [];
-    const visibility = ["public", "player", "actors"].includes(String(value.visibility)) ? String(value.visibility) as "public" | "player" | "actors" : "public";
-    const holderIds = Array.isArray(value.holderIds) ? value.holderIds.map(String).slice(0, 8) : [];
-    const holderRefs = [...new Set([
-      ...(Array.isArray(value.holderRefs) ? value.holderRefs.map(String).slice(0, 12) : []),
-      ...holderIds.map((id) => id === "player" ? "player" : actorIds.has(id) ? `actor:${id}` : factionIds.has(id) ? `faction:${id}` : id),
-    ])];
-    const eventId = eventIdMap.get(String(value.eventId ?? "")) ?? fallbackEventId;
-    if (!eventId) return [];
-    return [{ id: `observation-${chapter.week}-${index}-${hash(text)}`, eventId, channel: typeof value.channel === "string" ? value.channel.slice(0, 24) : "街谈", text, visibility, holderIds, holderRefs }];
-  });
-  if (fallbackEventId) for (const [index, signal] of publicSignals.entries()) if (!observations.some((item) => item.text === signal.body)) observations.push({ id: `observation-signal-${chapter.week}-${index}`, eventId: fallbackEventId, channel: signal.channel, text: signal.body, visibility: "public", holderIds: [], holderRefs: [] });
-  const actorUpdates = list("actorUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && actorIds.has(String((item as Record<string, unknown>).actorId)))).slice(0, 12).map((value) => ({ actorId: String(value.actorId), locationId: typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : undefined, shortTermGoal: typeof value.shortTermGoal === "string" ? value.shortTermGoal.slice(0, 220) : undefined, lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 320) : undefined, condition: typeof value.condition === "string" ? value.condition.slice(0, 160) : undefined }));
-  const factionUpdates = list("factionUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && factionIds.has(String((item as Record<string, unknown>).factionId)))).slice(0, 10).map((value) => ({ factionId: String(value.factionId), posture: typeof value.posture === "string" ? value.posture.slice(0, 220) : undefined, resourcesDelta: Math.max(-8, Math.min(8, Number(value.resourcesDelta) || 0)), suspicionDelta: Math.max(-6, Math.min(6, Number(value.suspicionDelta) || 0)), lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 320) : undefined }));
-  const explicitProjects = list("projectUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && projectIds.has(String((item as Record<string, unknown>).projectId)))).slice(0, 12).map((value) => ({ projectId: String(value.projectId), progressDelta: Math.max(-8, Math.min(10, Number(value.progressDelta) || 0)), stage: typeof value.stage === "string" ? value.stage.slice(0, 60) : undefined, nextMilestone: typeof value.nextMilestone === "string" ? value.nextMilestone.slice(0, 220) : undefined, blockers: Array.isArray(value.blockers) ? value.blockers.map(String).slice(0, 4) : undefined, status: ["active", "paused", "completed", "failed"].includes(String(value.status)) ? String(value.status) as "active" | "paused" | "completed" | "failed" : undefined }));
-  const projectUpdates = explicitProjects.length ? explicitProjects : worldMoves.slice(0, 5).map((move) => ({ projectId: `faction:${move.factionId}`, progressDelta: 2, stage: move.title, nextMilestone: move.detail, blockers: undefined, status: "active" as const })).filter((item) => projectIds.has(item.projectId));
-  const locationUpdates = list("locationUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && locationIds.has(String((item as Record<string, unknown>).locationId)))).slice(0, 10).map((value) => ({ locationId: String(value.locationId), riskDelta: Math.max(-8, Math.min(8, Number(value.riskDelta) || 0)), stabilityDelta: Math.max(-8, Math.min(8, Number(value.stabilityDelta) || 0)), publicMood: typeof value.publicMood === "string" ? value.publicMood.slice(0, 160) : undefined, condition: typeof value.condition === "string" ? value.condition.slice(0, 200) : undefined }));
-  const knowledge = list("knowledge").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 16).flatMap((value, index) => {
-    const statement = typeof value.statement === "string" ? value.statement.trim().slice(0, 360) : "";
-    if (!statement) return [];
-    const visibility = ["world", "public", "player", "actors"].includes(String(value.visibility)) ? String(value.visibility) as "world" | "public" | "player" | "actors" : "world";
-    const truth = ["confirmed", "likely", "false", "unknown"].includes(String(value.truth)) ? String(value.truth) as "confirmed" | "likely" | "false" | "unknown" : "unknown";
-    const holderIds = Array.isArray(value.holderIds) ? value.holderIds.map(String).slice(0, 8) : [];
-    const holderRefs = [...new Set([
-      ...(Array.isArray(value.holderRefs) ? value.holderRefs.map(String).slice(0, 12) : []),
-      ...holderIds.map((id) => id === "player" ? "player" : actorIds.has(id) ? `actor:${id}` : factionIds.has(id) ? `faction:${id}` : id),
-    ])];
-    return [{ id: `knowledge-${chapter.week}-${index}-${hash(statement)}`, subject: typeof value.subject === "string" ? value.subject.slice(0, 80) : "世界变化", statement, truth, visibility, holderIds, holderRefs, loreRecordIds: Array.isArray(value.loreRecordIds) ? value.loreRecordIds.map(String).filter((id) => allowedLoreIds.has(id)).slice(0, 8) : [], sourceEventId: eventIdMap.get(String(value.sourceEventId ?? "")) }];
-  });
-  const canonValue = source.canon && typeof source.canon === "object" && !Array.isArray(source.canon) ? source.canon as Record<string, unknown> : {};
-  const mayDiverge = game.deviation >= 15 || game.pivots.some((pivot) => pivot.magnitude >= 20);
-  return { week: chapter.week, playerIssuedNoOrders: chapter.results.length === 0, newActors, newFactions, newProjects, actorUpdates, factionUpdates, projectUpdates, locationUpdates, events, observations, knowledge, canon: { mode: mayDiverge && canonValue.mode === "diverging" ? "diverging" : "anchored", deviationDelta: Math.max(0, Math.min(8, Number(canonValue.deviationDelta) || 0)), pivotEventIds: mayDiverge && Array.isArray(canonValue.pivotEventIds) ? canonValue.pivotEventIds.map(String).map((id) => eventIdMap.get(id) ?? id).slice(0, 4) : [] } };
-}
 
 function isExplicitConstruction(intent: string) {
   const positive = /(?:^|[，。；、\s])(?:修建|建造|扩建|增设|改建|升级|布置|设立)(?:一座|一处|一间|新的|现有)?[^，。；]{0,24}(?:据点|房间|设施|实验室|仓库|安全屋|工坊|档案室|仪式室)|(?:改造|升级)(?:现有|组织的|我们的)?[^，。；]{0,18}(?:据点|房间|设施|工坊|档案室|仪式室)/;
@@ -1488,53 +1394,10 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     game,
     `${game.date} ${chapter.results.map((item) => item.contract.rawIntent).join(" ")} ${adjudicatorWorld.projects.map((item) => item.title).join(" ")} ${autonomousDecisionFrames.map((item) => `${item.displayName} ${item.currentObjective}`).join(" ")}`,
   );
-  const payload = {
+  const payload = buildWorldAdjudicatorInput({
+    game,
     resolvingWeek: chapter.week,
-    currentWeek: game.week,
-    playerIssuedNoOrders: chapter.results.length === 0,
-    worldAuthority: {
-      entityState: "adjudicatorWorld",
-      stateMutation: "kernelDelta",
-      compatibilityOutputs: ["factionMoves", "canonMoves"],
-    },
-    chapter: chapter.results.map((item) => ({ actionId: item.id, outcome: item.outcome, domain: actionDomain(item.contract), evidenceSeeking: seeksEvidence(item.contract), contract: item.contract.rawIntent, target: item.contract.target, desiredOutcome: item.contract.desiredOutcome, districtId: item.contract.districtId, approach: item.contract.approach, redLines: item.contract.redLines, retreat: item.contract.retreat, findings: item.findings, futureChanges: item.futureChanges })),
-    pivots: game.pivots,
-    timeline: game.timeline,
-    recentWorld: game.worldSnapshots?.slice(0, 4) ?? [],
-    recentSignals: game.worldSignals?.slice(0, 10) ?? [],
-    knownEvidence: game.evidenceNodes.filter((item) => item.discovered).map((item) => ({ label: item.label, certainty: item.certainty, summary: item.summary })),
-    organizationState: {
-      foundingOrigin: game.playerOrigin.pathwayOrigin ? {
-        id: game.playerOrigin.pathwayOrigin.id,
-        title: game.playerOrigin.pathwayOrigin.title,
-        source: game.playerOrigin.pathwayOrigin.source,
-        contact: game.playerOrigin.pathwayOrigin.contact,
-        enemy: game.playerOrigin.pathwayOrigin.enemy,
-        firstCrisis: game.playerOrigin.pathwayOrigin.firstCrisis,
-        loreEvidenceIds: game.playerOrigin.pathwayOrigin.loreEvidenceIds,
-      } : null,
-      playerTraits: game.playerOrigin.traits?.map((trait) => ({ name: trait.name, kind: trait.kind, description: trait.description, triggers: trait.triggers })) ?? [],
-      resources: game.management.resources,
-      offices: game.management.offices,
-      formulas: game.management.formulas,
-      branches: game.management.branches,
-      reputation: game.management.reputation,
-      exposure: game.management.exposure,
-      factionHostility: game.management.factionHostility,
-      controlledDistricts: game.management.map.districts.map((district) => ({ id: district.id, control: district.control })),
-      departments: game.departments.map((item) => ({ id: item.id, name: item.name, leadMemberId: item.leadMemberId, standingOrder: item.standingOrder, capacity: item.capacity, cohesion: item.cohesion, exposure: item.exposure, backlog: item.backlog, tensions: item.tensions, lastReport: item.lastReport })),
-      members: game.members.map((item) => ({ id: item.id, name: item.name, role: item.role, loyalty: item.loyalty, trust: item.trust, fatigue: item.fatigue, personalPressure: item.personalPressure, personalEventState: item.personalEventState, personalEventSignals: item.personalEventSignals, promises: item.promises })),
-      recruits: game.recruitPool.map((item) => ({ id: item.id, name: item.name, role: item.role, relationshipStage: item.relationshipStage, relationshipMomentum: item.relationshipMomentum, trust: item.trust, personalPressure: item.personalPressure })),
-      unresolvedIssues: game.organizationIssues.filter((item) => item.state === "待裁决" || item.state === "已逾期"),
-    },
-    campaignWorld: projectCampaignWorldForSimulation(game.campaignWorld, "backlund"),
-    highSequenceLedger: projectHighSequenceLedgerForSimulation(game.highSequenceLedger, game.pathwayId),
-    factionStrategy: {
-      profiles: game.factionStrategy.profiles,
-      diplomacy: game.factionStrategy.diplomacy,
-      latestRound: game.factionStrategy.rounds.at(-1),
-      latestOutcomes: game.factionStrategy.outcomes.slice(-12),
-    },
+    playerActions: chapter.results.map((item) => ({ actionId: item.id, outcome: item.outcome, domain: actionDomain(item.contract), evidenceSeeking: seeksEvidence(item.contract), contract: item.contract.rawIntent, target: item.contract.target, desiredOutcome: item.contract.desiredOutcome, districtId: item.contract.districtId, approach: item.contract.approach, redLines: item.contract.redLines, retreat: item.contract.retreat, findings: item.findings, futureChanges: item.futureChanges })),
     adjudicatorWorld,
     autonomousResidency: {
       activeCount: autonomousState.activeAgentRefs.length,
@@ -1544,76 +1407,25 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     dynamicMemory: worldMemoryView.text,
     authorizedLore: lore.context,
     loreRecordIds: lore.records.map((item) => item.id),
-    designerSupplement: config.worldBible?.trim().slice(0, 12000) || null,
-  };
-  (payload as Record<string, unknown>).autonomousAgentRules = "adjudicatorWorld.proposals 已由每个活跃主体从同一周起点独立生成并通过知识来源校验。裁决器不得替主体改变意图，也不得把某主体提案的私有依据泄露给其他主体或玩家。提案只表达意图，不代表成功；必须依据准备、情报、序列、能力、控制力、行动性质与既有条件命令统一处理冲突和先后。";
+    designerSupplement: config.worldBible,
+  });
   const kernelProtocol = `同时必须返回kernelDelta，作为下周继续推演的权威世界状态增量：{"kernelDelta":{"newActors":[{"id":"稳定英文id","name":"本周首次进入推演且值得长期追踪的人物","locationId":"已有地点id","agenda":"长期诉求","shortTermGoal":"当前目标","condition":"处境"}],"newFactions":[{"id":"稳定英文id","name":"本周首次进入推演的组织","posture":"立场与目标","resources":0到100,"suspicion":0到100}],"newProjects":[{"id":"稳定英文id","ownerId":"已有或新角色/势力id","title":"新形成的持续计划","stage":"阶段","progress":0到100,"momentum":-10到10,"secrecy":0到100,"nextMilestone":"下一里程碑","blockers":[],"status":"active|paused|completed|failed"}],"actorUpdates":[{"actorId":"adjudicatorWorld中的id","locationId":"已有地点id","shortTermGoal":"下一阶段目标","lastAction":"本周实际行动","condition":"当前处境"}],"factionUpdates":[{"factionId":"已有id","posture":"当前姿态与目标","resourcesDelta":-8到8,"suspicionDelta":-6到6,"lastAction":"本周自主行动"}],"projectUpdates":[{"projectId":"adjudicatorWorld中的项目id","progressDelta":-8到10,"stage":"当前阶段","nextMilestone":"可检验的下一里程碑","blockers":["阻碍"],"status":"active|paused|completed|failed"}],"locationUpdates":[{"locationId":"已有地点id","riskDelta":-8到8,"stabilityDelta":-8到8,"publicMood":"普通人可感受到的气氛","condition":"本周形成的地点状态"}],"events":[{"id":"本回合内部临时id","title":"事件名","detail":"世界真相层发生的具体事件","locationId":"已有地点id或空","actorIds":["已有或newActors的id"],"factionIds":["已有或newFactions的id"],"causeIds":["本回合事件临时id或既有事件id"],"visibility":"world|public|player|actors"}],"observations":[{"eventId":"对应事件临时id","channel":"观察来源","text":"实际能被某方获知的内容","visibility":"public|player|actors","holderIds":["仅actors时填写角色id"]}],"knowledge":[{"subject":"对象","statement":"新形成的认知，允许为误判","truth":"confirmed|likely|false|unknown","visibility":"world|public|player|actors","holderIds":["持有者id"],"loreRecordIds":["本次authorizedLore中确实被获知的记录id"],"sourceEventId":"事件临时id"}],"canon":{"mode":"anchored|diverging","deviationDelta":0到8,"pivotEventIds":["明确偏转事件临时id"]}}}。newActors/newFactions只用于真正需要跨周追踪的新主体，不能每周滥造。events、projectUpdates、actorUpdates与factionUpdates均由实际状态变化决定，可以为空；等待、隐藏、休整或没有相互作用的提案不应制造事件。世界真相事件默认visibility=world；只有observations可以把其中一部分转化为角色或玩家认知。不要因为模型读到了authorizedLore，就让NPC或玩家自动知道它。历史偏转未达到门槛时必须保持anchored，并让原著锚点大致按时间惯性发展。`;
   const organizationProtocol = `同时返回organizationDelta，让组织内部遵循跨周因果而不是事件模板：{"organizationDelta":{"departmentDevelopments":[{"departmentId":"已有id","report":"本周自然形成的一句话述职","cause":"决议、旧积压或常设命令"}],"memberDevelopments":[{"memberId":"已有id","observation":"可观察的具体变化","cause":"来源"}],"recruitDevelopments":[{"memberId":"已有候选人id","observation":"关系为何推进、停滞或倒退"}],"governanceIssues":[{"category":"部门|招募|成员|资源","sourceId":"已有部门或人物id","title":"只有确需会长拍板才出现","summary":"前因、现状与放任后果","urgency":35到95,"deadline":1到3,"signals":["可观察征兆"]}],"formulaDiscoveries":[{"pathwayId":"仅限现有22途径id","sequence":0到9,"status":"lead|fragment|verifying|verified","reliability":0到100,"sourceRefs":["本周actionId或世界事件id"],"loreEvidenceIds":["必须来自authorizedLore的记录id"]}],"newRecruitableNpc":{"name":"仅在世界因果中反复接触后才锁定的新原创人物或空","role":"公开身份","specialty":"明确专长","background":"固定背景","core":"性格核心","voice":"说话方式","arc":"成长方向","secret":"锁定秘密","contactReason":"为何进入招募视野"}|null}}。只有玩家本周明确搜集、交易或核验魔药配方且行动成功时，才能输出formulaDiscoveries；verified必须有authorizedLore记录直接支撑且reliability至少90，否则最多为fragment或verifying。不得编造知识库不存在的配方内容。部门能力、积压、暴露、凝聚，成员压力、信任及招募动量均由规则引擎结算；你只能生成可观察叙述和需要裁决的议题，不得输出或暗示修改这些数值。不要套固定事件桥段，不得自动令成员死亡、离开、加入或背叛；重大不可逆结果只能先形成governanceIssues，留给玩家干预。没有真实变化时数组可以为空。`;
   (payload as Record<string, unknown>).organizationInstructions = organizationProtocol;
   const boundedPayload = fitWorldAdjudicatorPayload(payload);
   assertWorldAdjudicatorPayloadBudget(boundedPayload);
   const raw = await requestWorldEnvelope(worldConfig, WORLD_ADJUDICATOR_SYSTEM, buildWorldAdjudicatorPrompt(boundedPayload, kernelProtocol), game, chapter.results.length === 0, chapter.results.map((result) => result.id), onStage, onToken);
-  const moves = Array.isArray(raw.factionMoves) ? raw.factionMoves.slice(0, 5) : [];
-  const worldMoves: WorldMove[] = [];
-  for (const [index, move] of moves.entries()) {
-    if (!move || typeof move !== "object") continue;
-    const value = move as Record<string, unknown>;
-    const faction = game.factions.find((item) => item.id === value.factionId);
-    if (!faction || typeof value.detail !== "string" || typeof value.title !== "string") continue;
-    const visibility = ["迹象", "获知", "确认"].includes(String(value.visibility)) ? value.visibility as WorldMove["visibility"] : "迹象";
-    worldMoves.push({ id: `ai-move-${game.week}-${index}-${faction.id}`, factionId: faction.id, title: value.title.slice(0, 40), detail: value.detail.slice(0, 240), week: game.week, visibility });
-  }
-  const canonMoves = Array.isArray(raw.canonMoves) ? raw.canonMoves.slice(0, 3) : [];
-  const allowedChannels = new Set<WorldSignal["channel"]>(["报纸", "街谈", "官方通告", "行业消息", "神秘征兆", "私人来信"]);
-  const allowedReliability = new Set<WorldSignal["reliability"]>(["公开事实", "多源传闻", "单一消息", "异常感知"]);
-  const publicSignals: WorldSignal[] = Array.isArray(raw.publicSignals) ? raw.publicSignals.slice(0, 4).flatMap((item, index) => {
-    if (!item || typeof item !== "object") return [];
-    const value = item as Record<string, unknown>;
-    const headline = typeof value.headline === "string" ? value.headline.trim().slice(0, 70) : "";
-    const body = typeof value.body === "string" ? value.body.trim().slice(0, 420) : "";
-    if (!headline || !body) return [];
-    const channel = allowedChannels.has(String(value.channel) as WorldSignal["channel"]) ? String(value.channel) as WorldSignal["channel"] : "街谈";
-    const reliability = allowedReliability.has(String(value.reliability) as WorldSignal["reliability"]) ? String(value.reliability) as WorldSignal["reliability"] : "单一消息";
-    const districtId = typeof value.districtId === "string" && DISTRICTS.some((district) => district.id === value.districtId) ? value.districtId : undefined;
-    const cityId = typeof value.cityId === "string" && game.campaignWorld.cities.some((city) => city.id === value.cityId) ? value.cityId : undefined;
-    const relatedFactionId = typeof value.relatedFactionId === "string" && game.factions.some((faction) => faction.id === value.relatedFactionId) ? value.relatedFactionId : undefined;
-    return [{ id: `ai-signal-${chapter.week}-${index}-${hash(headline)}`, week: chapter.week, channel, headline, body, reliability, districtId, cityId, relatedFactionId }];
-  }) : [];
-  if (publicSignals.length < 2) throw new Error("世界模型没有生成固定报纸所需的2条公开消息，本周拒绝结算");
-  const summaryValue = raw.worldSummary && typeof raw.worldSummary === "object" && !Array.isArray(raw.worldSummary) ? raw.worldSummary as Record<string, unknown> : {};
-  const list = (value: unknown, limit: number) => Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, limit).map((item) => item.slice(0, 260)) : [];
-  const atmosphere = typeof summaryValue.atmosphere === "string" ? summaryValue.atmosphere.trim().slice(0, 420) : "";
-  if (!atmosphere) throw new Error("世界模型没有返回本周城市气氛；本周拒绝结算，不使用本地替代文本");
   const allowedLoreIds = new Set([...LORE_RECORDS.map((record) => record.id), ...(await listRuntimeChunkIds())]);
-  const worldKernel = { ...applyWorldTurn(game.worldKernel, parseWorldKernelDelta(raw, game, chapter, publicSignals, worldMoves, allowedLoreIds)), currentWeek: game.week, currentDate: game.date };
+  const { worldMoves, canonMoves, publicSignals, atmosphere, undercurrents, kernelDelta } = adaptWorldAdjudication(raw, {
+    game,
+    resolvingWeek: chapter.week,
+    playerIssuedNoOrders: chapter.results.length === 0,
+    allowedLoreIds,
+  });
+  const worldKernel = { ...applyWorldTurn(game.worldKernel, kernelDelta), currentWeek: game.week, currentDate: game.date };
   // Legacy UI collections are compatibility projections only. Overlapping state is
   // always read back from the authoritative WorldKernel after applying kernelDelta.
-  const factions = game.factions.map((faction) => {
-    const authoritative = worldKernel.factions.find((item) => item.id === faction.id);
-    return authoritative ? {
-      ...faction,
-      currentPlan: authoritative.posture,
-      suspicion: authoritative.suspicion,
-      lastMove: authoritative.lastAction,
-    } : faction;
-  });
-  const canonActors = game.canonActors.map((actor) => {
-    const authoritative = worldKernel.actors.find((item) => item.id === actor.id);
-    const move = canonMoves.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).actorId === actor.id) as Record<string, unknown> | undefined;
-    const awareness = move && ["未知", "间接听闻", "注意", "直接接触"].includes(String(move.awareness))
-      ? move.awareness as typeof actor.awareness
-      : actor.awareness;
-    if (!authoritative) return { ...actor, awareness };
-    const location = DISTRICTS.find((district) => district.id === authoritative.locationId)?.name ?? authoritative.locationId;
-    return {
-      ...actor,
-      location,
-      agenda: authoritative.agenda,
-      state: authoritative.condition,
-      lastMove: authoritative.lastAction,
-      awareness,
-    };
-  });
+  const { factions, canonActors } = projectLegacyWorldCompatibility(game, worldKernel, canonMoves);
   const reflectionMemory = deriveMemoryFromWorldState(game.memory ?? emptyMemoryState(), worldKernel, chapter.week);
   const worldAgents = advanceAutonomousWorldState(
     autonomousState,
@@ -1628,7 +1440,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     date: chapter.date,
     atmosphere,
     changes: publicSignals.slice(0, 4).map((signal) => `${signal.channel}：${signal.headline}`),
-    undercurrents: list(summaryValue.undercurrents, 4),
+    undercurrents,
     eventIds: worldKernel.events.filter((event) => event.week === chapter.week).map((event) => event.id),
     districtStates: worldKernel.locations.map((location) => ({ districtId: location.id, risk: location.risk, stability: location.stability, conditions: location.conditions.slice(-4) })),
     cityStates: game.campaignWorld.cities.map((city) => ({ cityId: city.id, control: city.playerControl, intelligence: city.intelligence, pressure: city.localPressure, status: city.status })),
