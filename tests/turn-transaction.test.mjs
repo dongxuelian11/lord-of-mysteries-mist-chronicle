@@ -18,6 +18,8 @@ after(async () => { if (moduleServer) await moduleServer.close(); });
 function worldEnvelope(game, chapter) {
   const [firstFaction, secondFaction] = game.factions;
   const locationId = game.worldKernel.locations[0].id;
+  const firstProposalId = `proposal:agent:${chapter.week}:faction:${firstFaction.id}`;
+  const secondProposalId = `proposal:agent:${chapter.week}:faction:${secondFaction.id}`;
   return {
     worldSummary: {
       atmosphere: "清晨的报童比往常更早穿过街口，几处工厂同时收紧门禁，而警察厅开始逐户核对近期失踪人口。",
@@ -40,13 +42,13 @@ function worldEnvelope(game, chapter) {
     organizationDelta: { departmentDevelopments: [], memberDevelopments: [], recruitDevelopments: [], governanceIssues: [], newRecruitableNpc: null },
     kernelDelta: {
       newActors: [], newFactions: [], newProjects: [], actorUpdates: [],
-      factionUpdates: [{ factionId: firstFaction.id, posture: "以内核状态为唯一权威", resourcesDelta: 0, suspicionDelta: 4, lastAction: "内核记录的实际行动" }],
-      projectUpdates: [{ projectId: game.worldKernel.projects[0].id, progressDelta: 2, stage: "继续推进", nextMilestone: "取得下一项可核验结果", blockers: [], status: "active" }],
-      locationUpdates: [{ locationId, riskDelta: 1, stabilityDelta: 0, publicMood: "不安", condition: "街口出现更多巡警" }],
+      factionUpdates: [{ factionId: firstFaction.id, posture: "以内核状态为唯一权威", resourcesDelta: 0, suspicionDelta: 4, lastAction: "内核记录的实际行动", sourceProposalIds: [firstProposalId] }],
+      projectUpdates: [{ projectId: game.worldKernel.projects[0].id, progressDelta: 2, stage: "继续推进", nextMilestone: "取得下一项可核验结果", blockers: [], status: "active", sourceProposalIds: [firstProposalId] }],
+      locationUpdates: [{ locationId, riskDelta: 1, stabilityDelta: 0, publicMood: "不安", condition: "街口出现更多巡警", sourceProposalIds: [firstProposalId] }],
       events: [
-        { id: `event-${chapter.week}-a`, title: "临时停工", detail: "东区三家工厂同时关闭侧门。", locationId: "east", actorIds: [], factionIds: [firstFaction.id], causeIds: [], visibility: "world" },
-        { id: `event-${chapter.week}-b`, title: "人口核对", detail: "警察厅开始整理失踪人口登记。", locationId: "cherwood", actorIds: [], factionIds: [secondFaction.id], causeIds: [], visibility: "public" },
-        { id: `event-${chapter.week}-c`, title: "外港等待", detail: "两艘货船被留在外港等待检查。", locationId: "dock", actorIds: [], factionIds: [], causeIds: [], visibility: "public" },
+        { id: `event-${chapter.week}-a`, title: "临时停工", detail: "东区三家工厂同时关闭侧门。", locationId: "east", actorIds: [], factionIds: [firstFaction.id], causeIds: [], visibility: "world", sourceProposalIds: [firstProposalId] },
+        { id: `event-${chapter.week}-b`, title: "人口核对", detail: "警察厅开始整理失踪人口登记。", locationId: "cherwood", actorIds: [], factionIds: [secondFaction.id], causeIds: [], visibility: "public", sourceProposalIds: [secondProposalId] },
+        { id: `event-${chapter.week}-c`, title: "外港等待", detail: "两艘货船被留在外港等待检查。", locationId: "dock", actorIds: [], factionIds: [], causeIds: [], visibility: "public", sourceProposalIds: [firstProposalId] },
       ],
       observations: [], knowledge: [], canon: { mode: "anchored", deviationDelta: 0, pivotEventIds: [] },
     },
@@ -126,6 +128,7 @@ test("autonomous memory is delivered to each explicit audience only after the wo
   ]).state;
   const envelope = worldEnvelope(resolved.state, resolved.chapter);
   envelope.kernelDelta.events[0].factionIds = [factionId];
+  envelope.kernelDelta.events[0].sourceProposalIds = [`proposal:agent:${resolved.chapter.week}:faction:${factionId}`];
   const captured = [];
   const baseFetch = worldModelFetch(envelope);
   const originalFetch = globalThis.fetch;
@@ -380,6 +383,80 @@ test("AI action reports replace provisional rule notes with world-specific obser
     assert.match(committedResult.reasons.join(" "), /有轨马车候车棚/);
     assert.ok(committedResult.futureChanges.includes(envelope.actionReports[0].followUp));
     assert.ok(committed.evidenceNodes.some((node) => node.summary.includes("缺少一根伞骨")));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("a sourced authorization boundary interrupts only the executed fragment and writes six causal receipt groups", async () => {
+  const { engine, model } = await loadGameModules();
+  let game = model.createInitialGame("spectator");
+  const contract = engine.localContract({
+    intent: "让伊妮丝与东区联络人交涉，只确认失踪者是否经过旧剧院；一旦身份掩护失效就撤退，不得继续接触。",
+    game,
+    leaderId: "organization",
+    districtId: "east",
+    abilityIds: [],
+  });
+  game = { ...game, schedule: [engine.scheduleContract(game, contract)] };
+  const resolved = engine.resolveWeek(game);
+  const result = resolved.chapter.results[0];
+  assert.ok(result.executionPlan?.executable);
+  const proposalId = result.executionPlan.proposalId;
+  const boundary = result.executionPlan.authorization.retreatCondition;
+  const envelope = worldEnvelope(resolved.state, resolved.chapter);
+  envelope.actionReports = [{
+    actionId: result.id,
+    fieldReport: "联络人第二次改变暗号后，伊妮丝结束交谈并按原路线撤离，没有继续试探。",
+    observableFacts: ["联络点在同一次会面中两次改变约定暗号。", "伊妮丝在第二次暗号变化后立即结束交谈并离开。"],
+    followUp: "在不接触联络人的前提下核验暗号变化是否已经扩散。",
+  }];
+  envelope.kernelDelta.events.push({
+    id: "player-interruption",
+    title: "联络点察觉异常",
+    detail: "联络人连续两次改变约定暗号，伊妮丝确认身份掩护已经失效。",
+    locationId: "east",
+    actorIds: [contract.leaderId],
+    factionIds: [],
+    causeIds: [],
+    visibility: "player",
+    witnessRefs: ["player", `actor:${contract.leaderId}`],
+    sourceProposalIds: [proposalId],
+  });
+  envelope.kernelDelta.events.push({
+    id: "hidden-player-consequence",
+    title: "幕后追踪开始",
+    detail: "一名未被辨认的观察者开始追查联络人的旧关系。",
+    locationId: "east",
+    actorIds: [],
+    factionIds: [],
+    causeIds: ["player-interruption"],
+    visibility: "world",
+    sourceProposalIds: [proposalId],
+  });
+  envelope.kernelDelta.locationUpdates.push({ locationId: "east", riskDelta: 1, condition: "联络点开始更换暗号", sourceProposalIds: [proposalId] });
+  envelope.kernelDelta.observations.push({ eventId: "player-interruption", channel: "负责人述职", text: "身份掩护失效后，负责人按约定停止接触。", visibility: "player", holderIds: ["player"], acquisitionKind: "communication" });
+  envelope.kernelDelta.knowledge.push({ subject: "东区联络点", statement: "联络点已经察觉到异常接触。", truth: "confirmed", visibility: "player", holderIds: ["player"], sourceEventId: "player-interruption", loreRecordIds: [] });
+  envelope.kernelDelta.directiveInterruptions = [{ proposalId, sourceEventId: "player-interruption", triggeredBoundary: boundary, reason: "身份掩护失效，负责人按撤退条件停止接触。", completedFraction: 0.4 }];
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  globalThis.window = globalThis;
+  globalThis.fetch = worldModelFetch(envelope);
+  try {
+    const committed = await engine.generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {});
+    const committedResult = committed.chronicle.find((item) => item.id === resolved.chapter.id).results[0];
+    assert.equal(committedResult.executionStatus, "interrupted");
+    assert.equal(committedResult.executionPlan.disposition, "interrupted");
+    assert.ok(committed.schedule.some((action) => action.id === result.id && action.status === "interrupted"));
+    assert.ok(committed.money > resolved.state.money, "the unused money commitment must be refunded");
+    assert.ok(committed.organizationIssues.some((issue) => issue.originActionId === result.id && issue.directiveState === "interrupted"));
+    assert.deepEqual(Object.keys(committedResult.causalReceipts).sort(), ["futureCauses", "knowledge", "locations", "people", "relationships", "resources"]);
+    assert.ok(Object.values(committedResult.causalReceipts).every((receipts) => receipts.length > 0));
+    assert.ok(committedResult.causalReceipts.knowledge.some((receipt) => receipt.summary.includes("察觉")));
+    assert.ok(!Object.values(committedResult.causalReceipts).flat().some((receipt) => receipt.summary.includes("幕后追踪")));
+    assert.ok(committed.worldLedger.events.some((event) => event.kind === "action-progressed" && event.payload.toStatus === "interrupted"));
   } finally {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) delete globalThis.window;

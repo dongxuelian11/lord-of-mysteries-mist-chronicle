@@ -1,6 +1,22 @@
 import { DISTRICTS, type GameState, type WorldMove, type WorldSignal } from "./game-model.ts";
 import type { WorldTurnDelta } from "./world-kernel.ts";
 
+export type ExecutableProposalBoundary = {
+  redLines: string[];
+  mustEscalateWhen: string[];
+  retreatCondition: string;
+};
+
+type KernelDeltaParseOptions = {
+  game: GameState;
+  resolvingWeek: number;
+  playerIssuedNoOrders: boolean;
+  publicSignals: WorldSignal[];
+  allowedLoreIds: ReadonlySet<string>;
+  allowedProposalIds: ReadonlySet<string>;
+  proposalBoundaries: ReadonlyMap<string, ExecutableProposalBoundary>;
+};
+
 function legacyHash(value: string) {
   let output = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -10,9 +26,16 @@ function legacyHash(value: string) {
   return Math.abs(output >>> 0);
 }
 
-function parseWorldKernelDelta(raw: Record<string, unknown>, game: GameState, resolvingWeek: number, playerIssuedNoOrders: boolean, publicSignals: WorldSignal[], worldMoves: WorldMove[], allowedLoreIds: ReadonlySet<string>): WorldTurnDelta {
+function parseWorldKernelDelta(
+  raw: Record<string, unknown>,
+  options: KernelDeltaParseOptions,
+): WorldTurnDelta {
+  const { game, resolvingWeek, playerIssuedNoOrders, publicSignals, allowedLoreIds, allowedProposalIds, proposalBoundaries } = options;
   const source = raw.kernelDelta && typeof raw.kernelDelta === "object" && !Array.isArray(raw.kernelDelta) ? raw.kernelDelta as Record<string, unknown> : {};
   const list = (key: string) => Array.isArray(source[key]) ? source[key] as unknown[] : [];
+  const proposalSources = (value: Record<string, unknown>) => Array.isArray(value.sourceProposalIds)
+    ? [...new Set(value.sourceProposalIds.map(String).filter((id) => allowedProposalIds.has(id)))].slice(0, 8)
+    : [];
   const actorIds = new Set(game.worldKernel.actors.map((item) => item.id));
   const factionIds = new Set(game.worldKernel.factions.map((item) => item.id));
   const projectIds = new Set(game.worldKernel.projects.map((item) => item.id));
@@ -29,38 +52,42 @@ function parseWorldKernelDelta(raw: Record<string, unknown>, game: GameState, re
         ? `faction:${id}`
         : "";
   const newActors = list("newActors").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 8).flatMap((value, index) => {
+    const sourceProposalIds = proposalSources(value);
     const name = typeof value.name === "string" ? value.name.trim().slice(0, 60) : "";
     const locationId = typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : "";
-    if (!name || !locationId) return [];
+    if (!name || !locationId || !sourceProposalIds.length) return [];
     const requested = typeof value.id === "string" ? value.id.trim().replace(/[^a-z0-9:_-]/gi, "-").slice(0, 64) : "";
     const id = requested && !actorIds.has(requested) ? requested : `emergent-actor-${resolvingWeek}-${index}-${legacyHash(name)}`;
     actorIds.add(id);
-    return [{ id, name, locationId, agenda: typeof value.agenda === "string" ? value.agenda.slice(0, 220) : "在世界中维护自身处境", shortTermGoal: typeof value.shortTermGoal === "string" ? value.shortTermGoal.slice(0, 220) : "完成眼前事务", condition: typeof value.condition === "string" ? value.condition.slice(0, 140) : "正常活动", lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 280) : undefined, knowledgeIds: [] }];
+    return [{ id, name, locationId, agenda: typeof value.agenda === "string" ? value.agenda.slice(0, 220) : "在世界中维护自身处境", shortTermGoal: typeof value.shortTermGoal === "string" ? value.shortTermGoal.slice(0, 220) : "完成眼前事务", condition: typeof value.condition === "string" ? value.condition.slice(0, 140) : "正常活动", lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 280) : undefined, knowledgeIds: [], sourceProposalIds }];
   });
   const newFactions = list("newFactions").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 4).flatMap((value, index) => {
+    const sourceProposalIds = proposalSources(value);
     const name = typeof value.name === "string" ? value.name.trim().slice(0, 60) : "";
-    if (!name) return [];
+    if (!name || !sourceProposalIds.length) return [];
     const requested = typeof value.id === "string" ? value.id.trim().replace(/[^a-z0-9:_-]/gi, "-").slice(0, 64) : "";
     const id = requested && !factionIds.has(requested) ? requested : `emergent-faction-${resolvingWeek}-${index}-${legacyHash(name)}`;
     factionIds.add(id);
-    return [{ id, name, posture: typeof value.posture === "string" ? value.posture.slice(0, 220) : "维持自身利益", resources: Math.max(0, Math.min(100, Number(value.resources) || 40)), suspicion: Math.max(0, Math.min(100, Number(value.suspicion) || 0)), lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 280) : undefined }];
+    return [{ id, name, posture: typeof value.posture === "string" ? value.posture.slice(0, 220) : "维持自身利益", resources: Math.max(0, Math.min(100, Number(value.resources) || 40)), suspicion: Math.max(0, Math.min(100, Number(value.suspicion) || 0)), lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 280) : undefined, sourceProposalIds }];
   });
   const newProjects = list("newProjects").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 8).flatMap((value, index) => {
+    const sourceProposalIds = proposalSources(value);
     const title = typeof value.title === "string" ? value.title.trim().slice(0, 80) : "";
     const ownerId = typeof value.ownerId === "string" ? value.ownerId : "world";
     const validOwnerIds = new Set(["world", "canon", "player", "organization", ...actorIds, ...factionIds]);
-    if (!title || !validOwnerIds.has(ownerId)) return [];
+    if (!title || !validOwnerIds.has(ownerId) || !sourceProposalIds.length) return [];
     const requested = typeof value.id === "string" ? value.id.trim().replace(/[^a-z0-9:_-]/gi, "-").slice(0, 72) : "";
     const id = requested && !projectIds.has(requested) ? requested : `emergent-project-${resolvingWeek}-${index}-${legacyHash(title)}`;
     projectIds.add(id);
-    return [{ id, ownerId, title, stage: typeof value.stage === "string" ? value.stage.slice(0, 60) : "形成", progress: Math.max(0, Math.min(100, Number(value.progress) || 0)), momentum: Math.max(-10, Math.min(10, Number(value.momentum) || 1)), secrecy: Math.max(0, Math.min(100, Number(value.secrecy) || 50)), nextMilestone: typeof value.nextMilestone === "string" ? value.nextMilestone.slice(0, 220) : "等待下一步因果变化", blockers: Array.isArray(value.blockers) ? value.blockers.map(String).slice(0, 4) : [], status: ["active", "paused", "completed", "failed"].includes(String(value.status)) ? String(value.status) as "active" | "paused" | "completed" | "failed" : "active" as const }];
+    return [{ id, ownerId, title, stage: typeof value.stage === "string" ? value.stage.slice(0, 60) : "形成", progress: Math.max(0, Math.min(100, Number(value.progress) || 0)), momentum: Math.max(-10, Math.min(10, Number(value.momentum) || 1)), secrecy: Math.max(0, Math.min(100, Number(value.secrecy) || 50)), nextMilestone: typeof value.nextMilestone === "string" ? value.nextMilestone.slice(0, 220) : "等待下一步因果变化", blockers: Array.isArray(value.blockers) ? value.blockers.map(String).slice(0, 4) : [], status: ["active", "paused", "completed", "failed"].includes(String(value.status)) ? String(value.status) as "active" | "paused" | "completed" | "failed" : "active" as const, sourceProposalIds }];
   });
   const rawEvents = list("events").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 12);
   const eventIdMap = new Map<string, string>();
   const events = rawEvents.flatMap((value, index) => {
+    const sourceProposalIds = proposalSources(value);
     const title = typeof value.title === "string" ? value.title.trim().slice(0, 80) : "";
     const detail = typeof value.detail === "string" ? value.detail.trim().slice(0, 520) : "";
-    if (!title || !detail) return [];
+    if (!title || !detail || !sourceProposalIds.length) return [];
     const sourceId = typeof value.id === "string" && value.id.trim() ? value.id.trim() : `event-${index}`;
     const id = `world-${resolvingWeek}-${legacyHash(`${sourceId}:${title}`)}`;
     eventIdMap.set(sourceId, id);
@@ -72,7 +99,7 @@ function parseWorldKernelDelta(raw: Record<string, unknown>, game: GameState, re
       ...eventActorIds.map((actorId) => `actor:${actorId}`),
       ...eventFactionIds.map((factionId) => `faction:${factionId}`),
     ])];
-    return [{ id, title, detail, locationId: typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : undefined, actorIds: eventActorIds, factionIds: eventFactionIds, causeIds: Array.isArray(value.causeIds) ? value.causeIds.map(String).slice(0, 6) : [], visibility, witnessRefs }];
+    return [{ id, title, detail, locationId: typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : undefined, actorIds: eventActorIds, factionIds: eventFactionIds, causeIds: Array.isArray(value.causeIds) ? value.causeIds.map(String).slice(0, 6) : [], visibility, witnessRefs, sourceProposalIds }];
   });
   const existingEventIds = new Set(game.worldKernel.events.map((event) => event.id));
   const incomingEventIds = new Set(events.map((event) => event.id));
@@ -111,11 +138,10 @@ function parseWorldKernelDelta(raw: Record<string, unknown>, game: GameState, re
     return [{ id: `observation-${resolvingWeek}-${index}-${legacyHash(text)}`, eventId, channel: typeof value.channel === "string" ? value.channel.slice(0, 24) : "街谈", text, visibility, holderIds, holderRefs, perceivedRefs, acquisitionKind }];
   });
   if (fallbackEventId) for (const [index, signal] of publicSignals.entries()) if (!observations.some((item) => item.text === signal.body)) observations.push({ id: `observation-signal-${resolvingWeek}-${index}`, eventId: fallbackEventId, channel: signal.channel, text: signal.body, visibility: "public", holderIds: [], holderRefs: [], perceivedRefs: [], acquisitionKind: "propagation" });
-  const actorUpdates = list("actorUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && actorIds.has(String((item as Record<string, unknown>).actorId)))).slice(0, 12).map((value) => ({ actorId: String(value.actorId), locationId: typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : undefined, shortTermGoal: typeof value.shortTermGoal === "string" ? value.shortTermGoal.slice(0, 220) : undefined, lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 320) : undefined, condition: typeof value.condition === "string" ? value.condition.slice(0, 160) : undefined }));
-  const factionUpdates = list("factionUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && factionIds.has(String((item as Record<string, unknown>).factionId)))).slice(0, 10).map((value) => ({ factionId: String(value.factionId), posture: typeof value.posture === "string" ? value.posture.slice(0, 220) : undefined, resourcesDelta: Math.max(-8, Math.min(8, Number(value.resourcesDelta) || 0)), suspicionDelta: Math.max(-6, Math.min(6, Number(value.suspicionDelta) || 0)), lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 320) : undefined }));
-  const explicitProjects = list("projectUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && projectIds.has(String((item as Record<string, unknown>).projectId)))).slice(0, 12).map((value) => ({ projectId: String(value.projectId), progressDelta: Math.max(-8, Math.min(10, Number(value.progressDelta) || 0)), stage: typeof value.stage === "string" ? value.stage.slice(0, 60) : undefined, nextMilestone: typeof value.nextMilestone === "string" ? value.nextMilestone.slice(0, 220) : undefined, blockers: Array.isArray(value.blockers) ? value.blockers.map(String).slice(0, 4) : undefined, status: ["active", "paused", "completed", "failed"].includes(String(value.status)) ? String(value.status) as "active" | "paused" | "completed" | "failed" : undefined }));
-  const projectUpdates = explicitProjects.length ? explicitProjects : worldMoves.slice(0, 5).map((move) => ({ projectId: `faction:${move.factionId}`, progressDelta: 2, stage: move.title, nextMilestone: move.detail, blockers: undefined, status: "active" as const })).filter((item) => projectIds.has(item.projectId));
-  const locationUpdates = list("locationUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && locationIds.has(String((item as Record<string, unknown>).locationId)))).slice(0, 10).map((value) => ({ locationId: String(value.locationId), riskDelta: Math.max(-8, Math.min(8, Number(value.riskDelta) || 0)), stabilityDelta: Math.max(-8, Math.min(8, Number(value.stabilityDelta) || 0)), publicMood: typeof value.publicMood === "string" ? value.publicMood.slice(0, 160) : undefined, condition: typeof value.condition === "string" ? value.condition.slice(0, 200) : undefined }));
+  const actorUpdates = list("actorUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && actorIds.has(String((item as Record<string, unknown>).actorId)) && proposalSources(item as Record<string, unknown>).length)).slice(0, 12).map((value) => ({ actorId: String(value.actorId), locationId: typeof value.locationId === "string" && locationIds.has(value.locationId) ? value.locationId : undefined, shortTermGoal: typeof value.shortTermGoal === "string" ? value.shortTermGoal.slice(0, 220) : undefined, lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 320) : undefined, condition: typeof value.condition === "string" ? value.condition.slice(0, 160) : undefined, sourceProposalIds: proposalSources(value) }));
+  const factionUpdates = list("factionUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && factionIds.has(String((item as Record<string, unknown>).factionId)) && proposalSources(item as Record<string, unknown>).length)).slice(0, 10).map((value) => ({ factionId: String(value.factionId), posture: typeof value.posture === "string" ? value.posture.slice(0, 220) : undefined, resourcesDelta: Math.max(-8, Math.min(8, Number(value.resourcesDelta) || 0)), suspicionDelta: Math.max(-6, Math.min(6, Number(value.suspicionDelta) || 0)), lastAction: typeof value.lastAction === "string" ? value.lastAction.slice(0, 320) : undefined, sourceProposalIds: proposalSources(value) }));
+  const projectUpdates = list("projectUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && projectIds.has(String((item as Record<string, unknown>).projectId)) && proposalSources(item as Record<string, unknown>).length)).slice(0, 12).map((value) => ({ projectId: String(value.projectId), progressDelta: Math.max(-8, Math.min(10, Number(value.progressDelta) || 0)), stage: typeof value.stage === "string" ? value.stage.slice(0, 60) : undefined, nextMilestone: typeof value.nextMilestone === "string" ? value.nextMilestone.slice(0, 220) : undefined, blockers: Array.isArray(value.blockers) ? value.blockers.map(String).slice(0, 4) : undefined, status: ["active", "paused", "completed", "failed"].includes(String(value.status)) ? String(value.status) as "active" | "paused" | "completed" | "failed" : undefined, sourceProposalIds: proposalSources(value) }));
+  const locationUpdates = list("locationUpdates").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item) && locationIds.has(String((item as Record<string, unknown>).locationId)) && proposalSources(item as Record<string, unknown>).length)).slice(0, 10).map((value) => ({ locationId: String(value.locationId), riskDelta: Math.max(-8, Math.min(8, Number(value.riskDelta) || 0)), stabilityDelta: Math.max(-8, Math.min(8, Number(value.stabilityDelta) || 0)), publicMood: typeof value.publicMood === "string" ? value.publicMood.slice(0, 160) : undefined, condition: typeof value.condition === "string" ? value.condition.slice(0, 200) : undefined, sourceProposalIds: proposalSources(value) }));
   const knowledge = list("knowledge").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 16).flatMap((value, index) => {
     const statement = typeof value.statement === "string" ? value.statement.trim().slice(0, 360) : "";
     if (!statement) return [];
@@ -148,9 +174,26 @@ function parseWorldKernelDelta(raw: Record<string, unknown>, game: GameState, re
       sourceObservationId: observation.id,
     };
   }));
+  const directiveInterruptions = list("directiveInterruptions")
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+    .slice(0, 8)
+    .flatMap((value) => {
+      const proposalId = typeof value.proposalId === "string" && allowedProposalIds.has(value.proposalId) ? value.proposalId : "";
+      const sourceEventId = eventIdMap.get(String(value.sourceEventId ?? ""));
+      const sourceEvent = events.find((event) => event.id === sourceEventId && event.sourceProposalIds?.includes(proposalId));
+      const triggeredBoundary = typeof value.triggeredBoundary === "string" ? value.triggeredBoundary.trim().slice(0, 220) : "";
+      const boundary = proposalBoundaries.get(proposalId);
+      const validBoundaries = boundary
+        ? [...boundary.redLines, ...boundary.mustEscalateWhen, boundary.retreatCondition].map((item) => item.trim()).filter(Boolean)
+        : [];
+      const completedFraction = Math.max(0.05, Math.min(0.95, Number(value.completedFraction) || 0));
+      const reason = typeof value.reason === "string" ? value.reason.trim().slice(0, 320) : "";
+      if (!proposalId || !sourceEventId || !sourceEvent || !triggeredBoundary || !validBoundaries.includes(triggeredBoundary) || !reason) return [];
+      return [{ proposalId, sourceEventId, triggeredBoundary, reason, completedFraction }];
+    });
   const canonValue = source.canon && typeof source.canon === "object" && !Array.isArray(source.canon) ? source.canon as Record<string, unknown> : {};
   const mayDiverge = game.deviation >= 15 || game.pivots.some((pivot) => pivot.magnitude >= 20);
-  return { week: resolvingWeek, playerIssuedNoOrders: playerIssuedNoOrders, newActors, newFactions, newProjects, actorUpdates, factionUpdates, projectUpdates, locationUpdates, events, observations, knowledge, knowledgeGrants, canon: { mode: mayDiverge && canonValue.mode === "diverging" ? "diverging" : "anchored", deviationDelta: Math.max(0, Math.min(8, Number(canonValue.deviationDelta) || 0)), pivotEventIds: mayDiverge && Array.isArray(canonValue.pivotEventIds) ? canonValue.pivotEventIds.map(String).map((id) => eventIdMap.get(id) ?? id).slice(0, 4) : [] } };
+  return { week: resolvingWeek, playerIssuedNoOrders: playerIssuedNoOrders, newActors, newFactions, newProjects, actorUpdates, factionUpdates, projectUpdates, locationUpdates, events, observations, knowledge, knowledgeGrants, directiveInterruptions, canon: { mode: mayDiverge && canonValue.mode === "diverging" ? "diverging" : "anchored", deviationDelta: Math.max(0, Math.min(8, Number(canonValue.deviationDelta) || 0)), pivotEventIds: mayDiverge && Array.isArray(canonValue.pivotEventIds) ? canonValue.pivotEventIds.map(String).map((id) => eventIdMap.get(id) ?? id).filter((id) => events.some((event) => event.id === id)).slice(0, 4) : [] } };
 }
 
 export function adaptWorldAdjudication(
@@ -160,20 +203,22 @@ export function adaptWorldAdjudication(
     resolvingWeek: number;
     playerIssuedNoOrders: boolean;
     allowedLoreIds: ReadonlySet<string>;
+    allowedProposalIds: ReadonlySet<string>;
+    proposalBoundaries: ReadonlyMap<string, ExecutableProposalBoundary>;
   },
 ) {
   const basics = parseWorldAdjudicationBasics(raw, options.game, options.resolvingWeek);
   return {
     ...basics,
-    kernelDelta: parseWorldKernelDelta(
-      raw,
-      options.game,
-      options.resolvingWeek,
-      options.playerIssuedNoOrders,
-      basics.publicSignals,
-      basics.worldMoves,
-      options.allowedLoreIds,
-    ),
+    kernelDelta: parseWorldKernelDelta(raw, {
+      game: options.game,
+      resolvingWeek: options.resolvingWeek,
+      playerIssuedNoOrders: options.playerIssuedNoOrders,
+      publicSignals: basics.publicSignals,
+      allowedLoreIds: options.allowedLoreIds,
+      allowedProposalIds: options.allowedProposalIds,
+      proposalBoundaries: options.proposalBoundaries,
+    }),
   };
 }
 

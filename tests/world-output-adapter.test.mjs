@@ -8,6 +8,7 @@ async function fixture() {
   const { createInitialGame } = await loadRuntimeModule("app/game-model.ts");
   const { adaptWorldAdjudication } = await loadRuntimeModule("app/world-output-adapter.ts");
   const game = createInitialGame("seer");
+  const allowedProposalId = "proposal:allowed:8";
   const knownActor = game.worldKernel.actors[0];
   const knownFaction = game.worldKernel.factions[0];
   const raw = {
@@ -23,8 +24,8 @@ async function fixture() {
     worldSummary: { atmosphere: "街道仍然繁忙，但报童和煤行都在谈论新的交通安排。", undercurrents: ["一条有限暗流", "x".repeat(400)] },
     kernelDelta: {
       events: [
-        { id: "temporary-cause", title: "已知行动发生", detail: "一项可追溯行动进入世界账本。", actorIds: [knownActor.id, "actor:unknown"], factionIds: [knownFaction.id, "faction:unknown"], locationId: "east", visibility: "actors" },
-        { id: "temporary-result", title: "行动产生余波", detail: "第二项事件只保留真实存在的因果引用。", causeIds: ["temporary-cause", "missing-cause"], locationId: "unknown", visibility: "public" },
+        { id: "temporary-cause", title: "已知行动发生", detail: "一项可追溯行动进入世界账本。", actorIds: [knownActor.id, "actor:unknown"], factionIds: [knownFaction.id, "faction:unknown"], locationId: "east", visibility: "actors", sourceProposalIds: [allowedProposalId] },
+        { id: "temporary-result", title: "行动产生余波", detail: "第二项事件只保留真实存在的因果引用。", causeIds: ["temporary-cause", "missing-cause"], locationId: "unknown", visibility: "public", sourceProposalIds: [allowedProposalId] },
       ],
       observations: [
         { eventId: "temporary-result", channel: "内部观察", text: "角色与势力共同见证了余波。", visibility: "actors", holderIds: [knownActor.id, knownFaction.id] },
@@ -33,8 +34,8 @@ async function fixture() {
       knowledge: [
         { subject: "余波", statement: "只有获准的知识库来源可以进入权威知识。", truth: "likely", visibility: "actors", holderIds: [knownFaction.id], loreRecordIds: ["lore-allowed", "lore-denied"], sourceEventId: "temporary-result" },
       ],
-      actorUpdates: [{ actorId: "actor:unknown", lastAction: "不得进入结果" }],
-      projectUpdates: [{ projectId: "project:unknown", progressDelta: 99 }],
+      actorUpdates: [{ actorId: "actor:unknown", lastAction: "不得进入结果", sourceProposalIds: [allowedProposalId] }],
+      projectUpdates: [{ projectId: "project:unknown", progressDelta: 99, sourceProposalIds: [allowedProposalId] }],
       canon: { mode: "diverging", deviationDelta: 99, pivotEventIds: ["temporary-result"] },
     },
   };
@@ -43,8 +44,10 @@ async function fixture() {
     resolvingWeek: 8,
     playerIssuedNoOrders: true,
     allowedLoreIds: new Set(["lore-allowed"]),
+    allowedProposalIds: new Set([allowedProposalId]),
+    proposalBoundaries: new Map([[allowedProposalId, { redLines: ["不得惊动目标"], mustEscalateWhen: [], retreatCondition: "身份暴露时撤退" }]]),
   });
-  return { game, raw, knownActor, knownFaction, adapt };
+  return { game, raw, knownActor, knownFaction, allowedProposalId, adapt };
 }
 
 test("world output adapter returns one deterministic, authority-safe adjudication result", async () => {
@@ -97,17 +100,17 @@ test("private knowledge holders require a matching persisted acquisition grant",
 });
 
 test("world output adapter drops new entities whose persistent references do not resolve", async () => {
-  const { raw, knownActor, adapt } = await fixture();
+  const { raw, knownActor, allowedProposalId, adapt } = await fixture();
   const malformed = structuredClone(raw);
   malformed.kernelDelta.newActors = [
-    { id: "valid-new-actor", name: "合法新角色", locationId: "east", agenda: "调查", shortTermGoal: "观察", condition: "正常" },
-    { id: "orphan-new-actor", name: "孤立新角色", locationId: "missing-location", agenda: "调查", shortTermGoal: "观察", condition: "正常" },
+    { id: "valid-new-actor", name: "合法新角色", locationId: "east", agenda: "调查", shortTermGoal: "观察", condition: "正常", sourceProposalIds: [allowedProposalId] },
+    { id: "orphan-new-actor", name: "孤立新角色", locationId: "missing-location", agenda: "调查", shortTermGoal: "观察", condition: "正常", sourceProposalIds: [allowedProposalId] },
   ];
   malformed.kernelDelta.newProjects = [
-    { id: "valid-new-project", ownerId: "valid-new-actor", title: "合法项目", stage: "形成", progress: 0, momentum: 1, secrecy: 50, nextMilestone: "下一步", blockers: [], status: "active" },
-    { id: "orphan-new-project", ownerId: "missing-owner", title: "孤立项目", stage: "形成", progress: 0, momentum: 1, secrecy: 50, nextMilestone: "下一步", blockers: [], status: "active" },
+    { id: "valid-new-project", ownerId: "valid-new-actor", title: "合法项目", stage: "形成", progress: 0, momentum: 1, secrecy: 50, nextMilestone: "下一步", blockers: [], status: "active", sourceProposalIds: [allowedProposalId] },
+    { id: "orphan-new-project", ownerId: "missing-owner", title: "孤立项目", stage: "形成", progress: 0, momentum: 1, secrecy: 50, nextMilestone: "下一步", blockers: [], status: "active", sourceProposalIds: [allowedProposalId] },
   ];
-  malformed.kernelDelta.actorUpdates = [{ actorId: knownActor.id, locationId: "missing-location", lastAction: "无效移动" }];
+  malformed.kernelDelta.actorUpdates = [{ actorId: knownActor.id, locationId: "missing-location", lastAction: "无效移动", sourceProposalIds: [allowedProposalId] }];
   const result = adapt(malformed);
   assert.deepEqual(result.kernelDelta.newActors.map((actor) => actor.id), ["valid-new-actor"]);
   assert.deepEqual(result.kernelDelta.newProjects.map((project) => project.id), ["valid-new-project"]);
@@ -124,4 +127,53 @@ test("world output adapter preserves transactional rejection for incomplete publ
     () => adapt({ ...raw, worldSummary: {} }),
     /城市气氛/,
   );
+});
+
+test("world mutations without an executable proposal source are removed before kernel commit", async () => {
+  const { raw, knownActor, allowedProposalId, adapt } = await fixture();
+  const malicious = structuredClone(raw);
+  malicious.kernelDelta.events.push({
+    id: "rejected-event",
+    title: "拒绝提案伪造的事件",
+    detail: "这项变化不得进入世界。",
+    actorIds: [knownActor.id],
+    factionIds: [],
+    visibility: "player",
+    sourceProposalIds: ["proposal:rejected:8"],
+  });
+  malicious.kernelDelta.actorUpdates.push({
+    actorId: knownActor.id,
+    lastAction: "由拒绝提案制造的变化",
+    sourceProposalIds: ["proposal:rejected:8"],
+  });
+  malicious.kernelDelta.locationUpdates = [{
+    locationId: "east",
+    riskDelta: 8,
+    sourceProposalIds: [],
+  }];
+  malicious.kernelDelta.projectUpdates.push({
+    projectId: "project:unknown",
+    progressDelta: 5,
+    sourceProposalIds: [allowedProposalId, "proposal:rejected:8"],
+  });
+  const result = adapt(malicious);
+  assert.ok(!result.kernelDelta.events.some((event) => event.title === "拒绝提案伪造的事件"));
+  assert.ok(!result.kernelDelta.actorUpdates.some((update) => update.lastAction === "由拒绝提案制造的变化"));
+  assert.equal(result.kernelDelta.locationUpdates.length, 0);
+  assert.ok(result.kernelDelta.events.every((event) => event.sourceProposalIds.every((id) => id === allowedProposalId)));
+});
+
+test("directive interruption requires a real sourced event and an exact authorization boundary", async () => {
+  const { raw, allowedProposalId, adapt } = await fixture();
+  const interrupted = structuredClone(raw);
+  interrupted.kernelDelta.directiveInterruptions = [
+    { proposalId: allowedProposalId, sourceEventId: "temporary-result", triggeredBoundary: "身份暴露时撤退", reason: "身份掩护已经失效，负责人按约定撤离。", completedFraction: 0.4 },
+    { proposalId: allowedProposalId, sourceEventId: "temporary-result", triggeredBoundary: "模型自行增加的边界", reason: "不得接受。", completedFraction: 0.5 },
+    { proposalId: "proposal:rejected:8", sourceEventId: "temporary-result", triggeredBoundary: "身份暴露时撤退", reason: "不得接受。", completedFraction: 0.5 },
+  ];
+  const result = adapt(interrupted);
+  assert.equal(result.kernelDelta.directiveInterruptions.length, 1);
+  assert.equal(result.kernelDelta.directiveInterruptions[0].proposalId, allowedProposalId);
+  assert.equal(result.kernelDelta.directiveInterruptions[0].completedFraction, 0.4);
+  assert.ok(result.kernelDelta.events.some((event) => event.id === result.kernelDelta.directiveInterruptions[0].sourceEventId));
 });

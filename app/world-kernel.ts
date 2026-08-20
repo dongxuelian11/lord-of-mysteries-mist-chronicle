@@ -57,6 +57,7 @@ export type PersistentWorldEvent = {
   causeIds: string[];
   visibility: WorldVisibility;
   witnessRefs?: string[];
+  sourceProposalIds?: string[];
 };
 
 export type WorldObservation = {
@@ -144,21 +145,28 @@ export type WorldKernelSeed = {
 export type WorldTurnDelta = {
   week: number;
   playerIssuedNoOrders: boolean;
-  newActors?: (Omit<PersistentWorldActor, "lastAction" | "knowledgeIds"> & { lastAction?: string; knowledgeIds?: string[] })[];
-  newFactions?: (Omit<PersistentWorldFaction, "lastAction"> & { lastAction?: string })[];
-  newProjects?: Omit<PersistentWorldProject, "updatedWeek">[];
-  actorUpdates: { actorId: string; locationId?: string; shortTermGoal?: string; lastAction?: string; condition?: string }[];
-  factionUpdates?: { factionId: string; posture?: string; resourcesDelta?: number; suspicionDelta?: number; lastAction?: string }[];
-  projectUpdates: { projectId: string; progressDelta: number; stage?: string; nextMilestone?: string; blockers?: string[]; status?: PersistentWorldProject["status"] }[];
-  locationUpdates: { locationId: string; riskDelta?: number; stabilityDelta?: number; publicMood?: string; condition?: string }[];
+  newActors?: (Omit<PersistentWorldActor, "lastAction" | "knowledgeIds"> & { lastAction?: string; knowledgeIds?: string[]; sourceProposalIds: string[] })[];
+  newFactions?: (Omit<PersistentWorldFaction, "lastAction"> & { lastAction?: string; sourceProposalIds: string[] })[];
+  newProjects?: (Omit<PersistentWorldProject, "updatedWeek"> & { sourceProposalIds: string[] })[];
+  actorUpdates: { actorId: string; locationId?: string; shortTermGoal?: string; lastAction?: string; condition?: string; sourceProposalIds: string[] }[];
+  factionUpdates?: { factionId: string; posture?: string; resourcesDelta?: number; suspicionDelta?: number; lastAction?: string; sourceProposalIds: string[] }[];
+  projectUpdates: { projectId: string; progressDelta: number; stage?: string; nextMilestone?: string; blockers?: string[]; status?: PersistentWorldProject["status"]; sourceProposalIds: string[] }[];
+  locationUpdates: { locationId: string; riskDelta?: number; stabilityDelta?: number; publicMood?: string; condition?: string; sourceProposalIds: string[] }[];
   events: Omit<PersistentWorldEvent, "week">[];
   observations: Omit<WorldObservation, "week">[];
   knowledge?: (Omit<WorldKnowledgeNode, "acquiredWeek" | "loreRecordIds"> & { loreRecordIds?: string[] })[];
   knowledgeGrants?: Omit<WorldKnowledgeGrant, "week">[];
   canon?: { mode?: "anchored" | "diverging"; deviationDelta?: number; pivotEventIds?: string[] };
+  directiveInterruptions?: { proposalId: string; sourceEventId: string; triggeredBoundary: string; reason: string; completedFraction: number }[];
 };
 
 const clamp = (value: number, minimum = 0, maximum = 100) => Math.max(minimum, Math.min(maximum, value));
+
+function withoutMutationProvenance<T extends { sourceProposalIds: string[] }>(value: T): Omit<T, "sourceProposalIds"> {
+  const copy: Partial<T> = { ...value };
+  delete copy.sourceProposalIds;
+  return copy as Omit<T, "sourceProposalIds">;
+}
 
 export function createWorldKernel(seed: WorldKernelSeed): WorldKernel {
   const DEFAULT_HORIZON = {
@@ -225,9 +233,9 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
   for (const project of delta.newProjects ?? []) {
     if (!validOwnerIds.has(project.ownerId)) throw new Error(`新项目引用了不存在的所有者：${project.id} -> ${project.ownerId}`);
   }
-  const seededActors = [...kernel.actors, ...(delta.newActors ?? []).filter((actor) => !existingActorIds.has(actor.id)).map((actor) => ({ ...actor, lastAction: actor.lastAction ?? "刚刚进入持续世界状态", knowledgeIds: actor.knowledgeIds ?? [] }))];
-  const seededFactions = [...kernel.factions, ...(delta.newFactions ?? []).filter((faction) => !existingFactionIds.has(faction.id)).map((faction) => ({ ...faction, lastAction: faction.lastAction ?? "刚刚进入持续世界状态" }))];
-  const seededProjects = [...kernel.projects, ...(delta.newProjects ?? []).filter((project) => !existingProjectIds.has(project.id)).map((project) => ({ ...project, updatedWeek: delta.week }))];
+  const seededActors = [...kernel.actors, ...(delta.newActors ?? []).filter((actor) => !existingActorIds.has(actor.id)).map((value) => { const actor = withoutMutationProvenance(value); return { ...actor, lastAction: actor.lastAction ?? "刚刚进入持续世界状态", knowledgeIds: actor.knowledgeIds ?? [] }; })];
+  const seededFactions = [...kernel.factions, ...(delta.newFactions ?? []).filter((faction) => !existingFactionIds.has(faction.id)).map((value) => { const faction = withoutMutationProvenance(value); return { ...faction, lastAction: faction.lastAction ?? "刚刚进入持续世界状态" }; })];
+  const seededProjects = [...kernel.projects, ...(delta.newProjects ?? []).filter((project) => !existingProjectIds.has(project.id)).map((value) => ({ ...withoutMutationProvenance(value), updatedWeek: delta.week }))];
   const actors = seededActors.map((actor) => {
     const update = delta.actorUpdates.find((item) => item.actorId === actor.id);
     return update ? { ...actor, locationId: update.locationId ?? actor.locationId, shortTermGoal: update.shortTermGoal ?? actor.shortTermGoal, lastAction: update.lastAction ?? actor.lastAction, condition: update.condition ?? actor.condition } : actor;

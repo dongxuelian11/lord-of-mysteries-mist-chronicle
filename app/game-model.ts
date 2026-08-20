@@ -11,6 +11,7 @@ import type { ParticipationScene } from "./participation-scene.ts";
 import { sequenceLedgerFor } from "./pathway-sequence-ledger.ts";
 import { createHighSequenceLedger, type HighSequenceLedger } from "./high-sequence-ledger.ts";
 import { createCampaignWorldState, type CampaignWorldState } from "./campaign-world.ts";
+import { createInitialAttentionSimulationState, type AttentionSimulationState } from "./attention-simulation.ts";
 import type { OriginTrait, PathwayOriginScenario } from "./pathway-origins.ts";
 import { INITIAL_CANON_ACTORS, INITIAL_FACTIONS, INITIAL_KERNEL_CANON_ACTORS, INITIAL_TIMELINE } from "./initial-world-seed.ts";
 import { createOpeningState } from "./opening-state-factory.ts";
@@ -347,6 +348,10 @@ export type OrganizationIssue = {
   deadline: number;
   signals: string[];
   state: "观察" | "待裁决" | "已处理" | "已逾期";
+  originActionId?: string;
+  strategyIntentId?: string;
+  causeEventIds?: string[];
+  directiveState?: "awaiting-authorization" | "deferred" | "partially-completed" | "interrupted";
 };
 
 export type DepartmentReport = {
@@ -656,6 +661,20 @@ export type PlayerIntent = {
   state: "active" | "paused" | "completed";
 };
 
+export type DirectiveResourceCommitment = {
+  posture: "minimal" | "balanced" | "substantial" | "all-in";
+  money: number;
+  manpower: number;
+  extraordinaryMaterials: number;
+};
+
+export type DirectiveAuthorization = {
+  scope: "strict" | "bounded" | "broad";
+  redLines: string[];
+  mustEscalateWhen: string[];
+  retreatCondition: string;
+};
+
 export type ActionContract = {
   id: string;
   actionOrdinal?: number;
@@ -673,6 +692,12 @@ export type ActionContract = {
   facilityId?: string;
   days: number;
   budget: number;
+  resourceCommitment: DirectiveResourceCommitment;
+  authorization: DirectiveAuthorization;
+  requiredKnowledgeIds: string[];
+  sourceIssueId?: string;
+  strategyIntentId?: string;
+  causeEventIds: string[];
   risk: RiskLevel;
   knownFacts: string;
   hypothesis: string;
@@ -684,12 +709,93 @@ export type ActionContract = {
   methodTags?: string[];
 };
 
-export type ScheduledAction = ActionContract & { status: "planned" | "resolved"; startDay: number };
+export type DirectiveExecutionStatus =
+  | "planned"
+  | "deferred"
+  | "partially-completed"
+  | "interrupted"
+  | "awaiting-authorization"
+  | "completed"
+  | "cancelled"
+  | "rejected";
+
+export type DirectiveResourceUsage = {
+  money: number;
+  manpower: number;
+  extraordinaryMaterials: number;
+  spirituality: number;
+};
+
+export type DirectiveAttemptDisposition =
+  | "executed"
+  | "deferred"
+  | "partially-completed"
+  | "interrupted"
+  | "awaiting-authorization"
+  | "rejected";
+
+export type DirectiveExecutionPlanSnapshot = {
+  proposalId: string;
+  attemptId: string;
+  executable: boolean;
+  participantIds: string[];
+  participantRefs: string[];
+  targetRefs: string[];
+  commitments: DirectiveResourceUsage;
+  timeWindow: { startDay: number; days: number };
+  authorization: DirectiveAuthorization;
+  visibility: "world" | "public" | "player" | "actors" | "factions";
+  holderRefs: string[];
+  causeEventIds: string[];
+  adjustments: string[];
+  disposition: DirectiveAttemptDisposition;
+  progressDelta: number;
+  remainingDays: number;
+  nextEligibleWeek: number | null;
+  interruptionReason?: string;
+  facilityId?: string;
+};
+
+export type DirectiveExecutionState = {
+  originWeek: number;
+  attemptOrdinal: number;
+  status: DirectiveExecutionStatus;
+  progress: number;
+  consumed: DirectiveResourceUsage;
+  nextEligibleWeek: number | null;
+  lastAttemptId?: string;
+  lastReason?: string;
+  consequenceEventIds: string[];
+};
+
+export type ScheduledAction = ActionContract & {
+  status: "planned" | "resolved" | "deferred" | "partially-completed" | "interrupted" | "awaiting-authorization";
+  startDay: number;
+  execution: DirectiveExecutionState;
+};
+
+export type ActionCausalReceipt = {
+  id: string;
+  summary: string;
+  entityRefs: string[];
+  sourceEventIds: string[];
+};
+
+export type ActionCausalReceipts = {
+  people: ActionCausalReceipt[];
+  resources: ActionCausalReceipt[];
+  locations: ActionCausalReceipt[];
+  knowledge: ActionCausalReceipt[];
+  relationships: ActionCausalReceipt[];
+  futureCauses: ActionCausalReceipt[];
+};
 
 export type ActionResult = {
   id: string;
   title: string;
   outcome: "成功" | "部分成功" | "受阻";
+  executionStatus?: "executed" | "limited" | "deferred" | "partially-completed" | "interrupted" | "awaiting-authorization" | "escalation-required" | "rejected";
+  executionPlan?: DirectiveExecutionPlanSnapshot;
   contract: ActionContract;
   findings: string[];
   consequence: string;
@@ -702,6 +808,18 @@ export type ActionResult = {
   unlockedEvidenceIds?: string[];
   unlockedOpportunityIds?: string[];
   futureChanges?: string[];
+  causalReceipts?: ActionCausalReceipts;
+};
+
+export type ChronicleParagraphSource = {
+  receiptIds: string[];
+  eventIds: string[];
+};
+
+export type ChronicleSection = {
+  heading: string;
+  paragraphs: string[];
+  paragraphSources?: ChronicleParagraphSource[];
 };
 
 export type ChronicleChapter = {
@@ -710,7 +828,7 @@ export type ChronicleChapter = {
   date: string;
   title: string;
   source: "local" | "ai";
-  sections: { heading: string; paragraphs: string[] }[];
+  sections: ChronicleSection[];
   results: ActionResult[];
   summary: string;
 };
@@ -781,6 +899,7 @@ export type GameState = {
   worldKernel: WorldKernel;
   worldLedger: WorldLedger;
   worldAgents: AutonomousWorldState;
+  attentionSimulation?: AttentionSimulationState;
   factionStrategy: FactionStrategyState;
   memory: DynamicMemoryState;
   abilityResolutions?: string[];
@@ -1368,6 +1487,7 @@ export function createInitialGame(pathwayId: PathwayId = "seer", origin?: Pick<P
     worldKernel,
     worldLedger: createWorldLedger(),
     worldAgents: createAutonomousWorldState(worldKernel),
+    attentionSimulation: createInitialAttentionSimulationState(),
     factionStrategy: createFactionStrategyState(management, worldKernel),
     memory: emptyMemoryState(),
     abilityResolutions: [],

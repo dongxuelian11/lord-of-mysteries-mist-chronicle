@@ -1,4 +1,15 @@
-import { createInitialGame, initializeWorldKernel, type GameState, type PathwayId } from "./game-model.ts";
+import {
+  createInitialGame,
+  initializeWorldKernel,
+  type ActionCausalReceipts,
+  type ActionContract,
+  type DirectiveExecutionPlanSnapshot,
+  type DirectiveExecutionState,
+  type DirectiveResourceUsage,
+  type GameState,
+  type PathwayId,
+  type ScheduledAction,
+} from "./game-model.ts";
 import { emptyMemoryState, ensureAudienceStates } from "./memory/index.ts";
 import { createInitialFateState, type FateAberrationState } from "./fate/index.ts";
 import { createInitialControlState, type ControlState } from "./loss-of-control/index.ts";
@@ -8,6 +19,7 @@ import { ensureAutonomousWorldState, type AutonomousWorldState } from "./autonom
 import { ensureFactionStrategyState, type FactionStrategyState } from "./faction-strategy.ts";
 import { ensureHighSequenceLedger, type HighSequenceLedger } from "./high-sequence-ledger.ts";
 import { ensureCampaignWorldState, type CampaignWorldState } from "./campaign-world.ts";
+import { ensureAttentionSimulationState } from "./attention-simulation.ts";
 
 export const ACTIVE_SAVE_KEY = "mist-chronicle-complete-v21";
 export const LEGACY_ACTIVE_SAVE_KEYS = Array.from(
@@ -61,6 +73,165 @@ function cleanStoredNarrative(text: string) {
   return text
     .replace(/若继续搁置[，,]\s*若继续(?:搁置|放任)[，,]\s*/g, "若继续搁置，")
     .replace(/([。！？；])\1+/g, "$1");
+}
+
+function normalizeDirectiveContract<T extends ActionContract>(contract: T): T {
+  const legacyRedLines = typeof contract.redLines === "string" && contract.redLines.trim()
+    ? [contract.redLines.trim()]
+    : [];
+  const legacyRetreat = typeof contract.retreat === "string" ? contract.retreat.trim() : "";
+  const legacyBudget = Number.isFinite(contract.budget) && contract.budget >= 0 ? contract.budget : 0;
+  return {
+    ...contract,
+    resourceCommitment: contract.resourceCommitment ?? {
+      posture: "balanced",
+      money: legacyBudget,
+      manpower: 0,
+      extraordinaryMaterials: 0,
+    },
+    authorization: contract.authorization ?? {
+      scope: "bounded",
+      redLines: legacyRedLines,
+      mustEscalateWhen: [],
+      retreatCondition: legacyRetreat,
+    },
+    requiredKnowledgeIds: contract.requiredKnowledgeIds ?? [],
+    causeEventIds: contract.causeEventIds ?? [],
+  } as T;
+}
+
+function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(minimum, Math.min(maximum, Math.round(parsed))) : fallback;
+}
+
+function boundedUsage(value: Partial<DirectiveResourceUsage> | undefined): DirectiveResourceUsage {
+  const amount = (candidate: unknown) => {
+    const parsed = Number(candidate);
+    return Number.isFinite(parsed) ? Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, parsed)) : 0;
+  };
+  return {
+    ...value,
+    money: amount(value?.money),
+    manpower: amount(value?.manpower),
+    extraordinaryMaterials: amount(value?.extraordinaryMaterials),
+    spirituality: amount(value?.spirituality),
+  };
+}
+
+const ACTIVE_DIRECTIVE_STATUSES = ["planned", "deferred", "partially-completed", "interrupted", "awaiting-authorization"] as const;
+type ActiveDirectiveStatus = typeof ACTIVE_DIRECTIVE_STATUSES[number];
+const TERMINAL_DIRECTIVE_STATUSES = new Set(["completed", "cancelled", "rejected"]);
+
+function normalizeDirectiveExecution(
+  execution: DirectiveExecutionState | undefined,
+  legacyStatus: ScheduledAction["status"],
+  currentWeek: number,
+): DirectiveExecutionState & { status: ActiveDirectiveStatus } {
+  const raw = execution as (Partial<DirectiveExecutionState> & Record<string, unknown>) | undefined;
+  const requestedStatus: ActiveDirectiveStatus = typeof raw?.status === "string" && ACTIVE_DIRECTIVE_STATUSES.includes(raw.status as ActiveDirectiveStatus)
+    ? raw.status as ActiveDirectiveStatus
+    : ACTIVE_DIRECTIVE_STATUSES.includes(legacyStatus as ActiveDirectiveStatus)
+      ? legacyStatus as ActiveDirectiveStatus
+      : "planned";
+  const originWeek = boundedInteger(raw?.originWeek, currentWeek, 1, Math.max(1, currentWeek));
+  const nextEligibleWeek = raw?.nextEligibleWeek === null
+    ? null
+    : boundedInteger(raw?.nextEligibleWeek, currentWeek, 1, 1_000_000);
+  return {
+    ...raw,
+    originWeek,
+    attemptOrdinal: boundedInteger(raw?.attemptOrdinal, 0, 0, 1_000_000),
+    status: requestedStatus,
+    progress: boundedInteger(raw?.progress, 0, 0, 100),
+    consumed: boundedUsage(raw?.consumed),
+    nextEligibleWeek: requestedStatus === "awaiting-authorization" && raw?.nextEligibleWeek === undefined ? null : nextEligibleWeek,
+    ...(typeof raw?.lastAttemptId === "string" ? { lastAttemptId: raw.lastAttemptId } : {}),
+    ...(typeof raw?.lastReason === "string" ? { lastReason: raw.lastReason } : {}),
+    consequenceEventIds: Array.isArray(raw?.consequenceEventIds) ? raw.consequenceEventIds.filter((id): id is string => typeof id === "string") : [],
+  };
+}
+
+function normalizeScheduledDirective(action: ScheduledAction, currentWeek: number): ScheduledAction | null {
+  const executionStatus = action.execution?.status;
+  if (action.status === "resolved" || typeof executionStatus === "string" && TERMINAL_DIRECTIVE_STATUSES.has(executionStatus)) return null;
+  const contract = normalizeDirectiveContract(action);
+  const execution = normalizeDirectiveExecution(action.execution, action.status, currentWeek);
+  return {
+    ...contract,
+    status: execution.status,
+    startDay: boundedInteger(action.startDay, 1, 1, 7),
+    execution,
+  };
+}
+
+const RESULT_EXECUTION_STATUSES = new Set([
+  "executed", "limited", "deferred", "partially-completed", "interrupted",
+  "awaiting-authorization", "escalation-required", "rejected",
+]);
+
+function normalizeExecutionPlan(
+  plan: DirectiveExecutionPlanSnapshot,
+  contract: ActionContract,
+  chapterWeek: number,
+): DirectiveExecutionPlanSnapshot {
+  const raw = plan as Partial<DirectiveExecutionPlanSnapshot> & Record<string, unknown>;
+  const participantIds = Array.isArray(raw.participantIds) ? raw.participantIds.filter((id): id is string => typeof id === "string") : [];
+  const disposition = ["executed", "deferred", "partially-completed", "interrupted", "awaiting-authorization", "rejected"].includes(String(raw.disposition))
+    ? raw.disposition as DirectiveExecutionPlanSnapshot["disposition"]
+    : "executed";
+  const nextEligibleWeek = raw.nextEligibleWeek === null
+    ? null
+    : boundedInteger(raw.nextEligibleWeek, chapterWeek + 1, 1, 1_000_000);
+  return {
+    ...raw,
+    proposalId: typeof raw.proposalId === "string" ? raw.proposalId : `proposal:${chapterWeek}:${contract.id}`,
+    attemptId: typeof raw.attemptId === "string" ? raw.attemptId : `attempt:${contract.id}:1`,
+    executable: Boolean(raw.executable),
+    participantIds,
+    participantRefs: Array.isArray(raw.participantRefs) ? raw.participantRefs.filter((id): id is string => typeof id === "string") : participantIds.map((id) => id === "player" ? "player" : `actor:${id}`),
+    targetRefs: Array.isArray(raw.targetRefs) ? raw.targetRefs.filter((id): id is string => typeof id === "string") : [],
+    commitments: boundedUsage(raw.commitments),
+    timeWindow: {
+      startDay: boundedInteger(raw.timeWindow?.startDay, 1, 1, 7),
+      days: boundedInteger(raw.timeWindow?.days, contract.days, 1, 7),
+    },
+    authorization: raw.authorization ?? contract.authorization,
+    visibility: ["world", "public", "player", "actors", "factions"].includes(String(raw.visibility)) ? raw.visibility as DirectiveExecutionPlanSnapshot["visibility"] : "actors",
+    holderRefs: Array.isArray(raw.holderRefs) ? raw.holderRefs.filter((id): id is string => typeof id === "string") : [],
+    causeEventIds: Array.isArray(raw.causeEventIds) ? raw.causeEventIds.filter((id): id is string => typeof id === "string") : [],
+    adjustments: Array.isArray(raw.adjustments) ? raw.adjustments.filter((item): item is string => typeof item === "string") : [],
+    disposition,
+    progressDelta: boundedInteger(raw.progressDelta, 0, 0, 100),
+    remainingDays: boundedInteger(raw.remainingDays, 0, 0, Math.max(7, contract.days)),
+    nextEligibleWeek,
+    ...(typeof raw.interruptionReason === "string" ? { interruptionReason: raw.interruptionReason } : {}),
+    ...(typeof raw.facilityId === "string" ? { facilityId: raw.facilityId } : {}),
+  };
+}
+
+function normalizeCausalReceipts(value: ActionCausalReceipts | undefined): ActionCausalReceipts | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const normalizeList = (items: unknown) => Array.isArray(items) ? items.flatMap((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const raw = item as Record<string, unknown>;
+    const summary = typeof raw.summary === "string" ? raw.summary.trim().slice(0, 360) : "";
+    if (!summary) return [];
+    return [{
+      id: typeof raw.id === "string" ? raw.id : `legacy-receipt:${index}`,
+      summary,
+      entityRefs: Array.isArray(raw.entityRefs) ? raw.entityRefs.map(String).slice(0, 12) : [],
+      sourceEventIds: Array.isArray(raw.sourceEventIds) ? raw.sourceEventIds.map(String).slice(0, 12) : [],
+    }];
+  }) : [];
+  return {
+    people: normalizeList(value.people),
+    resources: normalizeList(value.resources),
+    locations: normalizeList(value.locations),
+    knowledge: normalizeList(value.knowledge),
+    relationships: normalizeList(value.relationships),
+    futureCauses: normalizeList(value.futureCauses),
+  };
 }
 
 /**
@@ -151,7 +322,11 @@ export function normalizeStoredGame(input: Partial<GameState>): GameState {
     organizationIssues: input.organizationIssues ?? [],
     worldSignals: input.worldSignals ?? [],
     worldSnapshots: input.worldSnapshots ?? [],
+    schedule: (input.schedule ?? [])
+      .map((action) => normalizeScheduledDirective(action, input.week ?? fresh.week))
+      .filter((action): action is ScheduledAction => Boolean(action)),
     worldKernel,
+    attentionSimulation: ensureAttentionSimulationState(input.attentionSimulation ?? fresh.attentionSimulation),
     routeHypotheses: input.routeHypotheses ?? [],
     spatialContext: input.spatialContext ?? [],
     management,
@@ -159,9 +334,28 @@ export function normalizeStoredGame(input: Partial<GameState>): GameState {
     campaignWorld: ensureCampaignWorldState(input.campaignWorld),
     chronicle: (input.chronicle ?? []).map((chapter) => ({
       ...chapter,
+      results: (chapter.results ?? []).map((result) => {
+        const contract = normalizeDirectiveContract(result.contract);
+        const executionStatus = typeof result.executionStatus === "string" && RESULT_EXECUTION_STATUSES.has(result.executionStatus)
+          ? result.executionStatus
+          : "executed" as const;
+        return {
+          ...result,
+          executionStatus,
+          contract,
+          ...(result.executionPlan ? { executionPlan: normalizeExecutionPlan(result.executionPlan, contract, chapter.week) } : {}),
+          ...(result.causalReceipts ? { causalReceipts: normalizeCausalReceipts(result.causalReceipts) } : {}),
+        };
+      }),
       sections: (chapter.sections ?? []).map((section) => ({
         ...section,
         paragraphs: (section.paragraphs ?? []).map(cleanStoredNarrative),
+        ...(Array.isArray(section.paragraphSources) ? {
+          paragraphSources: section.paragraphSources.map((source) => ({
+            receiptIds: Array.isArray(source?.receiptIds) ? source.receiptIds.filter((id): id is string => typeof id === "string").slice(0, 6) : [],
+            eventIds: Array.isArray(source?.eventIds) ? source.eventIds.filter((id): id is string => typeof id === "string").slice(0, 6) : [],
+          })),
+        } : {}),
       })),
     })),
   };
@@ -171,6 +365,7 @@ export function normalizeStoredGame(input: Partial<GameState>): GameState {
   ensureControlState(normalized);
   ensureOrganizationManagement(normalized);
   ensureWorldAgents(normalized);
+  ensureAttentionSimulation(normalized);
   ensureFactionStrategy(normalized);
   ensureWorldLedger(normalized);
   ensureHighSequenceState(normalized);
@@ -355,6 +550,10 @@ export function ensureWorldLedger(game: GameState): void {
 
 export function ensureWorldAgents(game: GameState): void {
   game.worldAgents = ensureAutonomousWorldState(game.worldAgents as AutonomousWorldState | undefined, game.worldKernel);
+}
+
+export function ensureAttentionSimulation(game: GameState): void {
+  game.attentionSimulation = ensureAttentionSimulationState(game.attentionSimulation);
 }
 
 export function ensureFactionStrategy(game: GameState): void {

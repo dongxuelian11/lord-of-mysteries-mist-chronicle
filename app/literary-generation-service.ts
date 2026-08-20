@@ -1,46 +1,73 @@
 import { callModel, type AiConfig } from "./ai-client.ts";
 import { actionTextBoundaryIssue } from "./action-boundaries.ts";
-import { PATHWAYS, type ChronicleChapter, type GameState } from "./game-model.ts";
+import { attachFallbackParagraphSources, buildLiteraryCausalPack, normalizeParagraphSources, type LiteraryCausalPack } from "./chronicle-causality.ts";
+import { PATHWAYS, type ChronicleChapter, type ChronicleSection, type GameState } from "./game-model.ts";
 import { memoryPromptBlockWithIds, narratorAudience, submitMemoryDelivery } from "./memory/index.ts";
 import { extractJson } from "./model-output.ts";
 
-function validateChapter(value: Record<string, unknown>) {
+type ValidatedSection = { heading: string; paragraphs: string[]; rawParagraphSources?: unknown };
+type ValidatedChapter = { title: string; sections: ValidatedSection[] };
+
+function validateChapter(value: Record<string, unknown>): ValidatedChapter {
   const title = typeof value.title === "string" ? value.title : "本周纪事";
   const sections = Array.isArray(value.sections) ? value.sections.flatMap((section) => {
     if (!section || typeof section !== "object") return [];
-    const candidate = section as { heading?: unknown; paragraphs?: unknown };
+    const candidate = section as { heading?: unknown; paragraphs?: unknown; paragraphSources?: unknown };
     const paragraphs = Array.isArray(candidate.paragraphs) ? candidate.paragraphs.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
-    return typeof candidate.heading === "string" && paragraphs.length ? [{ heading: candidate.heading, paragraphs }] : [];
+    return typeof candidate.heading === "string" && paragraphs.length ? [{ heading: candidate.heading, paragraphs, rawParagraphSources: candidate.paragraphSources }] : [];
   }) : [];
   if (sections.length < 1) throw new Error("文学章节没有形成正文");
   return { title, sections };
 }
 
-function splitLongParagraphs<T extends ReturnType<typeof validateChapter>>(chapter: T): T {
+function splitParagraph(text: string, max: number) {
+  if (text.length <= max) return [text];
+  const parts: string[] = [];
+  let current = "";
+  for (const char of text) {
+    current += char;
+    if (current.length >= max && /[。！？；]/.test(current)) {
+      const cut = Math.max(current.lastIndexOf("。"), current.lastIndexOf("！"), current.lastIndexOf("？"), current.lastIndexOf("；"));
+      if (cut >= Math.floor(max * 0.5)) {
+        parts.push(current.slice(0, cut + 1));
+        current = current.slice(cut + 1);
+      }
+    }
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
+}
+
+function splitLongParagraphs(chapter: ValidatedChapter, causalPack: LiteraryCausalPack): { title: string; sections: ChronicleSection[] } {
   const max = 180;
   return {
     ...chapter,
-    sections: chapter.sections.map((section) => ({
-      ...section,
-      paragraphs: section.paragraphs.flatMap((paragraph) => {
-        if (paragraph.length <= max) return [paragraph];
-        const parts: string[] = [];
-        let current = "";
-        for (const char of paragraph) {
-          current += char;
-          if (current.length >= max && /[。！？；]/.test(current)) {
-            const cut = Math.max(current.lastIndexOf("。"), current.lastIndexOf("！"), current.lastIndexOf("？"), current.lastIndexOf("；"));
-            if (cut >= Math.floor(max * 0.5)) {
-              parts.push(current.slice(0, cut + 1));
-              current = current.slice(cut + 1);
-            }
-          }
+    sections: chapter.sections.map((section) => {
+      const rawSources = normalizeParagraphSources(section.rawParagraphSources, section.paragraphs.length, causalPack);
+      const paragraphs: string[] = [];
+      const paragraphSources: ChronicleSection["paragraphSources"] = [];
+      section.paragraphs.forEach((paragraph, paragraphIndex) => {
+        const parts = splitParagraph(paragraph, max);
+        const proposedSource = rawSources[paragraphIndex];
+        const source = proposedSource?.receiptIds.length || proposedSource?.eventIds.length
+          ? proposedSource
+          : attachFallbackParagraphSources(paragraph, causalPack);
+        for (const part of parts) {
+          paragraphs.push(part);
+          paragraphSources.push(source);
         }
-        if (current.trim()) parts.push(current);
-        return parts;
-      }),
-    })),
-  } as T;
+      });
+      return { heading: section.heading, paragraphs, paragraphSources };
+    }),
+  };
+}
+
+function finalizeLiteraryChapter(local: ChronicleChapter, candidate: ValidatedChapter, causalPack: LiteraryCausalPack): ChronicleChapter {
+  const lockedResults = JSON.stringify(local.results);
+  const candidateResults = (candidate as ValidatedChapter & { results?: ChronicleChapter["results"] }).results;
+  if (candidateResults && JSON.stringify(candidateResults) !== lockedResults) throw new Error("文学重写试图改变已锁定的规则结果");
+  const generated = splitLongParagraphs(candidate, causalPack);
+  return { ...local, ...generated, source: "ai", results: local.results };
 }
 
 function literaryAgencyIssue(chapter: ReturnType<typeof validateChapter>, game: GameState, local: ChronicleChapter) {
@@ -103,6 +130,7 @@ async function enforceLiteraryAgency(config: AiConfig, system: string, factPack:
 
 export async function generateLiteraryChapter(config: AiConfig, game: GameState, local: ChronicleChapter, onStage: (value: string) => void, onToken?: (text: string) => void): Promise<ChronicleChapter> {
   const literaryMemoryView = memoryPromptBlockWithIds(game.memory, "player", "player", local.week);
+  const causalPack = buildLiteraryCausalPack(game, local);
   const playerLedResult = local.results.find((result) => result.contract.executionMode === "player-led" || result.contract.leaderId === "player");
   const factPack = {
     week: local.week,
@@ -110,6 +138,12 @@ export async function generateLiteraryChapter(config: AiConfig, game: GameState,
     organization: { name: game.organizationName, charter: game.charter },
     player: { name: game.playerName, address: game.playerAddress, nameExposure: game.nameExposure, pathway: PATHWAYS[game.pathwayId].name, sequence: game.currentSequence },
     results: local.results.map((result) => ({ title: result.title, outcome: result.outcome, findings: result.findings, consequence: result.consequence, abilityEffects: result.abilityEffects, reasons: result.reasons, futureChanges: result.futureChanges, contract: result.contract })),
+    causality: {
+      summary: causalPack.summary,
+      receipts: causalPack.receipts,
+      visibleWorldEvents: causalPack.events,
+      paragraphSourceContract: "每个段落可声明 paragraphSources；receiptIds/eventIds 只能来自本事实包，不能自行创造或引用隐藏事件。",
+    },
     activePressure: game.missions.filter((mission) => mission.state === "active"),
     discoveredEvidence: game.evidenceNodes.filter((item) => item.discovered),
     availableOpportunities: game.opportunities.filter((item) => item.state === "available"),
@@ -141,23 +175,23 @@ export async function generateLiteraryChapter(config: AiConfig, game: GameState,
       week: local.week,
     });
   };
-  const system = "你为原创维多利亚神秘主义互动小说《灰雾纪事》工作。使用严格的第三人称有限视角和克制的神秘悬疑文风，不复制任何现有小说句子。严格遵守participationDirective：玩家亲自参与时写连续现场，委派执行时只能写玩家收到的回报。不要套用固定的周报结构、固定开场、固定收尾、信息分类标题或‘首先/其次/最后’式模板；根据这一周真正发生的事情自行决定场景、节奏、详略和分节数量。即使玩家没有发布命令，也要以事实包里的报纸、街谈、来信、亲历场景和可感知异常写出世界继续运行的实感。事实包故意排除了全知世界层：不得补写任何未被玩家观察到的势力行动、幕后身份、秘密工程目的或原著真相；publicAtmosphere只能用于天气与公共气氛，不能从中推导幕后主体。只能表达事实包，不能新增事实。只返回JSON。";
+  const system = "你为原创维多利亚神秘主义互动小说《灰雾纪事》工作。使用严格的第三人称有限视角和克制的神秘悬疑文风，不复制任何现有小说句子。严格遵守participationDirective：玩家亲自参与时写连续现场，委派执行时只能写玩家收到的回报。不要套用固定的周报结构、固定开场、固定收尾、信息分类标题或‘首先/其次/最后’式模板；根据这一周真正发生的事情自行决定场景、节奏、详略和分节数量。即使玩家没有发布命令，也要以事实包里的报纸、街谈、来信、亲历场景和可感知异常写出世界继续运行的实感。事实包故意排除了全知世界层：不得补写任何未被玩家观察到的势力行动、幕后身份、秘密工程目的或原著真相；publicAtmosphere只能用于天气与公共气氛，不能从中推导幕后主体。只能表达事实包，不能新增事实。每个段落都要尽量在 paragraphSources 中标注它实际扩写的 receiptIds/eventIds；只能使用事实包允许的 ID，无法对应时留空数组。只返回JSON。";
   if ((config.quality ?? "balanced") === "balanced") {
     onStage("小说引擎正在把规则结果写成章节");
-    const written = extractJson(await callModel(config, system, `根据事实包写成600至1400字的完整章节。分节数量由内容决定，允许一段连续场景，也允许多地点交错；不要为了凑结构重复信息。正文必须自然分段，每段控制在180字以内，段落之间用空行节奏区分。返回JSON：{"title":"章名","sections":[{"heading":"自然分节名","paragraphs":["完整段落"]}]}。不得改变成败或新增线索。\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6200, temperature: .86, stream: true, onToken }));
+    const written = extractJson(await callModel(config, system, `根据事实包写成600至1400字的完整章节。分节数量由内容决定，允许一段连续场景，也允许多地点交错；不要为了凑结构重复信息。正文必须自然分段，每段控制在180字以内，段落之间用空行节奏区分。返回JSON：{"title":"章名","sections":[{"heading":"自然分节名","paragraphs":["完整段落"],"paragraphSources":[{"receiptIds":["事实包中的收据ID"],"eventIds":["事实包中的事件ID"]}]}]}。paragraphSources 必须与 paragraphs 一一对应，不得改变成败或新增线索。\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6200, temperature: .86, stream: true, onToken }));
     submitLiterary("writer");
     const chapter = await enforceLiteraryAgency(config, system, factPack, game, local, validateChapter(written), onStage, onToken);
-    return splitLongParagraphs({ ...local, ...chapter, source: "ai" as const });
+    return finalizeLiteraryChapter(local, { ...local, ...chapter }, causalPack);
   }
   onStage("叙事导演正在安排重点场景");
   const director = extractJson(await callModel(config, `${system}\n你是叙事导演。`, `根据事实的戏剧重量制定600至1500字章节提纲，自行决定视角锚点、场景数量和结尾位置，不使用固定周报结构。返回JSON。\n${JSON.stringify(factPack)}`, { json: true, maxTokens: 2600, temperature: .62, stream: true, onToken }));
   submitLiterary("director");
   onStage("正文作者正在写作");
-  const writer = extractJson(await callModel(config, `${system}\n你是正文作者。`, `按提纲完成正文，分节数量服从故事而不是模板。正文必须自然分段，每段控制在180字以内，避免整页无断落的长块文字。返回{"title":"章名","sections":[{"heading":"分节","paragraphs":["完整段落"]}]}。\n提纲：${JSON.stringify(director)}\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6800, temperature: .9, stream: true, onToken }));
+  const writer = extractJson(await callModel(config, `${system}\n你是正文作者。`, `按提纲完成正文，分节数量服从故事而不是模板。正文必须自然分段，每段控制在180字以内，避免整页无断落的长块文字。返回{"title":"章名","sections":[{"heading":"分节","paragraphs":["完整段落"],"paragraphSources":[{"receiptIds":[],"eventIds":[]}]}]}，paragraphSources 与 paragraphs 一一对应。\n提纲：${JSON.stringify(director)}\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6800, temperature: .9, stream: true, onToken }));
   submitLiterary("writer");
   onStage("连续性编辑正在校对世界事实");
-  const edited = extractJson(await callModel(config, `${system}\n你是连续性编辑，只能压缩、校正视角和人物语气。`, `校订并返回同样JSON。不得改变以下初稿所引用的事实。\n事实：${JSON.stringify(factPack)}\n初稿：${JSON.stringify(writer)}`, { json: true, maxTokens: 6200, temperature: .35, stream: true, onToken }));
+  const edited = extractJson(await callModel(config, `${system}\n你是连续性编辑，只能压缩、校正视角和人物语气。`, `校订并返回同样JSON。不得改变以下初稿所引用的事实；保留或收紧 paragraphSources，不得添加事实包之外的来源。\n事实：${JSON.stringify(factPack)}\n初稿：${JSON.stringify(writer)}`, { json: true, maxTokens: 6200, temperature: .35, stream: true, onToken }));
   submitLiterary("editor");
   const chapter = await enforceLiteraryAgency(config, system, factPack, game, local, validateChapter(edited), onStage, onToken);
-  return splitLongParagraphs({ ...local, ...chapter, source: "ai" as const });
+  return finalizeLiteraryChapter(local, { ...local, ...chapter }, causalPack);
 }

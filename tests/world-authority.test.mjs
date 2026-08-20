@@ -5,14 +5,16 @@ import { loadRuntimeModule, closeRuntimeServer } from "../scripts/rag/lib/load-r
 after(() => closeRuntimeServer());
 
 test("world protocol keeps authority rules external to the engine and requests compact lossless JSON", async () => {
-  const { attachOrganizationAdjudicationProtocol, ORGANIZATION_ADJUDICATION_PROTOCOL, WORLD_KERNEL_PROTOCOL } = await loadRuntimeModule("app/world-adjudication-protocol.ts");
+  const { attachOrganizationAdjudicationProtocol, ORGANIZATION_ADJUDICATION_PROTOCOL, WORLD_KERNEL_PROTOCOL, WORLD_PROPOSAL_PROVENANCE_PROTOCOL } = await loadRuntimeModule("app/world-adjudication-protocol.ts");
   const { buildWorldAdjudicatorPrompt, WORLD_ADJUDICATOR_SYSTEM } = await loadRuntimeModule("app/world-adjudicator-prompt.ts");
   const payload = attachOrganizationAdjudicationProtocol({ adjudicatorWorld: { proposals: [] } });
-  const prompt = buildWorldAdjudicatorPrompt(payload, WORLD_KERNEL_PROTOCOL);
+  const prompt = buildWorldAdjudicatorPrompt(payload, `${WORLD_KERNEL_PROTOCOL}\n${WORLD_PROPOSAL_PROVENANCE_PROTOCOL}`);
   assert.equal(payload.organizationInstructions, ORGANIZATION_ADJUDICATION_PROTOCOL);
   assert.match(WORLD_ADJUDICATOR_SYSTEM, /紧凑输出/);
   assert.match(WORLD_ADJUDICATOR_SYSTEM, /不得因此省略任何有因果意义的字段或内容/);
   assert.match(prompt, /presence不等于perception/);
+  assert.match(prompt, /sourceProposalIds/);
+  assert.match(prompt, /directiveInterruptions/);
   assert.match(prompt, /公开变化只写一次到 publicSignals/);
   assert.doesNotMatch(prompt, /"changes": \["0至4条公开变化"\]/);
 });
@@ -42,6 +44,7 @@ test("world adjudicator input exposes one entity authority and omits legacy acto
     dynamicMemory: "bounded memory",
     authorizedLore: "authorized lore",
     loreRecordIds: ["lore-1"],
+    executableProposalIds: ["proposal:1"],
     designerSupplement: "x".repeat(13_000),
   });
   assert.deepEqual(input.worldAuthority, {
@@ -54,6 +57,7 @@ test("world adjudicator input exposes one entity authority and omits legacy acto
   assert.equal(input.playerIssuedNoOrders, true);
   assert.equal(input.designerSupplement.length, 12_000);
   assert.deepEqual(input.adjudicatorWorld.proposals, []);
+  assert.deepEqual(input.executableProposalIds, ["proposal:1"]);
 });
 
 test("legacy UI state is a read-only projection of WorldKernel after adjudication", async () => {

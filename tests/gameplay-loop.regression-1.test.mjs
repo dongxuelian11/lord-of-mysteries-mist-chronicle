@@ -33,8 +33,8 @@ test("NPC speech is AI generated and a quiet week uses independent planning plus
     read("app/world-output-adapter.ts"),
   ]);
   assert.match(game, /自由人物对话需要先连接AI模型/);
-  assert.match(game, /本周没有完成世界推演，你可以检查接口后从已锁定事实继续/);
-  assert.match(game, /本地规则不会伪造世界事件/);
+  assert.match(game, /本周尚未走完，你可以检查连接后从同一局面继续，已经发生的事不会被重掷/);
+  assert.match(game, /连接人物与叙事模型后，成员才能回应自由决议/);
   assert.doesNotMatch(game, /我分四层讲|亲历、下属报告、个人推断与未知分别说清/);
   assert.match(engine, /playerIssuedNoOrders/);
   assert.match(authority, /entityState: "adjudicatorWorld"/);

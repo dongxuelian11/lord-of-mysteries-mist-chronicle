@@ -18,6 +18,7 @@ export type WorldLedgerEventKind =
   | "phase-completed"
   | "action-proposed"
   | "action-reviewed"
+  | "action-progressed"
   | "action-resolved"
   | "world-event-recorded"
   | "knowledge-delivered"
@@ -33,12 +34,19 @@ export type WorldLedgerAudience = {
 
 export type LedgerActionRecord = {
   id: string;
-  status: "proposed" | "accepted" | "rejected" | "resolved";
+  status: "proposed" | "accepted" | "deferred" | "partially-completed" | "interrupted" | "awaiting-authorization" | "escalation-required" | "rejected" | "resolved";
   week: number;
   intent?: string;
   reasons: string[];
   outcome?: string;
   sourceEventIds: string[];
+  originWeek?: number;
+  attemptOrdinal?: number;
+  progress?: number;
+  consumed?: { money: number; manpower: number; extraordinaryMaterials: number; spirituality: number };
+  nextEligibleWeek?: number | null;
+  lastAttemptId?: string;
+  consequenceEventIds?: string[];
 };
 
 export type LedgerCompletedPhase = {
@@ -494,11 +502,22 @@ function updateAction(projection: WorldLedgerProjection, event: WorldLedgerEvent
   const actions = [...(projection.actions ?? [])];
   const existing = actions.find((action) => action.id === id);
   const base: LedgerActionRecord = existing ?? { id, status: "proposed", week: event.week, reasons: [], sourceEventIds: [] };
+  const attemptId = typeof event.payload.attemptId === "string" ? event.payload.attemptId : undefined;
+  if (event.kind === "action-progressed" && attemptId && base.lastAttemptId === attemptId) return projection;
+  const progressedStatus = typeof event.payload.toStatus === "string" && ["deferred", "partially-completed", "interrupted", "awaiting-authorization", "rejected", "resolved"].includes(event.payload.toStatus)
+    ? event.payload.toStatus as LedgerActionRecord["status"]
+    : "accepted";
   const status = event.kind === "action-proposed"
     ? "proposed"
     : event.kind === "action-reviewed"
-      ? (event.payload.status === "rejected" ? "rejected" : "accepted")
-      : "resolved";
+      ? (event.payload.status === "rejected" ? "rejected" : event.payload.status === "deferred" ? "deferred" : event.payload.status === "escalation-required" ? "escalation-required" : "accepted")
+      : event.kind === "action-progressed"
+        ? progressedStatus
+      : event.payload.executionStatus === "rejected"
+        ? "rejected"
+        : event.payload.executionStatus === "escalation-required"
+          ? "escalation-required"
+          : "resolved";
   const next: LedgerActionRecord = {
     ...base,
     status,
@@ -506,6 +525,13 @@ function updateAction(projection: WorldLedgerProjection, event: WorldLedgerEvent
     ...(typeof event.payload.intent === "string" ? { intent: event.payload.intent } : {}),
     ...(Array.isArray(event.payload.reasons) ? { reasons: event.payload.reasons.map(String) } : {}),
     ...(event.kind === "action-resolved" && typeof event.payload.outcome === "string" ? { outcome: event.payload.outcome } : {}),
+    ...(Number.isFinite(event.payload.originWeek) ? { originWeek: Number(event.payload.originWeek) } : {}),
+    ...(Number.isFinite(event.payload.attemptOrdinal) ? { attemptOrdinal: Number(event.payload.attemptOrdinal) } : {}),
+    ...(Number.isFinite(event.payload.progressAfter) ? { progress: Number(event.payload.progressAfter) } : {}),
+    ...(recordOf(event.payload.consumedAfter) ? { consumed: event.payload.consumedAfter as LedgerActionRecord["consumed"] } : {}),
+    ...(event.payload.nextEligibleWeek === null || Number.isFinite(event.payload.nextEligibleWeek) ? { nextEligibleWeek: event.payload.nextEligibleWeek === null ? null : Number(event.payload.nextEligibleWeek) } : {}),
+    ...(attemptId ? { lastAttemptId: attemptId } : {}),
+    ...(Array.isArray(event.payload.consequenceEventIds) ? { consequenceEventIds: event.payload.consequenceEventIds.map(String) } : {}),
     sourceEventIds: unique([...base.sourceEventIds, event.id]),
   };
   const index = actions.findIndex((action) => action.id === id);
@@ -528,7 +554,7 @@ export function reduceWorldLedgerEvent(projection: WorldLedgerProjection | null,
     const patch = recordOf(event.payload.inversePatch);
     return patch ? applyWorldLedgerProjectionPatch(projection, patch as WorldLedgerProjectionPatch) : projection;
   }
-  if (event.kind === "action-proposed" || event.kind === "action-reviewed" || event.kind === "action-resolved") return updateAction(projection, event);
+  if (event.kind === "action-proposed" || event.kind === "action-reviewed" || event.kind === "action-progressed" || event.kind === "action-resolved") return updateAction(projection, event);
   if (event.kind === "world-event-recorded") {
     const id = typeof event.payload.worldEventId === "string" ? event.payload.worldEventId : event.id;
     return { ...projection, worldEventIds: unique([...projection.worldEventIds, id]) };

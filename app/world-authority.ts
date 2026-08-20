@@ -15,6 +15,8 @@ export type WorldAdjudicatorInputOptions = {
   dynamicMemory: string;
   authorizedLore: string;
   loreRecordIds: string[];
+  unifiedActionPlans?: unknown[];
+  executableProposalIds?: string[];
   designerSupplement?: string | null;
 };
 
@@ -105,6 +107,8 @@ export function buildWorldAdjudicatorInput(options: WorldAdjudicatorInputOptions
       latestOutcomes: game.factionStrategy.outcomes.slice(-12),
     },
     adjudicatorWorld: options.adjudicatorWorld,
+    unifiedActionPlans: options.unifiedActionPlans ?? [],
+    executableProposalIds: options.executableProposalIds ?? [],
     autonomousResidency: options.autonomousResidency,
     dynamicMemory: options.dynamicMemory,
     authorizedLore: options.authorizedLore,

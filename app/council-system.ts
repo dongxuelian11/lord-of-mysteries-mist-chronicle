@@ -1,5 +1,6 @@
-import { CouncilTopic, CouncilTopicMessage, DISTRICTS, GameState, Member } from "./game-model";
-import { stableEntityId } from "./stable-id";
+import { DISTRICTS } from "./game-model.ts";
+import type { CouncilTopic, CouncilTopicMessage, GameState, Member } from "./game-model.ts";
+import { stableEntityId } from "./stable-id.ts";
 
 export type CouncilPortfolio = {
   id: string;

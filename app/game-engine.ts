@@ -1,5 +1,6 @@
 import {
   ActionContract,
+  type ActionCausalReceipts,
   ActionResult,
   Ability,
   ChronicleChapter,
@@ -12,6 +13,7 @@ import {
   type PathwayId,
   RiskLevel,
   TimelineEvent,
+  type ScheduledAction,
   WorldFact,
   WorldMove,
   WorldSnapshot,
@@ -34,7 +36,7 @@ import {
   worldSystemAudience,
 } from "./memory/index";
 export type LoreRecord = LegacyLoreRecord;
-import { applyWorldTurn } from "./world-kernel";
+import { applyWorldTurn, type WorldTurnDelta } from "./world-kernel";
 import { abilitiesFor, abilityRuleSummary } from "./pathway-abilities";
 import { advanceAdvancementStage, createAdvancementProcess, evaluateActing } from "./progression-system";
 import { advanceOrganizationCausality } from "./organization-causality";
@@ -44,6 +46,7 @@ import {
   actionAdjudicationLedgerEvents,
   adjudicateWorldActionProposals,
   createActionRuleContext,
+  proposalFromAgentProposal,
   proposalFromScheduledAction,
 } from "./world-actions.ts";
 import {
@@ -70,8 +73,10 @@ import { actionTextBoundaryIssue } from "./action-boundaries.ts";
 import { repairActionReports, requestWorldEnvelope } from "./world-envelope.ts";
 import { planAutonomousAgentsForWeek, releaseAutonomousPlanningCache } from "./agent-planning-service.ts";
 import { buildWorldAdjudicatorInput, projectLegacyWorldCompatibility } from "./world-authority.ts";
+import { advanceAttentionSimulation } from "./attention-simulation.ts";
 import { adaptWorldAdjudication } from "./world-output-adapter.ts";
-import { attachOrganizationAdjudicationProtocol, WORLD_KERNEL_PROTOCOL } from "./world-adjudication-protocol.ts";
+import { attachOrganizationAdjudicationProtocol, WORLD_KERNEL_PROTOCOL, WORLD_PROPOSAL_PROVENANCE_PROTOCOL } from "./world-adjudication-protocol.ts";
+import { chronicleSummaryFromCausality, advancementRetrospective } from "./chronicle-causality.ts";
 export type { AiConfig } from "./ai-client";
 export { actionTextBoundaryIssue } from "./action-boundaries.ts";
 export const callModel = invokeModel;
@@ -104,7 +109,8 @@ function canonicalIdentityText(value: string) {
 function actionIdentityHash(contract: Pick<ActionContract,
   "rawIntent" | "title" | "kind" | "target" | "desiredOutcome" | "approach" | "leaderId" | "memberIds" |
   "executionMode" | "districtId" | "abilityIds" | "facilityId" | "days" | "budget" | "risk" | "redLines" |
-  "retreat" | "opportunityId" | "methodTags"
+  "retreat" | "resourceCommitment" | "authorization" | "requiredKnowledgeIds" | "sourceIssueId" |
+  "strategyIntentId" | "causeEventIds" | "opportunityId" | "methodTags"
 >) {
   return hash(JSON.stringify({
     rawIntent: canonicalIdentityText(contract.rawIntent),
@@ -121,6 +127,12 @@ function actionIdentityHash(contract: Pick<ActionContract,
     facilityId: contract.facilityId ?? null,
     days: contract.days,
     budget: contract.budget,
+    resourceCommitment: contract.resourceCommitment,
+    authorization: contract.authorization,
+    requiredKnowledgeIds: [...new Set(contract.requiredKnowledgeIds)].sort(),
+    sourceIssueId: contract.sourceIssueId ?? null,
+    strategyIntentId: contract.strategyIntentId ?? null,
+    causeEventIds: [...new Set(contract.causeEventIds)].sort(),
     risk: contract.risk,
     redLines: canonicalIdentityText(contract.redLines),
     retreat: canonicalIdentityText(contract.retreat),
@@ -273,6 +285,153 @@ function inferMethodTags(intent: string) {
   return tags.length ? tags : ["open"];
 }
 
+const AUTHORIZATION_SCOPES: ActionContract["authorization"]["scope"][] = ["strict", "bounded", "broad"];
+
+function uniqueDirectiveText(values: unknown[], maximum = 12) {
+  return [...new Set(values.filter((value): value is string => typeof value === "string").map((value) => value.trim()).filter(Boolean))].slice(0, maximum);
+}
+
+function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number) {
+  if (value === null || value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(minimum, Math.min(maximum, Math.round(parsed))) : fallback;
+}
+
+function explicitDirectiveAmount(intent: string, patterns: RegExp[]) {
+  for (const pattern of patterns) {
+    const match = intent.match(pattern);
+    const captured = match?.slice(1).find((value) => value !== undefined);
+    if (captured !== undefined) return Number(captured);
+  }
+  return undefined;
+}
+
+function inferResourceCommitment(intent: string, game: GameState, kind: ActionContract["kind"], baselineMoney: number): ActionContract["resourceCommitment"] {
+  const posture: ActionContract["resourceCommitment"]["posture"] = /倾尽|全部资源|所有可用资源|全力投入|不惜代价|孤注一掷/.test(intent)
+    ? "all-in"
+    : /大量|重兵|重点投入|充分投入|充足|足够|优先保障|不计成本|强力增援|增派|加大投入/.test(intent)
+      ? "substantial"
+      : /最低限度|最小投入|少量|小额|试探|低调|节省|只派|不惊动/.test(intent)
+        ? "minimal"
+        : "balanced";
+  const factor = posture === "minimal" ? .55 : posture === "substantial" ? 1.65 : posture === "all-in" ? 2.5 : 1;
+  const baseManpower = kind === "建设" ? 4 : kind === "招募" ? 2 : kind === "休整" ? 0 : kind === "研究" || kind === "仪式" ? 1 : 2;
+  const baseMaterials = kind === "仪式" || /封印|污染|神秘材料|非凡材料/.test(intent) ? 1 : 0;
+  const available = game.management?.resources ?? { money: game.money, manpower: 0, extraordinaryMaterials: 0 };
+  const explicitMoney = explicitDirectiveAmount(intent, [
+    /[£￡]\s*(\d{1,4})/,
+    /(?:预算|经费|资金|投入|花费|拨款)[^\d]{0,8}(\d{1,4})\s*(?:镑|金镑)?/,
+    /(\d{1,4})\s*(?:镑|金镑)(?:预算|经费|资金)?/,
+  ]);
+  const explicitManpower = explicitDirectiveAmount(intent, [
+    /(?:人力|基层人手|支援人手|外勤人手)[^\d]{0,8}(\d{1,3})/,
+    /(\d{1,3})\s*(?:名|人)(?:基层人手|人力|外勤|支援人员|普通成员)/,
+  ]);
+  const explicitMaterials = explicitDirectiveAmount(intent, [
+    /(?:非凡材料|神秘材料|材料)[^\d]{0,8}(\d{1,3})/,
+    /(\d{1,3})\s*(?:份|件|单位)?(?:非凡材料|神秘材料)/,
+  ]);
+  const inferredMoney = posture === "all-in"
+    ? Math.max(baselineMoney, Math.min(240, available.money))
+    : Math.round(baselineMoney * factor);
+  const inferredManpower = posture === "all-in" ? available.manpower : Math.round(baseManpower * factor);
+  const inferredMaterials = posture === "all-in" ? available.extraordinaryMaterials : Math.round(baseMaterials * factor);
+  return {
+    posture,
+    money: boundedInteger(explicitMoney, inferredMoney, 0, 240),
+    manpower: /不投入人力|不调用人力|不带人手/.test(intent) ? 0 : boundedInteger(explicitManpower, inferredManpower, 0, available.manpower),
+    extraordinaryMaterials: /不投入(?:任何)?(?:非凡|神秘)?材料|不用(?:任何)?(?:非凡|神秘)?材料/.test(intent) ? 0 : boundedInteger(explicitMaterials, inferredMaterials, 0, available.extraordinaryMaterials),
+  };
+}
+
+function inferAuthorization(intent: string) {
+  const scope: ActionContract["authorization"]["scope"] = /逐项请示|遇事请示|先请示后行动|每一步.*请示|未经(?:我|议长|首领)?批准不得|没有(?:我|议长|首领)?的?批准不得|只允许|严格按照|不得自行|任何变化.*请示/.test(intent)
+    ? "strict"
+    : /全权|自行决定|无需请示|无须请示|不必请示|临机决断|便宜行事|放手去做|广泛授权/.test(intent)
+      ? "broad"
+      : "bounded";
+  const clauses = intent.split(/[。；;，,\n]/).map((part) => part.trim()).filter(Boolean);
+  const majorClauses = intent.split(/[。；;\n]/).map((part) => part.trim()).filter(Boolean);
+  const explicitRedLines = clauses.filter((part) => /不要|不得|禁止|避免|不主动|不私自|不接触|不盘问|不询问|不使用|不用|不触碰|不进入|不调查|不追踪|只做内部|只(?:整理|汇总|比对|核对)/.test(part));
+  const redLines = uniqueDirectiveText([
+    ...explicitRedLines,
+    "不伤害无关者",
+    "不把未经验证的假设当作公开指控",
+  ]);
+  const explicitEscalation = majorClauses.filter((part) => /请示|上报|汇报|报告|批准|同意/.test(part) && !/无需|无须|不必|不用/.test(part));
+  const defaultEscalation = scope === "strict"
+    ? ["改变目标、手段、执行者或资源投入前必须请示", "接触未授权对象或触及任何红线前必须请示"]
+    : scope === "broad"
+      ? ["触及任何红线、改变核心目标或出现撤退条件时必须请示"]
+      : ["需要突破红线、扩大资源投入或改变核心目标时必须请示", "出现超出队伍层次的威胁、身份暴露或撤退条件时必须请示"];
+  const explicitRetreat = clauses.find((part) => /撤退|撤离|中止|求援/.test(part)) ?? majorClauses.find((part) => /撤退|撤离|中止|求援/.test(part));
+  return {
+    scope,
+    redLines,
+    mustEscalateWhen: uniqueDirectiveText([...explicitEscalation, ...defaultEscalation]),
+    retreatCondition: explicitRetreat || "身份暴露、撤离路线中断或出现超出队伍层次的威胁时立即中止并求援。",
+  } satisfies ActionContract["authorization"];
+}
+
+function directiveReferences(game: GameState, intent: string) {
+  const issue = game.organizationIssues
+    .map((item) => ({ item, score: intent.includes(item.id) || intent.includes(item.title) || intent.includes(item.sourceId) ? 1 : textSimilarity(intent, `${item.title}${item.summary}`) }))
+    .sort((left, right) => right.score - left.score)[0];
+  const strategy = game.playerIntents
+    .filter((item) => item.state === "active")
+    .map((item) => ({ item, score: intent.includes(item.id) || intent.includes(item.text) ? 1 : textSimilarity(intent, item.text) }))
+    .sort((left, right) => right.score - left.score)[0];
+  const visibleKnowledge = (game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.visibility === "player" || node.holderIds.includes("player") || node.holderRefs?.includes("player"));
+  const requiredKnowledge = visibleKnowledge.filter((node) => intent.includes(node.id) || intent.includes(node.subject) || textSimilarity(intent, `${node.subject}${node.statement}`) >= .28);
+  const visibleEvents = (game.worldKernel?.events ?? []).filter((event) => event.visibility === "public" || event.visibility === "player" || event.witnessRefs?.includes("player"));
+  const sourceEventIds = new Set(requiredKnowledge.map((node) => node.sourceEventId).filter((id): id is string => Boolean(id)));
+  const causeEvents = visibleEvents.filter((event) => sourceEventIds.has(event.id) || intent.includes(event.id) || intent.includes(event.title) || textSimilarity(intent, `${event.title}${event.detail}`) >= .28);
+  return {
+    requiredKnowledgeIds: requiredKnowledge.map((node) => node.id).slice(0, 12),
+    sourceIssueId: issue?.score >= .28 ? issue.item.id : undefined,
+    strategyIntentId: strategy?.score >= .28 ? strategy.item.id : undefined,
+    causeEventIds: causeEvents.map((event) => event.id).slice(0, 12),
+  };
+}
+
+function recordValue(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function mergeAuthorization(local: ActionContract["authorization"], proposedValue: unknown): ActionContract["authorization"] {
+  const proposed = recordValue(proposedValue);
+  if (!proposed) return local;
+  const proposedScope = AUTHORIZATION_SCOPES.includes(String(proposed.scope) as ActionContract["authorization"]["scope"])
+    ? String(proposed.scope) as ActionContract["authorization"]["scope"]
+    : local.scope;
+  const scopeRank = (scope: ActionContract["authorization"]["scope"]) => AUTHORIZATION_SCOPES.indexOf(scope);
+  const scope = scopeRank(proposedScope) <= scopeRank(local.scope) ? proposedScope : local.scope;
+  const proposedRedLines = Array.isArray(proposed.redLines) ? proposed.redLines : typeof proposed.redLines === "string" ? proposed.redLines.split(/[；;]/) : [];
+  const proposedEscalation = Array.isArray(proposed.mustEscalateWhen) ? proposed.mustEscalateWhen : typeof proposed.mustEscalateWhen === "string" ? proposed.mustEscalateWhen.split(/[；;]/) : [];
+  const proposedRetreat = typeof proposed.retreatCondition === "string" ? proposed.retreatCondition.trim() : "";
+  return {
+    scope,
+    redLines: uniqueDirectiveText([...local.redLines, ...proposedRedLines]),
+    mustEscalateWhen: uniqueDirectiveText([...local.mustEscalateWhen, ...proposedEscalation]),
+    retreatCondition: uniqueDirectiveText([local.retreatCondition, proposedRetreat], 4).join("；"),
+  };
+}
+
+function normalizeResourceCommitment(local: ActionContract["resourceCommitment"], proposedValue: unknown, legacyBudget: unknown, intent: string, game: GameState): ActionContract["resourceCommitment"] {
+  if (/(?:预算|经费|资金|投入|拨款|人力|人手|非凡材料|神秘材料|全部资源|倾尽|全力|不惜代价|最小投入|最低限度|少量|大量|重兵)/.test(intent) || /[£￡]\s*\d|\d+\s*(?:镑|金镑)/.test(intent)) return local;
+  const proposed = recordValue(proposedValue);
+  const posture = proposed && ["minimal", "balanced", "substantial", "all-in"].includes(String(proposed.posture))
+    ? String(proposed.posture) as ActionContract["resourceCommitment"]["posture"]
+    : local.posture;
+  const available = game.management?.resources ?? { money: game.money, manpower: 0, extraordinaryMaterials: 0 };
+  return {
+    posture,
+    money: boundedInteger(proposed?.money ?? legacyBudget, local.money, 0, 240),
+    manpower: boundedInteger(proposed?.manpower, local.manpower, 0, available.manpower),
+    extraordinaryMaterials: boundedInteger(proposed?.extraordinaryMaterials, local.extraordinaryMaterials, 0, available.extraordinaryMaterials),
+  };
+}
+
 export function localContract(args: {
   intent: string;
   game: GameState;
@@ -294,11 +453,12 @@ export function localContract(args: {
     : undefined;
   const effectiveLeaderId = automaticMember?.id ?? args.leaderId;
   const leader = effectiveLeaderId === "player" ? { name: args.game.playerName || "组织负责人", specialty: PATHWAYS[args.game.pathwayId].name } : automaticMember ?? args.game.members.find((item) => item.id === effectiveLeaderId);
-  const explicitRetreat = args.intent.split(/[。；]/).find((part) => /撤退|撤离|中止|求援/.test(part));
-  const explicitBans = args.intent.split(/[。；]/).map((part) => part.trim()).filter((part) => /不要|不得|禁止|避免|不主动|不私自|不接触|不盘问|不询问|不使用|不用|不进入|不调查|不追踪|只做内部|只(?:整理|汇总|比对|核对)/.test(part));
   const matchedOpportunity = args.game.opportunities.find((item) => item.state === "available" && (args.intent.includes(item.title.replace(/^(安全|追查|追踪|进入|向)/, "")) || item.suggestedIntent === args.intent));
   const days = kind === "建设" ? 5 : kind === "研究" ? 3 : kind === "休整" ? 2 : /长期|全面|深入/.test(args.intent) ? 4 : 2;
-  const budget = kind === "建设" ? 90 : kind === "交涉" ? 35 : kind === "研究" || kind === "仪式" ? 28 : 18;
+  const baselineBudget = kind === "建设" ? 90 : kind === "交涉" ? 35 : kind === "研究" || kind === "仪式" ? 28 : 18;
+  const resourceCommitment = inferResourceCommitment(args.intent, args.game, kind, baselineBudget);
+  const authorization = inferAuthorization(args.intent);
+  const references = directiveReferences(args.game, args.intent);
   return {
     id: `action-draft:${args.game.week}:${hash(JSON.stringify({ intent: canonicalIdentityText(args.intent), leaderId: effectiveLeaderId, districtId: district.id, abilityIds: [...new Set(args.abilityIds)].sort() })).toString(36)}`,
     rawIntent: args.intent.trim(),
@@ -314,13 +474,19 @@ export function localContract(args: {
     abilityIds: args.abilityIds,
     facilityId: /封存|切断联系|危险物/.test(args.intent) ? "vault" : kind === "研究" ? "archive" : kind === "仪式" ? "ritual" : kind === "建设" ? "workshop" : kind === "休整" ? "quarters" : undefined,
     days,
-    budget,
+    budget: resourceCommitment.money,
+    resourceCommitment,
+    authorization,
+    requiredKnowledgeIds: references.requiredKnowledgeIds,
+    sourceIssueId: references.sourceIssueId,
+    strategyIntentId: references.strategyIntentId,
+    causeEventIds: references.causeEventIds,
     risk: inferRisk(args.intent, district.id, args.abilityIds.length),
     knownFacts: `组织只确认目前账本中与“${targetFrom(args.intent)}”直接相关的记录；${district.name}的公开背景可以作为起点。`,
     hypothesis: `玩家怀疑“${targetFrom(args.intent)}”值得投入资源，但假设本身不视为事实。`,
     unknowns: "目标真实身份、幕后关系、非凡层次与是否存在反调查手段仍未知。",
-    redLines: explicitBans.length ? explicitBans.join("；") : "不伤害无关者；不把未经验证的假设当作公开指控。",
-    retreat: explicitRetreat?.trim() || "身份暴露、撤离路线中断或出现超出队伍层次的威胁时立即中止并求援。",
+    redLines: authorization.redLines.join("；"),
+    retreat: authorization.retreatCondition,
     focus: true,
     opportunityId: matchedOpportunity?.id,
     methodTags: inferMethodTags(args.intent),
@@ -337,12 +503,16 @@ export async function interpretIntentWithAi(config: AiConfig, args: Parameters<t
     activePressure: args.game.missions.filter((mission) => mission.state === "active"),
     evidence: args.game.evidenceNodes.filter((item) => item.discovered),
     availableOpportunities: args.game.opportunities.filter((item) => item.state === "available"),
+    organizationIssues: args.game.organizationIssues.filter((item) => item.state === "待裁决" || item.state === "已逾期").map(({ id, title, summary, sourceId }) => ({ id, title, summary, sourceId })),
+    strategicIntents: args.game.playerIntents.filter((item) => item.state === "active"),
+    authorizedKnowledge: (args.game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.visibility === "player" || node.holderIds.includes("player") || node.holderRefs?.includes("player")).slice(-16).map(({ id, subject, statement, sourceEventId }) => ({ id, subject, statement, sourceEventId })),
+    visibleCauseEvents: (args.game.worldKernel?.events ?? []).filter((event) => event.visibility === "public" || event.visibility === "player" || event.witnessRefs?.includes("player")).slice(-16).map(({ id, title, detail }) => ({ id, title, detail })),
     district: DISTRICTS.find((district) => district.id === args.districtId),
     members: args.game.members.map(({ id, name, role, specialty, loyalty, fatigue }) => ({ id, name, role, specialty, loyalty, fatigue })),
   };
   const raw = await callModel(config,
-    "你是《灰雾纪事》的行动契约解析器。只整理玩家意图，不决定成败，不新增幕后真相，不把玩家原著知识视为角色知识。返回严格JSON。",
-    `将自由意图整理为行动契约。缺失信息使用保守推断，只有重大歧义才在unknowns中指出。字段：title,kind,target,desiredOutcome,approach,days,budget,risk,knownFacts,hypothesis,unknowns,redLines,retreat。kind只能是调查/交涉/研究/建设/招募/仪式/休整/自由行动，risk只能是低/中/高/致命。\n玩家意图：${args.intent}\n本地状态：${JSON.stringify(safeState)}\n本地保守解释：${JSON.stringify(fallback)}`, { json: true, maxTokens: 1800, temperature: .25 });
+    "你是《灰雾纪事》的首领指令解析器。只整理玩家意图，不决定成败，不新增幕后真相，不把玩家原著知识视为角色知识。不得删除或放宽本地保守解释中的任何红线、必须请示条件、撤退条件或授权限制。返回严格JSON。",
+    `将自由意图整理为首领指令。缺失信息使用保守推断，只有重大歧义才在unknowns中指出。返回字段：title,kind,target,desiredOutcome,approach,days,risk,knownFacts,hypothesis,unknowns；resourceCommitment:{posture:minimal|balanced|substantial|all-in,money,manpower,extraordinaryMaterials}；authorization:{scope:strict|bounded|broad,redLines:[],mustEscalateWhen:[],retreatCondition}；requiredKnowledgeIds:[]；可选sourceIssueId、strategyIntentId；causeEventIds:[]。兼容字段budget必须等于resourceCommitment.money，redLines必须是authorization.redLines用分号连接，retreat必须等于authorization.retreatCondition。kind只能是调查/交涉/研究/建设/招募/仪式/休整/自由行动，risk只能是低/中/高/致命。所有引用id只能逐字取自本地状态；不得扩大本地授权，不得移除本地红线或请示条件。\n玩家意图：${args.intent}\n本地状态：${JSON.stringify(safeState)}\n本地保守解释：${JSON.stringify(fallback)}`, { json: true, maxTokens: 2300, temperature: .25 });
   const value = extractJson(raw);
   const kindOptions = ["调查", "交涉", "研究", "建设", "招募", "仪式", "休整", "自由行动"];
   const riskOptions = ["低", "中", "高", "致命"];
@@ -353,8 +523,23 @@ export async function interpretIntentWithAi(config: AiConfig, args: Parameters<t
     ? fallback.kind
     : explicitKind !== "自由行动" && proposedKind !== explicitKind ? explicitKind : proposedKind;
   const safeTarget = governanceIntent ? fallback.target : typeof value.target === "string" ? targetFrom(`${fallback.kind === "调查" ? "调查" : "接触"}${value.target}`) : fallback.target;
-  const proposedRedLines = typeof value.redLines === "string" ? value.redLines.trim().replace(/^红线[：:]\s*/, "") : "";
-  const redLines = [...new Set([fallback.redLines, proposedRedLines].filter(Boolean).flatMap((part) => part.split(/[；;]/).map((item) => item.trim()).filter(Boolean)))].join("；");
+  const proposedAuthorization = recordValue(value.authorization) ?? {};
+  const legacyProposedRedLines = typeof value.redLines === "string" ? value.redLines.trim().replace(/^红线[：:]\s*/, "") : "";
+  const authorization = mergeAuthorization(fallback.authorization, {
+    ...proposedAuthorization,
+    redLines: uniqueDirectiveText([
+      ...(Array.isArray(proposedAuthorization.redLines) ? proposedAuthorization.redLines : typeof proposedAuthorization.redLines === "string" ? proposedAuthorization.redLines.split(/[；;]/) : []),
+      ...legacyProposedRedLines.split(/[；;]/),
+    ]),
+    retreatCondition: typeof proposedAuthorization.retreatCondition === "string" ? proposedAuthorization.retreatCondition : value.retreat,
+  });
+  const resourceCommitment = normalizeResourceCommitment(fallback.resourceCommitment, value.resourceCommitment, value.budget, args.intent, args.game);
+  const allowedKnowledgeIds = new Set((args.game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.visibility === "player" || node.holderIds.includes("player") || node.holderRefs?.includes("player")).map((node) => node.id));
+  const allowedEventIds = new Set((args.game.worldKernel?.events ?? []).filter((event) => event.visibility === "public" || event.visibility === "player" || event.witnessRefs?.includes("player")).map((event) => event.id));
+  const proposedKnowledgeIds = Array.isArray(value.requiredKnowledgeIds) ? value.requiredKnowledgeIds.filter((id): id is string => typeof id === "string" && allowedKnowledgeIds.has(id)) : [];
+  const proposedCauseEventIds = Array.isArray(value.causeEventIds) ? value.causeEventIds.filter((id): id is string => typeof id === "string" && allowedEventIds.has(id)) : [];
+  const proposedIssueId = typeof value.sourceIssueId === "string" && args.game.organizationIssues.some((issue) => issue.id === value.sourceIssueId) ? value.sourceIssueId : undefined;
+  const proposedStrategyId = typeof value.strategyIntentId === "string" && args.game.playerIntents.some((intent) => intent.id === value.strategyIntentId && intent.state === "active") ? value.strategyIntentId : undefined;
   return {
     ...fallback,
     title: `${safeKind} · ${safeTarget}`,
@@ -364,13 +549,19 @@ export async function interpretIntentWithAi(config: AiConfig, args: Parameters<t
     desiredOutcome: typeof value.desiredOutcome === "string" ? value.desiredOutcome : fallback.desiredOutcome,
     approach: typeof value.approach === "string" ? value.approach : fallback.approach,
     days: Math.min(6, Math.max(1, Number(value.days) || fallback.days)),
-    budget: Math.min(240, Math.max(0, Number(value.budget) || fallback.budget)),
+    budget: resourceCommitment.money,
+    resourceCommitment,
+    authorization,
+    requiredKnowledgeIds: uniqueDirectiveText([...fallback.requiredKnowledgeIds, ...proposedKnowledgeIds]),
+    sourceIssueId: fallback.sourceIssueId ?? proposedIssueId,
+    strategyIntentId: fallback.strategyIntentId ?? proposedStrategyId,
+    causeEventIds: uniqueDirectiveText([...fallback.causeEventIds, ...proposedCauseEventIds]),
     risk: riskOptions.includes(String(value.risk)) ? value.risk as RiskLevel : fallback.risk,
     knownFacts: typeof value.knownFacts === "string" ? value.knownFacts : fallback.knownFacts,
     hypothesis: typeof value.hypothesis === "string" ? value.hypothesis : fallback.hypothesis,
     unknowns: typeof value.unknowns === "string" ? value.unknowns : fallback.unknowns,
-    redLines,
-    retreat: typeof value.retreat === "string" ? value.retreat : fallback.retreat,
+    redLines: authorization.redLines.join("；"),
+    retreat: authorization.retreatCondition,
   };
 }
 
@@ -380,16 +571,24 @@ function rangesOverlap(startA: number, daysA: number, startB: number, daysB: num
 
 export function scheduleContract(game: GameState, contract: ActionContract) {
   const actionOrdinal = nextActionOrdinal(game);
-  const authoritativeContract = {
+  const authorizationRedLines = [...new Set(contract.redLines.split(/[；;。]/).map((item) => item.trim()).filter(Boolean))];
+  const syncedContract: ActionContract = {
     ...contract,
-    id: authoritativeActionId(game, contract, actionOrdinal),
+    budget: contract.resourceCommitment.money,
+    redLines: authorizationRedLines.join("；"),
+    retreat: contract.retreat.trim(),
+    authorization: {
+      ...contract.authorization,
+      redLines: authorizationRedLines,
+      mustEscalateWhen: [...new Set([...contract.authorization.mustEscalateWhen, contract.retreat.trim()].filter(Boolean))],
+      retreatCondition: contract.retreat.trim(),
+    },
+  };
+  const authoritativeContract = {
+    ...syncedContract,
+    id: authoritativeActionId(game, syncedContract, actionOrdinal),
     actionOrdinal,
   };
-  const committed = game.schedule.reduce((sum, item) => sum + item.budget, 0);
-  if (game.money - committed - authoritativeContract.budget < -80) throw new Error("这项行动会让组织越过严重债务线。请先取得收入、降低预算或接受一项有条件的资助。 ");
-  const assignedIds = [...new Set(authoritativeContract.memberIds.filter(Boolean))];
-  const unavailable = assignedIds.map((id) => game.members.find((member) => member.id === id)).find((member) => member && /阵亡|失踪|重伤|受伤休养|被俘/.test(member.status));
-  if (unavailable) throw new Error(`${unavailable.name}当前状态为“${unavailable.status}”，不能承担正式行动。`);
   for (let day = 1; day <= 7 - authoritativeContract.days + 1; day += 1) {
     const conflict = game.schedule.some((action) => {
       if (!rangesOverlap(day, authoritativeContract.days, action.startDay, action.days)) return false;
@@ -397,12 +596,38 @@ export function scheduleContract(game: GameState, contract: ActionContract) {
       const sameFacility = Boolean(action.facilityId && authoritativeContract.facilityId && action.facilityId === authoritativeContract.facilityId);
       return sameMember || sameFacility;
     });
-    if (!conflict) return { ...authoritativeContract, startDay: day, status: "planned" as const };
+    if (!conflict) return {
+      ...authoritativeContract,
+      startDay: day,
+      status: "planned" as const,
+      execution: {
+        originWeek: game.week,
+        attemptOrdinal: 0,
+        status: "planned" as const,
+        progress: 0,
+        consumed: { money: 0, manpower: 0, extraordinaryMaterials: 0, spirituality: 0 },
+        nextEligibleWeek: game.week,
+        consequenceEventIds: [],
+      },
+    };
   }
   // The player issues goals rather than maintaining a calendar. When no clean
   // slot exists, the command remains accepted and the world adjudicator handles
   // ordering, reduced effect, interruption, or an explicit council exception.
-  return { ...authoritativeContract, startDay: 1, status: "planned" as const };
+  return {
+    ...authoritativeContract,
+    startDay: 1,
+    status: "planned" as const,
+    execution: {
+      originWeek: game.week,
+      attemptOrdinal: 0,
+      status: "planned" as const,
+      progress: 0,
+      consumed: { money: 0, manpower: 0, extraordinaryMaterials: 0, spirituality: 0 },
+      nextEligibleWeek: game.week,
+      consequenceEventIds: [],
+    },
+  };
 }
 
 export function availableAbilities(game: GameState): Ability[] {
@@ -559,6 +784,212 @@ function resultConsequence(contract: ActionContract, outcome: ActionResult["outc
   return outcome === "成功" ? "目标取得实质进展，但被调查者可能开始调整安排。" : outcome === "部分成功" ? "得到可用信息，同时留下了关系或暴露代价。" : "队伍按契约撤退，没有把猜测写成事实；该目标下一次行动将更警惕。";
 }
 
+type CausalReceipt = ActionCausalReceipts["people"][number];
+type ReceiptContext = {
+  actionResult: ActionResult;
+  delta: WorldTurnDelta;
+  worldKernel: GameState["worldKernel"];
+  game: GameState;
+  proposalId?: string;
+  visibleEvents: GameState["worldKernel"]["events"];
+  visibleEventIds: Set<string>;
+};
+
+function causalReceipt(id: string, summary: string, entityRefs: string[], sourceEventIds: string[] = []): CausalReceipt {
+  return { id, summary, entityRefs: [...new Set(entityRefs.filter(Boolean))], sourceEventIds: [...new Set(sourceEventIds.filter(Boolean))] };
+}
+
+function playerVisibleProposalEvents(actionResult: ActionResult, delta: WorldTurnDelta, worldKernel: GameState["worldKernel"]) {
+  const proposalId = actionResult.executionPlan?.proposalId;
+  if (!proposalId) return [];
+  return worldKernel.events.filter((event) => event.week === delta.week && event.sourceProposalIds?.includes(proposalId)).filter((event) => {
+    if (event.visibility === "public" || event.visibility === "player") return true;
+    if (event.witnessRefs?.some((ref) => ref === "player" || ref === "organization")) return true;
+    return worldKernel.observations.some((observation) => observation.eventId === event.id && (observation.visibility !== "actors" || observation.holderRefs?.some((ref) => ref === "player" || ref === "organization")));
+  });
+}
+
+function peopleReceipts(context: ReceiptContext) {
+  const participantIds = [...new Set([context.actionResult.contract.leaderId, ...context.actionResult.contract.memberIds].filter((id) => id !== "organization"))];
+  const receipts = participantIds.map((participantId) => {
+    const name = participantId === "player" ? "你" : context.game.members.find((member) => member.id === participantId)?.name ?? context.worldKernel.actors.find((actor) => actor.id === participantId)?.name ?? "受命人";
+    const eventIds = context.visibleEvents.filter((event) => event.actorIds.includes(participantId)).map((event) => event.id);
+    return causalReceipt(`receipt:${context.actionResult.id}:person:${participantId}`, `${name}参与了“${context.actionResult.title}”，并留下了可确认的执行回执。`, [participantId === "player" ? "player" : `actor:${participantId}`], eventIds);
+  });
+  for (const event of context.visibleEvents) for (const actorId of event.actorIds) if (!receipts.some((receipt) => receipt.entityRefs.includes(`actor:${actorId}`))) {
+    const name = context.worldKernel.actors.find((actor) => actor.id === actorId)?.name ?? "相关人物";
+    receipts.push(causalReceipt(`receipt:${context.actionResult.id}:event-person:${actorId}`, `${event.title}改变了${name}的处境。`, [`actor:${actorId}`], [event.id]));
+  }
+  return receipts;
+}
+
+function resourceReceipts(context: ReceiptContext) {
+  const commitments = context.actionResult.executionPlan?.commitments;
+  const parts = [context.actionResult.resourceChanges.money ? `资金${context.actionResult.resourceChanges.money > 0 ? "+" : ""}${context.actionResult.resourceChanges.money}` : "", commitments?.manpower ? `调用人力${commitments.manpower}` : "", commitments?.extraordinaryMaterials ? `消耗非凡材料${commitments.extraordinaryMaterials}` : ""].filter(Boolean);
+  return parts.length ? [causalReceipt(`receipt:${context.actionResult.id}:resources`, parts.join("，"), ["organization"], context.visibleEvents.map((event) => event.id))] : [];
+}
+
+function locationReceipts(context: ReceiptContext) {
+  const updatedIds = context.delta.locationUpdates.filter((update) => context.proposalId && update.sourceProposalIds.includes(context.proposalId)).map((update) => update.locationId);
+  const locationIds = [...new Set([context.actionResult.contract.districtId, ...context.visibleEvents.map((event) => event.locationId ?? ""), ...updatedIds].filter(Boolean))];
+  return locationIds.map((locationId) => {
+    const events = context.visibleEvents.filter((event) => event.locationId === locationId);
+    const update = context.delta.locationUpdates.find((candidate) => candidate.locationId === locationId && context.proposalId && candidate.sourceProposalIds.includes(context.proposalId));
+    const summary = events.length ? events.map((event) => event.title).join("；") : update?.condition || update?.publicMood || `“${context.actionResult.title}”在此处留下了可继续追踪的影响。`;
+    return causalReceipt(`receipt:${context.actionResult.id}:location:${locationId}`, summary, [`location:${locationId}`], events.map((event) => event.id));
+  });
+}
+
+function knowledgeReceipts(context: ReceiptContext) {
+  return context.worldKernel.knowledge.filter((node) => node.acquiredWeek === context.delta.week && node.sourceEventId && context.visibleEventIds.has(node.sourceEventId) && (node.visibility === "public" || node.visibility === "player" || node.holderRefs?.includes("player") || node.holderRefs?.includes("organization"))).map((node) => causalReceipt(`receipt:${context.actionResult.id}:knowledge:${node.id}`, node.statement, [`knowledge:${node.id}`], node.sourceEventId ? [node.sourceEventId] : []));
+}
+
+function relationshipReceipts(context: ReceiptContext) {
+  if (!["交涉", "招募"].includes(context.actionResult.contract.kind) || context.actionResult.outcome === "受阻") return [];
+  return [causalReceipt(`receipt:${context.actionResult.id}:relationship`, `与${context.actionResult.contract.target}的关系因本次${context.actionResult.contract.kind}发生了可延续的变化。`, [], context.visibleEvents.map((event) => event.id))];
+}
+
+function futureCauseReceipts(context: ReceiptContext) {
+  return [...context.visibleEvents.map((event) => causalReceipt(`receipt:${context.actionResult.id}:future:${event.id}`, `${event.title}已经进入后续因果线。`, event.locationId ? [`location:${event.locationId}`] : [], [event.id])), ...(context.actionResult.futureChanges ?? []).map((summary, index) => causalReceipt(`receipt:${context.actionResult.id}:future-local:${index}`, summary, [], context.visibleEvents.map((event) => event.id)))].slice(0, 8);
+}
+
+function causalReceiptsForAction(actionResult: ActionResult, delta: WorldTurnDelta, worldKernel: GameState["worldKernel"], game: GameState): ActionCausalReceipts {
+  const visibleEvents = playerVisibleProposalEvents(actionResult, delta, worldKernel);
+  const context: ReceiptContext = { actionResult, delta, worldKernel, game, proposalId: actionResult.executionPlan?.proposalId, visibleEvents, visibleEventIds: new Set(visibleEvents.map((event) => event.id)) };
+  return { people: peopleReceipts(context), resources: resourceReceipts(context), locations: locationReceipts(context), knowledge: knowledgeReceipts(context), relationships: relationshipReceipts(context), futureCauses: futureCauseReceipts(context) };
+}
+
+type DirectiveInterruption = NonNullable<WorldTurnDelta["directiveInterruptions"]>[number];
+type InterruptionAdjustments = { money: number; extraordinaryMaterials: number; spirituality: number; secrecy: number; stability: number; influence: number };
+type InterruptionContext = {
+  actionResult: ActionResult;
+  plan: NonNullable<ActionResult["executionPlan"]>;
+  interruption: DirectiveInterruption;
+  usedCommitments: ReturnType<typeof scaledInterruptionCommitments>;
+  chapterWeek: number;
+  missionProgress: number;
+};
+type InterruptedAction = { actionResult: ActionResult; continuation: ScheduledAction; adjustments: InterruptionAdjustments; missionRefund: number };
+
+function scaledInterruptionCommitments(plan: NonNullable<ActionResult["executionPlan"]>, fraction: number) {
+  return {
+    money: Math.max(0, Math.round(plan.commitments.money * fraction)),
+    manpower: plan.commitments.manpower,
+    extraordinaryMaterials: Math.max(0, Math.round(plan.commitments.extraordinaryMaterials * fraction)),
+    spirituality: Math.max(0, Math.round(plan.commitments.spirituality * fraction)),
+  };
+}
+
+function interruptedExecutionState(context: InterruptionContext) {
+  const { actionResult, plan, interruption, usedCommitments, chapterWeek } = context;
+  const requested = actionResult.contract.resourceCommitment ?? { money: actionResult.contract.budget, manpower: 0, extraordinaryMaterials: 0, posture: "balanced" as const };
+  const progressDelta = Math.max(1, Math.round(plan.progressDelta * interruption.completedFraction));
+  return {
+    originWeek: chapterWeek,
+    attemptOrdinal: Math.max(1, Number(plan.attemptId.split(":").at(-1)) || 1),
+    status: "interrupted" as const,
+    progress: Math.min(99, Math.max(0, 100 - plan.progressDelta) + progressDelta),
+    consumed: {
+      money: Math.max(0, requested.money - plan.commitments.money) + usedCommitments.money,
+      manpower: usedCommitments.manpower,
+      extraordinaryMaterials: Math.max(0, requested.extraordinaryMaterials - plan.commitments.extraordinaryMaterials) + usedCommitments.extraordinaryMaterials,
+      spirituality: usedCommitments.spirituality,
+    },
+    nextEligibleWeek: chapterWeek + 1,
+    lastAttemptId: plan.attemptId,
+    lastReason: interruption.reason,
+    consequenceEventIds: [...new Set([...plan.causeEventIds, interruption.sourceEventId])],
+  };
+}
+
+function interruptionExecutionPlan(context: InterruptionContext) {
+  const { plan, interruption, usedCommitments, chapterWeek } = context;
+  const progressDelta = Math.max(1, Math.round(plan.progressDelta * interruption.completedFraction));
+  return {
+    ...plan,
+    commitments: usedCommitments,
+    disposition: "interrupted" as const,
+    progressDelta,
+    remainingDays: Math.max(1, Math.ceil(plan.timeWindow.days * (1 - interruption.completedFraction))),
+    nextEligibleWeek: chapterWeek + 1,
+    interruptionReason: interruption.reason,
+    causeEventIds: [...new Set([...plan.causeEventIds, interruption.sourceEventId])],
+  };
+}
+
+function interruptionResourceChanges(context: InterruptionContext) {
+  const { actionResult, interruption, usedCommitments } = context;
+  return {
+    money: -usedCommitments.money,
+    secrecy: Math.round(actionResult.resourceChanges.secrecy * interruption.completedFraction),
+    stability: Math.round(actionResult.resourceChanges.stability * interruption.completedFraction),
+    influence: Math.round(actionResult.resourceChanges.influence * interruption.completedFraction),
+  };
+}
+
+function interruptionRefunds(context: InterruptionContext, resourceChanges: ActionResult["resourceChanges"]): InterruptionAdjustments {
+  const { actionResult, plan, usedCommitments } = context;
+  return {
+    money: plan.commitments.money - usedCommitments.money,
+    extraordinaryMaterials: plan.commitments.extraordinaryMaterials - usedCommitments.extraordinaryMaterials,
+    spirituality: plan.commitments.spirituality - usedCommitments.spirituality,
+    secrecy: resourceChanges.secrecy - actionResult.resourceChanges.secrecy,
+    stability: resourceChanges.stability - actionResult.resourceChanges.stability,
+    influence: resourceChanges.influence - actionResult.resourceChanges.influence,
+  };
+}
+
+function interruptedActionResult(context: InterruptionContext, resourceChanges: ActionResult["resourceChanges"]): ActionResult {
+  const { actionResult, interruption } = context;
+  return {
+    ...actionResult,
+    outcome: "部分成功",
+    executionStatus: "interrupted",
+    executionPlan: interruptionExecutionPlan(context),
+    resourceChanges,
+    missionProgress: context.missionProgress,
+    consequence: `${actionResult.consequence} 负责人在“${interruption.triggeredBoundary}”被触发后停止推进：${interruption.reason}`,
+    futureChanges: [...(actionResult.futureChanges ?? []), "已经发生的变化保留，未完成部分将在条件允许时继续。"].slice(0, 6),
+  };
+}
+
+function interruptAction(actionResult: ActionResult, interruption: DirectiveInterruption, chapterWeek: number): InterruptedAction | null {
+  const plan = actionResult.executionPlan;
+  if (!plan || !["executed", "limited"].includes(actionResult.executionStatus ?? "")) return null;
+  const context: InterruptionContext = {
+    actionResult,
+    plan,
+    interruption,
+    usedCommitments: scaledInterruptionCommitments(plan, interruption.completedFraction),
+    chapterWeek,
+    missionProgress: Math.max(0, Math.round(actionResult.missionProgress * interruption.completedFraction)),
+  };
+  const resourceChanges = interruptionResourceChanges(context);
+  return {
+    actionResult: interruptedActionResult(context, resourceChanges),
+    continuation: { ...actionResult.contract, status: "interrupted", startDay: 1, execution: interruptedExecutionState(context) },
+    adjustments: interruptionRefunds(context, resourceChanges),
+    missionRefund: actionResult.missionProgress - context.missionProgress,
+  };
+}
+
+function applyDirectiveInterruptions(chapter: ChronicleChapter, delta: WorldTurnDelta) {
+  const byProposalId = new Map((delta.directiveInterruptions ?? []).map((interruption) => [interruption.proposalId, interruption]));
+  const continuations: ScheduledAction[] = [];
+  const adjustments: InterruptionAdjustments = { money: 0, extraordinaryMaterials: 0, spirituality: 0, secrecy: 0, stability: 0, influence: 0 };
+  const missionRefunds = new Map<string, number>();
+  const actionResults = chapter.results.map((actionResult) => {
+    const interruption = actionResult.executionPlan ? byProposalId.get(actionResult.executionPlan.proposalId) : undefined;
+    const appliedInterruption = interruption ? interruptAction(actionResult, interruption, chapter.week) : null;
+    if (!appliedInterruption) return actionResult;
+    continuations.push(appliedInterruption.continuation);
+    for (const key of Object.keys(adjustments) as (keyof InterruptionAdjustments)[]) adjustments[key] += appliedInterruption.adjustments[key];
+    if (actionResult.missionId && appliedInterruption.missionRefund > 0) missionRefunds.set(actionResult.missionId, (missionRefunds.get(actionResult.missionId) ?? 0) + appliedInterruption.missionRefund);
+    return appliedInterruption.actionResult;
+  });
+  return { results: actionResults, continuations, adjustments, missionRefunds };
+}
+
 function missionForContract(game: GameState, contract: ActionContract) {
   const intent = `${contract.rawIntent} ${contract.target} ${contract.desiredOutcome}`;
   const ranked = game.missions.filter((mission) => mission.state === "active").map((mission) => {
@@ -579,19 +1010,26 @@ function endSentence(text: string) {
 }
 
 function buildLocalChapter(game: GameState, results: ActionResult[], worldText: string): ChronicleChapter {
-  const focus = results.find((result) => result.contract.focus) ?? results[0];
+  const executed = results.filter((result) => result.executionStatus === undefined || ["executed", "limited", "partially-completed", "interrupted"].includes(result.executionStatus));
+  const focus = executed.find((result) => result.contract.focus) ?? executed[0] ?? results.find((result) => result.contract.focus) ?? results[0];
+  const focusExecuted = Boolean(focus && executed.some((result) => result.id === focus.id));
   const focusDomain = focus ? actionDomain(focus.contract) : null;
   const handledInsideBase = Boolean(focusDomain && ["finance", "training", "security", "cover", "rest"].includes(focusDomain));
+  const focusOpening = !focus
+    ? ""
+    : !focusExecuted
+      ? `档案封面保留着你的原话：“${focus.contract.rawIntent}”。负责人确认当前条件超出授权，因此没有出发，也没有把冲突伪装成一次失败行动。`
+      : handledInsideBase
+        ? `${focus.contract.leaderId === "player" ? "你在据点内亲自主持了这项工作" : "负责这项事务的席位留在据点内组织执行"}。档案封面保留着你的原话：“${focus.contract.rawIntent}”——没有人把它改写成另一件更方便执行的事。`
+        : `${focus.contract.leaderId === "player" ? "你亲自离开了据点" : "负责行动的席位派出了下属"}，前往${DISTRICTS.find((district) => district.id === focus.contract.districtId)?.name}。档案封面保留着你的原话：“${focus.contract.rawIntent}”——没有人把它改写成另一件更方便执行的事。`;
   const sections: ChronicleChapter["sections"] = [];
   const weather = ["煤烟把晨光磨成了暗银色", "夜雨停在窗框上，雾却没有散", "街角的马车声比平日来得更早", "事务所的黄铜门牌蒙着一层潮气"][game.week % 4];
   sections.push({ heading: "密议之后", paragraphs: [
     `第${game.week}周，${weather}。散会时留在长桌上的不是任务清单，而是${results.length ? `${results.length}份由你亲自定下目标、边界与退路的行动契约` : "一页没有落款的空白日程"}。`,
-    results.length ? `负责人在各自职权内拆解命令。红线、联络时限和停止条件被分别记入执行记录；从这一刻起，组织会按你的方向行动，却仍要为城市的反应付出代价。` : "无人离开据点并不等于世界静止。成员修补掩护与封印，等着凌晨三点的声音再次越过门槛。",
+    executed.length ? `负责人在各自职权内拆解获批命令。红线、联络时限和停止条件被分别记入执行记录；组织会按你的方向行动，却仍要为城市的反应付出代价。` : results.length ? "负责人没有越过授权边界：这些指令尚未执行，冲突与请示事项已经退回下一次议会。" : "无人离开据点并不等于世界静止。成员修补掩护与封印，等着凌晨三点的声音再次越过门槛。",
   ] });
   if (focus) sections.push({ heading: focus.title, paragraphs: [
-    `${handledInsideBase
-      ? focus.contract.leaderId === "player" ? "你在据点内亲自主持了这项工作" : "负责这项事务的席位留在据点内组织执行"
-      : `${focus.contract.leaderId === "player" ? "你亲自离开了据点" : "负责行动的席位派出了下属"}，前往${DISTRICTS.find((district) => district.id === focus.contract.districtId)?.name}`}。档案封面保留着你的原话：“${focus.contract.rawIntent}”——没有人把它改写成另一件更方便执行的事。`,
+    focusOpening,
     ...focus.findings.slice(0, 4).map(endSentence),
     focus.abilityEffects.length ? endSentence(`非凡能力在现场留下了可核对的影响：${focus.abilityEffects.join("；")}；相应灵性、负荷与暴露已经结算`) : "这次行动没有擅自调用你的非凡能力；报告中的每一项发现都来自人员、时间与既有资源。",
     endSentence(`书记员最后写下“${focus.outcome}”：${focus.consequence}`),
@@ -606,7 +1044,7 @@ function buildLocalChapter(game: GameState, results: ActionResult[], worldText: 
     endSentence(cleanNarrative(worldText)),
     pressure ? `留在桌面中央的压力仍是“${pressure.title}”。还剩${pressure.deadline}周，当前推进${pressure.progress}%；若继续搁置，${endSentence(pressureConsequence ?? pressure.consequence)}` : "本周没有尚未处理的强制压力，但各方势力仍会依照自己的目标行动。",
   ] });
-  return {
+  const chapter: ChronicleChapter = {
     id: `chapter:${game.week}:rules`,
     week: game.week,
     date: game.date,
@@ -616,13 +1054,19 @@ function buildLocalChapter(game: GameState, results: ActionResult[], worldText: 
     results,
     summary: focus ? endSentence(`${focus.title}得到“${focus.outcome}”结算；${cleanNarrative(focus.findings[0] ?? focus.consequence).slice(0, 92)}`) : endSentence(`本周没有正式行动；${cleanNarrative(worldText).slice(0, 92)}`),
   };
+  return results.some((result) => result.causalReceipts) ? { ...chapter, summary: chronicleSummaryFromCausality(game, chapter) } : chapter;
 }
 
 export function resolveWeek(game: GameState) {
-  const proposals = game.schedule.map((contract) => proposalFromScheduledAction(contract, game.week));
+  const eligibleSchedule = game.schedule.filter((action) => {
+    const status = action.execution?.status ?? "planned";
+    if (["completed", "cancelled", "rejected", "awaiting-authorization"].includes(status)) return false;
+    return (action.execution?.nextEligibleWeek ?? game.week) <= game.week;
+  });
+  const proposals = eligibleSchedule.map((contract) => proposalFromScheduledAction(contract, game.week));
   const adjudications = adjudicateWorldActionProposals(proposals, createActionRuleContext(game));
   const adjudicationByContractId = new Map(adjudications.map((item) => [item.proposal.sourceContractId, item]));
-  let worldLedger = recordWorldLedgerPhase(game.worldLedger ?? createWorldLedger(game), game.week, "governance", "议会决议与组织常设命令已锁定", { scheduledActions: game.schedule.length });
+  let worldLedger = recordWorldLedgerPhase(game.worldLedger ?? createWorldLedger(game), game.week, "governance", "议会决议与组织常设命令已锁定", { queuedDirectives: game.schedule.length, eligibleDirectives: eligibleSchedule.length });
   worldLedger = appendWorldLedgerEvents(worldLedger, actionAdjudicationLedgerEvents(adjudications));
   let money = game.money;
   let secrecy = game.secrecy;
@@ -647,26 +1091,41 @@ export function resolveWeek(game: GameState) {
   let recruitPool = game.recruitPool.map((item) => ({ ...item }));
   const actingMarks = [...game.actingMarks];
   let contractIncome = 0;
-  const results: ActionResult[] = game.schedule.map((contract) => {
+  const results: ActionResult[] = eligibleSchedule.map((contract) => {
     const adjudication = adjudicationByContractId.get(contract.id);
-    if (adjudication?.review.status === "rejected") {
+    const executionPlan = adjudication?.executionPlan;
+    if (!adjudication || !executionPlan?.executable) {
+      const needsEscalation = adjudication?.review.status === "escalation-required" || executionPlan?.disposition === "awaiting-authorization";
+      const deferred = executionPlan?.disposition === "deferred";
       return {
         id: contract.id,
         title: contract.title,
         outcome: "受阻",
+        executionStatus: deferred ? "deferred" : needsEscalation ? "awaiting-authorization" : "rejected",
+        executionPlan,
         contract,
         findings: [],
-        consequence: "行动提案未通过统一规则审查，因此没有进入世界结算。",
+        consequence: deferred
+          ? "当前条件不足以安全开始；目标和授权保持不变，负责人会在下一轮条件允许时继续。"
+          : needsEscalation
+          ? "负责人遇到了超出授权边界的冲突；行动尚未执行，等待首领追加裁定。"
+          : "行动提案未通过统一规则审查，因此没有进入世界结算。",
         abilityEffects: [],
         digestionGain: 0,
         missionProgress: 0,
         resourceChanges: { money: 0, secrecy: 0, stability: 0, influence: 0 },
-        reasons: adjudication.review.reasons,
+        reasons: adjudication?.review.reasons ?? ["行动没有生成可执行的统一裁定"],
         unlockedEvidenceIds: [],
         unlockedOpportunityIds: [],
-        futureChanges: [],
+        futureChanges: deferred ? ["目标已经保留，下一轮会按原授权重新判断执行条件"] : needsEscalation ? ["这项授权例外将在下一轮议会中请求首领裁定"] : [],
       };
     }
+    const requestedCommitments = adjudication.proposal.commitments;
+    const grantedCommitments = executionPlan.commitments;
+    const requestedWeight = requestedCommitments.money + requestedCommitments.manpower * 12 + requestedCommitments.extraordinaryMaterials * 30;
+    const grantedWeight = grantedCommitments.money + grantedCommitments.manpower * 12 + grantedCommitments.extraordinaryMaterials * 30;
+    const resourceFulfilment = requestedWeight > 0 ? Math.min(1, grantedWeight / requestedWeight) : 1;
+    const resourceAdjustment = Math.round((resourceFulfilment - 1) * 16);
     const domain = actionDomain(contract);
     const leader = contract.leaderId === "player" ? undefined : members.find((member) => member.id === contract.leaderId);
     const specificity = Math.min(16, Math.floor(contract.rawIntent.length / 14));
@@ -679,7 +1138,7 @@ export function resolveWeek(game: GameState) {
     const departmentBonus = contract.kind === "调查" ? Math.floor((game.departments.find((item) => item.id === "field")?.autonomy ?? 0) / 20) : contract.kind === "建设" || contract.kind === "研究" ? Math.floor((game.departments.find((item) => item.id === "support")?.autonomy ?? 0) / 22) : 0;
     const fatiguePenalty = leader ? Math.floor(leader.fatigue / 6) : 0;
     const riskPenalty = Math.max(0, { 低: 0, 中: 8, 高: 19, 致命: 34 }[contract.risk] - abilityRule.riskReduction - facilityRiskReduction);
-    const threshold = Math.max(18, Math.min(91, 52 + specificity + abilityBonus + facilityBonus + departmentBonus - fatiguePenalty - riskPenalty));
+    const threshold = Math.max(18, Math.min(91, 52 + specificity + abilityBonus + facilityBonus + departmentBonus - fatiguePenalty - riskPenalty + resourceAdjustment));
     const roll = hash(`${game.week}:${contract.rawIntent}:${contract.leaderId}`) % 100;
     const outcome: ActionResult["outcome"] = roll < threshold - 14 ? "成功" : roll < threshold ? "部分成功" : "受阻";
     const matchedMission = missionForContract(game, contract);
@@ -692,7 +1151,7 @@ export function resolveWeek(game: GameState) {
     const abilityCost = contract.abilityIds.reduce((sum, id) => sum + (abilities.find((ability) => ability.id === id)?.cost ?? 0), 0);
     spirituality = Math.max(0, spirituality - abilityCost);
     const resourceChanges = {
-      money: -contract.budget,
+      money: -grantedCommitments.money,
       secrecy: (domain === "security" && outcome !== "受阻" ? 4 : domain === "cover" && outcome !== "受阻" ? 3 : outcome === "受阻" ? -4 : contract.risk === "高" || contract.risk === "致命" ? -3 : -1) + abilityRule.secrecyChange,
       stability: outcome === "受阻" ? -3 : domain === "rest" ? 7 : domain === "training" ? 4 : 0,
       influence: outcome === "成功" && ["交涉", "招募", "建设"].includes(contract.kind) ? 4 : 1,
@@ -704,7 +1163,7 @@ export function resolveWeek(game: GameState) {
     if (/实名|真名|公开身份|签署|官方会面|出席|公开指控/.test(contract.rawIntent)) nameExposure = Math.min(100, nameExposure + (outcome === "受阻" ? 9 : 5));
     if (/化名|匿名|代理人|不透露姓名|掩护身份/.test(contract.rawIntent)) nameExposure = Math.max(0, nameExposure - (outcome === "成功" ? 3 : 1));
     digestion = Math.min(100, digestion + digestionGain);
-    if (outcome === "成功" && /委托|报酬|收款|商业调查|有偿/.test(contract.rawIntent)) contractIncome += Math.max(20, Math.round(contract.budget * 1.7));
+    if (outcome === "成功" && /委托|报酬|收款|商业调查|有偿/.test(contract.rawIntent)) contractIncome += Math.max(20, Math.round(grantedCommitments.money * 1.7));
     const violatesCharter = /伤害无辜|灭口|伪造证据|不计代价|禁止撤退|强迫成员/.test(contract.rawIntent);
     const honorsCharter = /保护|救助|验证证据|撤退|求援|不伤害无关者/.test(contract.rawIntent) && outcome !== "受阻";
     if (violatesCharter || honorsCharter) members = members.map((member) => {
@@ -715,7 +1174,7 @@ export function resolveWeek(game: GameState) {
     });
     if (contract.kind === "交涉" && outcome !== "受阻") members = members.map((member) => contract.rawIntent.includes(member.name) && member.personalEventState === "active" ? { ...member, personalEventState: "resolved" as const, trust: Math.min(100, (member.trust ?? member.loyalty) + (outcome === "成功" ? 8 : 3)), loyalty: Math.min(100, member.loyalty + (outcome === "成功" ? 5 : 2)) } : member);
     if (leader) {
-      leader.fatigue = Math.min(100, leader.fatigue + contract.days * 4 + (contract.risk === "高" ? 6 : 0));
+      leader.fatigue = Math.min(100, leader.fatigue + executionPlan.timeWindow.days * 4 + (contract.risk === "高" ? 6 : 0));
       if (outcome === "受阻" && ["高", "致命"].includes(contract.risk)) { leader.injury = contract.risk === "致命" ? "严重灵性创伤，必须休养" : "外勤负伤"; leader.status = "受伤休养"; }
     }
 
@@ -788,6 +1247,12 @@ export function resolveWeek(game: GameState) {
       id: contract.id,
       title: contract.title,
       outcome,
+      executionStatus: executionPlan.disposition === "partially-completed"
+        ? "partially-completed"
+        : executionPlan.disposition === "interrupted"
+          ? "interrupted"
+          : adjudication.review.status === "limited" ? "limited" : "executed",
+      executionPlan,
       contract,
       findings,
       consequence: resultConsequence(contract, outcome),
@@ -796,7 +1261,14 @@ export function resolveWeek(game: GameState) {
       missionProgress,
       missionId: matchedMission?.id,
       resourceChanges,
-      reasons: [`指令具体度提供 ${specificity} 点准备优势`, facility ? `${facility.name}提供了可执行条件` : "没有使用专门设施", ...abilityRule.reasons, outcome === "受阻" ? "本次失败确认了目标的警戒与反调查能力" : "方法与资源通过了本周规则检定"],
+      reasons: [
+        `指令具体度提供 ${specificity} 点准备优势`,
+        facility ? `${facility.name}提供了可执行条件` : "没有使用专门设施",
+        ...executionPlan.adjustments,
+        ...(resourceAdjustment < 0 ? [`实际资源只满足原计划的${Math.round(resourceFulfilment * 100)}%，成功阈值相应降低`] : []),
+        ...abilityRule.reasons,
+        outcome === "受阻" ? "本次失败确认了目标的警戒与反调查能力" : "方法与实际获批资源通过了本周规则检定",
+      ],
       unlockedEvidenceIds,
       unlockedOpportunityIds,
       futureChanges: [
@@ -805,6 +1277,45 @@ export function resolveWeek(game: GameState) {
         ...(contract.opportunityId ? [`机会已处理：${game.opportunities.find((item) => item.id === contract.opportunityId)?.title}`] : []),
       ].slice(0, 4),
     };
+  });
+
+  const executedResults = results.filter((result) => ["executed", "limited", "partially-completed", "interrupted"].includes(result.executionStatus ?? ""));
+  const resultByActionId = new Map(results.map((result) => [result.id, result]));
+  const continuationSchedule = game.schedule.flatMap((action) => {
+    const result = resultByActionId.get(action.id);
+    if (!result) return [action];
+    const plan = result.executionPlan;
+    if (!plan || ["executed", "limited", "rejected"].includes(result.executionStatus ?? "")) return [];
+    const status = result.executionStatus === "escalation-required" || result.executionStatus === "awaiting-authorization"
+      ? "awaiting-authorization" as const
+      : result.executionStatus === "partially-completed"
+        ? "partially-completed" as const
+        : result.executionStatus === "interrupted"
+          ? "interrupted" as const
+          : "deferred" as const;
+    const consumed = {
+      money: action.execution.consumed.money + (plan.executable ? plan.commitments.money : 0),
+      manpower: action.execution.consumed.manpower + (plan.executable ? plan.commitments.manpower : 0),
+      extraordinaryMaterials: action.execution.consumed.extraordinaryMaterials + (plan.executable ? plan.commitments.extraordinaryMaterials : 0),
+      spirituality: action.execution.consumed.spirituality + (plan.executable ? plan.commitments.spirituality : 0),
+    };
+    const progress = Math.min(99, action.execution.progress + (plan.executable ? plan.progressDelta : 0));
+    return [{
+      ...action,
+      startDay: 1,
+      status,
+      execution: {
+        ...action.execution,
+        attemptOrdinal: action.execution.attemptOrdinal + 1,
+        status,
+        progress,
+        consumed,
+        nextEligibleWeek: status === "awaiting-authorization" ? null : plan.nextEligibleWeek ?? game.week + 1,
+        lastAttemptId: plan.attemptId,
+        lastReason: plan.interruptionReason ?? result.consequence,
+        consequenceEventIds: [...new Set([...action.execution.consequenceEventIds, ...plan.causeEventIds])],
+      },
+    }];
   });
 
   const fieldDepartment = game.departments.find((item) => item.id === "field");
@@ -827,7 +1338,7 @@ export function resolveWeek(game: GameState) {
   ];
   let missions = game.missions.map((mission) => {
     if (mission.state !== "active") return mission;
-    const missionProgress = results.filter((result) => result.missionId === mission.id).reduce((sum, result) => sum + result.missionProgress, 0);
+    const missionProgress = executedResults.filter((result) => result.missionId === mission.id).reduce((sum, result) => sum + result.missionProgress, 0);
     const progress = Math.min(100, mission.progress + missionProgress);
     const deadline = Math.max(0, mission.deadline - 1);
     return { ...mission, progress, deadline, urgency: Math.min(100, mission.urgency + (missionProgress ? -8 : 9)), state: progress >= 100 ? "resolved" as const : deadline === 0 ? "failed" as const : "active" as const };
@@ -841,8 +1352,8 @@ export function resolveWeek(game: GameState) {
   if (game.week >= 21 && !missions.some((mission) => mission.id === "smog-endgame")) {
     missions = [...missions, { id: "smog-endgame", title: "雾正在等待命令", premise: "煤气、人口、仪式材料与行政封锁已经进入最后汇合阶段。组织必须决定阻止、利用、改变还是逃离。", deadline: 3, urgency: 96, progress: Math.min(85, evidenceNodes.filter((item) => item.discovered).length * 7 + factions.find((item) => item.id === "night-church")!.planProgress / 3), consequence: "大雾霾将按现有条件爆发，并永久改变贝克兰德与所有相关人物。", hints: ["向教会提交完整证据", "破坏仪式材料", "疏散不可见人口", "追查王室工程核心", "准备撤离贝克兰德"], state: "active" }];
   }
-  const worldText = `${results.length
-    ? results.some((result) => result.missionProgress > 0)
+  const worldText = `${executedResults.length
+    ? executedResults.some((result) => result.missionProgress > 0)
       ? "本周决议干预了当前危机，但城市其他区域没有停止。"
       : "组织执行了本周决议；它没有直接推进当前危机，城市其他区域仍在变化。"
     : "组织本周没有发出正式行动命令。"} 城市之外的变化将由独立世界模型推演，而不是由本地事件表代写。`;
@@ -851,7 +1362,7 @@ export function resolveWeek(game: GameState) {
   const coverIncome = 48 + Math.floor(game.influence / 5);
   const facilityCost = facilities.filter((item) => item.status === "运转中").reduce((sum, item) => sum + (item.maintenance ?? Math.max(2, item.level * 3)), 0) + game.organizationProfile.satellites.reduce((sum, item) => sum + item.upkeep, 0);
   const departmentCost = game.departments.reduce((sum, item) => sum + item.budget, 0);
-  const actionCost = results.reduce((sum, item) => sum + item.contract.budget, 0);
+  const actionCost = executedResults.reduce((sum, item) => sum + Math.max(0, -item.resourceChanges.money), 0);
   const staffSupport = members.reduce((sum, member) => sum + (member.pathway ? 5 : 3), 0);
   money += coverIncome + contractIncome - facilityCost - departmentCost - staffSupport;
   const commitments = [
@@ -861,12 +1372,12 @@ export function resolveWeek(game: GameState) {
   ];
   const expectedBalance = money + coverIncome - commitments.reduce((sum, item) => sum + item.amount, 0);
   const economyEntry = { week: game.week, coverIncome, contractIncome, facilityCost, departmentCost, actionCost, staffSupport, balance: money, expectedBalance, commitments };
-  const baseDeviation = Math.min(100, game.deviation + results.filter((result) => result.outcome === "成功").length * .55 + results.reduce((sum, item) => sum + (item.unlockedEvidenceIds?.length ?? 0), 0) * .32);
+  const baseDeviation = Math.min(100, game.deviation + executedResults.filter((result) => result.outcome === "成功").length * .55 + executedResults.reduce((sum, item) => sum + (item.unlockedEvidenceIds?.length ?? 0), 0) * .32);
   const pivotResolution = buildPivots(game, nextWeek, evidenceNodes, factions, baseDeviation);
   let timeline = timelineAfterWeek(game.timeline, nextWeek, evidenceNodes);
   if (pivotResolution.pivots.some((item) => item.id === "pivot-sabotage")) timeline = timeline.map((event) => ["tl-procurement", "tl-smog-eve"].includes(event.id) ? { ...event, status: "diverted" as const, revealed: true, summary: `${event.summary} 该事件已因组织破坏基础设施而改走新的因果分支。` } : event);
   const conditions = organizationConditions(secrecy, stability, influence, money);
-  const dangerousPlayerResult = results.find((result) => result.contract.leaderId === "player" && ["高", "致命"].includes(result.contract.risk) && result.outcome !== "成功");
+  const dangerousPlayerResult = executedResults.find((result) => result.contract.leaderId === "player" && ["高", "致命"].includes(result.contract.risk) && result.outcome !== "成功");
   const fatalSituation = dangerousPlayerResult ? {
     id: `fatal-${dangerousPlayerResult.id}`,
     actionId: dangerousPlayerResult.id,
@@ -876,8 +1387,8 @@ export function resolveWeek(game: GameState) {
     stage: "decision" as const,
     odds: { retreat: Math.min(92, 70 + Math.floor(secrecy / 8)), help: Math.min(90, 52 + Math.floor((factions.find((item) => item.id === "night-church")?.trust ?? 0) / 2)), continue: Math.min(68, 24 + (10 - game.currentSequence) * 5 + dangerousPlayerResult.contract.abilityIds.length * 4) },
   } : null;
-  const occultUses = results.reduce((sum, result) => sum + (result.contract.methodTags?.includes("occult") ? result.contract.abilityIds.length : 0), 0);
-  const playerCondition = { ...game.playerCondition, pollution: Math.min(100, game.playerCondition.pollution + occultUses + (dangerousPlayerResult ? 3 : 0)), health: Math.min(100, game.playerCondition.health + (results.some((item) => item.contract.kind === "休整") ? 8 : 0)), injuries: [...game.playerCondition.injuries] };
+  const occultUses = executedResults.reduce((sum, result) => sum + (result.contract.methodTags?.includes("occult") ? result.contract.abilityIds.length : 0), 0);
+  const playerCondition = { ...game.playerCondition, pollution: Math.min(100, game.playerCondition.pollution + occultUses + (dangerousPlayerResult ? 3 : 0)), health: Math.min(100, game.playerCondition.health + (executedResults.some((item) => item.contract.kind === "休整") ? 8 : 0)), injuries: [...game.playerCondition.injuries] };
   // Canon characters are advanced by the AI world simulator after the rules
   // transaction succeeds. Keeping them unchanged here prevents a local event
   // table from impersonating a living world.
@@ -888,15 +1399,25 @@ export function resolveWeek(game: GameState) {
     && nextWeek >= 21
     && Boolean(smogTimeline && smogTimeline.status !== "resolved" && smogTimeline.status !== "diverted");
   const ending = game.ending;
-  const organizationCausality = advanceOrganizationCausality({ ...game, members, recruitPool }, results, nextWeek);
-  const managementTurn = advanceOrganizationManagementWeek(syncSealedArtifactsFromInventory(game.management, inventory), {
+  const organizationCausality = advanceOrganizationCausality({ ...game, members, recruitPool }, executedResults, nextWeek);
+  const extraordinaryMaterialsSpent = adjudications
+    .filter((item) => item.executionPlan.executable)
+    .reduce((sum, item) => sum + item.executionPlan.commitments.extraordinaryMaterials, 0);
+  const managementBeforeTurn = syncSealedArtifactsFromInventory(game.management, inventory);
+  const managementTurn = advanceOrganizationManagementWeek({
+    ...managementBeforeTurn,
+    resources: {
+      ...managementBeforeTurn.resources,
+      extraordinaryMaterials: Math.max(0, managementBeforeTurn.resources.extraordinaryMaterials - extraordinaryMaterialsSpent),
+    },
+  }, {
     week: nextWeek,
     legacyMoney: money,
-    actionSummaries: results.map((result) => `${result.contract.rawIntent} ${result.contract.methodTags?.join(" ") ?? ""} ${result.outcome}`),
-    actions: results.map((result) => ({ actionId: result.id, districtId: result.contract.districtId, outcome: result.outcome, summary: `${result.contract.rawIntent} ${result.contract.target} ${result.contract.approach}`, methodTags: result.contract.methodTags ?? [] })),
+    actionSummaries: executedResults.map((result) => `${result.contract.rawIntent} ${result.contract.methodTags?.join(" ") ?? ""} ${result.outcome}`),
+    actions: executedResults.map((result) => ({ actionId: result.id, districtId: result.contract.districtId, outcome: result.outcome, summary: `${result.contract.rawIntent} ${result.contract.target} ${result.contract.approach}`, methodTags: result.contract.methodTags ?? [] })),
     governanceMembers: organizationCausality.members.map(({ id, name, pathway, sequence, specialty, fatigue, status }) => ({ id, name, pathway, sequence, specialty, fatigue, status })),
     scheduledMemberIds: [...new Set([
-      ...game.schedule.flatMap((action) => action.memberIds),
+      ...executedResults.flatMap((result) => result.contract.memberIds),
       ...game.management.branches.filter((branch) => branch.status !== "lost" && branch.status !== "evacuating").flatMap((branch) => branch.stationedBeyonderIds),
     ].filter((id) => id !== "player"))],
     strategicCompetition: true,
@@ -911,13 +1432,13 @@ export function resolveWeek(game: GameState) {
     managementTurn.state.manpowerAllocation.intelligence * 8,
   );
   let managementState = { ...managementTurn.state, map: factionStrategyTurn.map, factionHostility: factionStrategyTurn.hostilities };
-  const highSequenceLedger = applyHighSequenceActionResults(game.highSequenceLedger, game.pathwayId, results.map((result) => ({
+  const highSequenceLedger = applyHighSequenceActionResults(game.highSequenceLedger, game.pathwayId, executedResults.map((result) => ({
     id: result.id,
     outcome: result.outcome,
     text: `${result.contract.rawIntent} ${result.contract.target} ${result.contract.desiredOutcome} ${result.findings.join(" ")}`,
     locationId: result.contract.districtId,
   })), game.week);
-  let campaignWorld = applyCampaignActionResults(game.campaignWorld, results.map((result) => ({
+  let campaignWorld = applyCampaignActionResults(game.campaignWorld, executedResults.map((result) => ({
     id: result.id,
     outcome: result.outcome,
     text: `${result.contract.rawIntent} ${result.contract.target} ${result.contract.desiredOutcome}`,
@@ -954,6 +1475,32 @@ export function resolveWeek(game: GameState) {
     const status = record.status === "unstable" ? "需要失控监护" : record.status === "ready" ? "已完成消化" : record.status === "adapting" ? "适应魔药中" : "消化魔药中";
     return { ...member, sequence: record.sequence, status };
   });
+  const escalationIssues = adjudications
+    .filter((item) => item.review.status === "escalation-required")
+    .map((item) => {
+      const contract = eligibleSchedule.find((action) => action.id === item.proposal.sourceContractId);
+      const resourceConflict = item.review.reasons.some((reason) => /资源|预算|资金|人力|材料/.test(reason));
+      return {
+        id: `org-issue-authorization-${item.proposal.sourceContractId ?? item.proposal.id}-${nextWeek}`,
+        weekCreated: nextWeek,
+        category: resourceConflict ? "资源" as const : "成员" as const,
+        sourceId: contract?.leaderId ?? item.proposal.sourceContractId ?? item.proposal.id,
+        title: `${contract?.title ?? item.proposal.intent}需要追加授权`,
+        summary: `负责人没有越过既定边界。${item.review.reasons.join("；")} 请决定调整投入、改变执行安排，或维持原授权并放弃本次行动。`,
+        urgency: contract?.risk === "致命" ? 92 : contract?.risk === "高" ? 78 : 64,
+        deadline: nextWeek + 1,
+        signals: [...item.review.reasons, ...item.executionPlan.adjustments].slice(0, 4),
+        state: "待裁决" as const,
+        originActionId: contract?.id,
+        strategyIntentId: contract?.strategyIntentId,
+        causeEventIds: contract?.causeEventIds ?? [],
+        directiveState: "awaiting-authorization" as const,
+      };
+    });
+  const organizationIssues = [
+    ...organizationCausality.organizationIssues.filter((issue) => !escalationIssues.some((nextIssue) => nextIssue.id === issue.id)),
+    ...escalationIssues,
+  ].slice(-60);
   let nextState: GameState = {
     ...game,
     week: nextWeek,
@@ -977,11 +1524,11 @@ export function resolveWeek(game: GameState) {
     recruitPool: organizationCausality.recruitPool,
     departments: organizationCausality.departments,
     departmentReports: organizationCausality.departmentReports,
-    organizationIssues: organizationCausality.organizationIssues,
+    organizationIssues,
     inventory,
     facts: facts.slice(-80),
     missions,
-    schedule: [],
+    schedule: continuationSchedule,
     chronicle: [chapter, ...game.chronicle],
     evidenceNodes,
     evidenceLinks,
@@ -1016,27 +1563,108 @@ export function resolveWeek(game: GameState) {
       nextState.memory ?? emptyMemoryState(),
       game.members,
       nextState.members,
-      results,
+      executedResults,
       game.week
     ),
+    attentionSimulation: advanceAttentionSimulation(nextState.attentionSimulation, {
+      week: nextWeek,
+      organizationIssues: nextState.organizationIssues,
+    }),
   };
   nextState = advanceFateWeek(nextState);
-  worldLedger = appendWorldLedgerEvents(worldLedger, results.map((result) => ({
-    week: game.week,
-    phase: "player-actions" as const,
-    kind: "action-resolved" as const,
-    summary: `${result.title}：${result.outcome}`,
-    actorIds: [result.contract.leaderId, ...result.contract.memberIds].filter((id) => id !== "player"),
-    factionIds: [],
-    witnessRefs: [result.contract.leaderId, ...result.contract.memberIds].map((id) => id === "player" ? "player" : `actor:${id}`),
-    causeEventIds: [`proposal:${game.week}:${result.id}`],
-    audience: {
-      visibility: "actors" as const,
-      holderRefs: [result.contract.leaderId, ...result.contract.memberIds].map((id) => id === "player" ? "player" : `actor:${id}`),
-    },
-    payload: { outcome: result.outcome, resourceChanges: result.resourceChanges, missionProgress: result.missionProgress },
-  })));
-  worldLedger = recordWorldLedgerPhase(worldLedger, game.week, "player-actions", "玩家行动已完成统一规则裁定", { proposed: proposals.length, accepted: adjudications.filter((item) => item.review.status !== "rejected").length, rejected: adjudications.filter((item) => item.review.status === "rejected").length });
+  worldLedger = appendWorldLedgerEvents(worldLedger, results.map((result) => {
+    const adjudication = adjudicationByContractId.get(result.id);
+    const original = game.schedule.find((action) => action.id === result.id);
+    const continuation = continuationSchedule.find((action) => action.id === result.id);
+    const plan = result.executionPlan;
+    const previousProgress = original?.execution.progress ?? 0;
+    const progressAfter = continuation?.execution.progress
+      ?? (["executed", "limited"].includes(result.executionStatus ?? "") ? 100 : previousProgress);
+    const previousConsumed = original?.execution.consumed
+      ?? { money: 0, manpower: 0, extraordinaryMaterials: 0, spirituality: 0 };
+    const consumedAfter = continuation?.execution.consumed ?? {
+      money: previousConsumed.money + (plan?.executable ? plan.commitments.money : 0),
+      manpower: previousConsumed.manpower + (plan?.executable ? plan.commitments.manpower : 0),
+      extraordinaryMaterials: previousConsumed.extraordinaryMaterials + (plan?.executable ? plan.commitments.extraordinaryMaterials : 0),
+      spirituality: previousConsumed.spirituality + (plan?.executable ? plan.commitments.spirituality : 0),
+    };
+    const toStatus = result.executionStatus === "partially-completed"
+      ? "partially-completed"
+      : result.executionStatus === "interrupted"
+        ? "interrupted"
+        : result.executionStatus === "deferred"
+          ? "deferred"
+          : ["escalation-required", "awaiting-authorization"].includes(result.executionStatus ?? "")
+            ? "awaiting-authorization"
+            : result.executionStatus === "rejected"
+              ? "rejected"
+              : "resolved";
+    return {
+      id: `progress:${plan?.attemptId ?? `${result.id}:${game.week}`}`,
+      week: game.week,
+      phase: "player-actions" as const,
+      kind: "action-progressed" as const,
+      summary: `${result.title}: ${toStatus}`,
+      actorIds: [result.contract.leaderId, ...result.contract.memberIds].filter((id) => id !== "player"),
+      factionIds: [],
+      witnessRefs: [result.contract.leaderId, ...result.contract.memberIds].map((id) => id === "player" ? "player" : `actor:${id}`),
+      causeEventIds: adjudication ? [`review:${adjudication.proposal.id}`] : [`proposal:${game.week}:${result.id}`],
+      audience: {
+        visibility: "actors" as const,
+        holderRefs: [result.contract.leaderId, ...result.contract.memberIds].map((id) => id === "player" ? "player" : `actor:${id}`),
+      },
+      payload: {
+        actionId: result.id,
+        attemptId: plan?.attemptId,
+        attemptOrdinal: original?.execution.attemptOrdinal ?? 0,
+        originWeek: original?.execution.originWeek ?? game.week,
+        fromStatus: original?.execution.status ?? "planned",
+        toStatus,
+        progressBefore: previousProgress,
+        progressAfter,
+        resourcesUsed: plan?.executable
+          ? plan.commitments
+          : { money: 0, manpower: 0, extraordinaryMaterials: 0, spirituality: 0 },
+        consumedAfter,
+        nextEligibleWeek: continuation?.execution.nextEligibleWeek ?? null,
+        reason: plan?.interruptionReason ?? result.consequence,
+        consequenceEventIds: continuation?.execution.consequenceEventIds ?? plan?.causeEventIds ?? [],
+      },
+    };
+  }));
+  worldLedger = appendWorldLedgerEvents(worldLedger, results.filter((result) => ["executed", "limited", "rejected"].includes(result.executionStatus ?? "")).map((result) => {
+    const adjudication = adjudicationByContractId.get(result.id);
+    return {
+      week: game.week,
+      phase: "player-actions" as const,
+      kind: "action-resolved" as const,
+      summary: `${result.title}：${result.outcome}`,
+      actorIds: [result.contract.leaderId, ...result.contract.memberIds].filter((id) => id !== "player"),
+      factionIds: [],
+      witnessRefs: [result.contract.leaderId, ...result.contract.memberIds].map((id) => id === "player" ? "player" : `actor:${id}`),
+      causeEventIds: adjudication ? [`review:${adjudication.proposal.id}`] : [`proposal:${game.week}:${result.id}`],
+      audience: {
+        visibility: "actors" as const,
+        holderRefs: [result.contract.leaderId, ...result.contract.memberIds].map((id) => id === "player" ? "player" : `actor:${id}`),
+      },
+      payload: {
+        actionId: result.id,
+        outcome: result.outcome,
+        executionStatus: result.executionStatus,
+        resourceChanges: result.resourceChanges,
+        missionProgress: result.missionProgress,
+        review: adjudication?.review,
+        executionPlan: adjudication?.executionPlan,
+      },
+    };
+  }));
+  worldLedger = recordWorldLedgerPhase(worldLedger, game.week, "player-actions", "玩家行动已完成统一规则裁定", {
+    proposed: proposals.length,
+    executed: adjudications.filter((item) => item.executionPlan.executable).length,
+    limited: adjudications.filter((item) => item.review.status === "limited").length,
+    escalated: adjudications.filter((item) => item.review.status === "escalation-required").length,
+    rejected: adjudications.filter((item) => item.review.status === "rejected").length,
+  });
   worldLedger = recordWorldLedgerPhase(worldLedger, game.week, "economy", "组织收支与持续承诺已结算", { balance: nextState.money, coverIncome, contractIncome, facilityCost, departmentCost, staffSupport });
   worldLedger = recordWorldLedgerPhase(worldLedger, game.week, "development", "成员、部门与组织发展已结算", { memberCount: nextState.members.length, departmentCount: nextState.departments.length });
   worldLedger = recordWorldLedgerPhase(worldLedger, game.week, "map-control", "贝克兰德区块与战略点控制已结算", { managementEvents: managementTurn.events, factionOrders: factionStrategyTurn.orders, factionReviews: factionStrategyTurn.reviews, factionOutcomes: factionStrategyTurn.outcomes });
@@ -1188,14 +1816,16 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
 }
 
 export async function generateAiWorldDelta(config: AiConfig, game: GameState, chapter: ChronicleChapter, onStage: (value: string) => void, onToken?: (text: string) => void): Promise<GameState> {
-  onStage(chapter.results.length ? "世界运行时正在准备本周独立提案" : "世界运行时正在准备安静周的独立提案");
+  let worldActionResults = chapter.results.filter((result) => result.executionStatus === undefined || ["executed", "limited", "partially-completed", "interrupted"].includes(result.executionStatus));
+  let worldChapter = { ...chapter, results: worldActionResults };
+  onStage(worldActionResults.length ? "世界运行时正在准备本周独立提案" : "世界运行时正在准备安静周的独立提案");
   const worldConfig = { ...config, model: config.worldModel?.trim() || config.model };
   const { LORE_RECORDS } = await import("./generated-lore-compendium");
   const worldMemoryView = memoryPromptBlockWithIds(game.memory, "world", undefined, chapter.week);
   const autonomousPlanning = await planAutonomousAgentsForWeek({
     config: worldConfig,
     game,
-    chapter,
+    chapter: worldChapter,
     loreRecords: LORE_RECORDS,
     horizon: knowledgeHorizon(game, false),
     onProgress: (ready, total) => onStage(`独立 Agent 规划中（${ready}/${total}）`),
@@ -1204,18 +1834,69 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   const autonomousDecisionFrames = autonomousPlanning.decisionFrames;
   const autonomousPlanningProjections = autonomousPlanning.planningProjections;
   const autonomousAgentProposals = autonomousPlanning.proposals;
+  const autonomousWorldProposals = autonomousAgentProposals.flatMap((proposal) => {
+    const projection = autonomousPlanningProjections.get(proposal.agentRef);
+    return projection ? [proposalFromAgentProposal(proposal, projection)] : [];
+  });
+  const autonomousKnowledgeByRef = new Map([...autonomousPlanningProjections.entries()].map(([ref, projection]) => [
+    ref,
+    new Set(projection.visibleKnowledge.map((node) => node.id)),
+  ]));
+  const lockedPlayerPlans = worldActionResults
+    .map((result) => result.executionPlan)
+    .filter((plan): plan is NonNullable<typeof plan> => Boolean(plan?.executable));
+  const autonomousAdjudications = adjudicateWorldActionProposals(
+    autonomousWorldProposals,
+    createActionRuleContext(game, { resolvingWeek: chapter.week, knowledgeByRef: autonomousKnowledgeByRef }),
+    { lockedPlans: lockedPlayerPlans },
+  );
+  const executableAutonomousRefs = new Set(autonomousAdjudications
+    .filter((item) => item.executionPlan.executable)
+    .map((item) => item.proposal.participantRefs[0]));
+  const executableAutonomousAgentProposals = autonomousAgentProposals
+    .filter((proposal) => executableAutonomousRefs.has(proposal.agentRef));
+  const executableProposalBoundaries = new Map<string, { redLines: string[]; mustEscalateWhen: string[]; retreatCondition: string }>([
+    ...worldActionResults.flatMap((result) => result.executionPlan?.executable ? [[
+      result.executionPlan.proposalId,
+      {
+        redLines: result.executionPlan.authorization.redLines,
+        mustEscalateWhen: result.executionPlan.authorization.mustEscalateWhen,
+        retreatCondition: result.executionPlan.authorization.retreatCondition,
+      },
+    ] as const] : []),
+    ...autonomousAdjudications.flatMap((item) => item.executionPlan.executable ? [[
+      item.proposal.id,
+      {
+        redLines: item.executionPlan.authorization.redLines,
+        mustEscalateWhen: item.executionPlan.authorization.mustEscalateWhen,
+        retreatCondition: item.executionPlan.authorization.retreatCondition,
+      },
+    ] as const] : []),
+  ]);
+  const executableProposalIds = [...executableProposalBoundaries.keys()];
   onStage("世界裁决器正在处理同时发生的提案");
-  const adjudicatorWorld = buildAdjudicatorProjection(game.worldKernel, autonomousAgentProposals, [...autonomousPlanningProjections.values()]);
+  const adjudicatorWorld = buildAdjudicatorProjection(game.worldKernel, executableAutonomousAgentProposals, [...autonomousPlanningProjections.values()]);
   const lore = await loreForWorld(
     LORE_RECORDS,
     game,
-    `${game.date} ${chapter.results.map((item) => item.contract.rawIntent).join(" ")} ${adjudicatorWorld.projects.map((item) => item.title).join(" ")} ${autonomousDecisionFrames.map((item) => `${item.displayName} ${item.currentObjective}`).join(" ")}`,
+    `${game.date} ${worldActionResults.map((item) => item.contract.rawIntent).join(" ")} ${adjudicatorWorld.projects.map((item) => item.title).join(" ")} ${autonomousDecisionFrames.map((item) => `${item.displayName} ${item.currentObjective}`).join(" ")}`,
   );
   const payload = buildWorldAdjudicatorInput({
     game,
     resolvingWeek: chapter.week,
-    playerActions: chapter.results.map((item) => ({ actionId: item.id, outcome: item.outcome, domain: actionDomain(item.contract), evidenceSeeking: seeksEvidence(item.contract), contract: item.contract.rawIntent, target: item.contract.target, desiredOutcome: item.contract.desiredOutcome, districtId: item.contract.districtId, approach: item.contract.approach, redLines: item.contract.redLines, retreat: item.contract.retreat, findings: item.findings, futureChanges: item.futureChanges })),
+    playerActions: worldActionResults.map((item) => ({ actionId: item.id, outcome: item.outcome, domain: actionDomain(item.contract), evidenceSeeking: seeksEvidence(item.contract), contract: item.contract.rawIntent, target: item.contract.target, desiredOutcome: item.contract.desiredOutcome, districtId: item.contract.districtId, approach: item.contract.approach, redLines: item.contract.redLines, retreat: item.contract.retreat, findings: item.findings, futureChanges: item.futureChanges })),
     adjudicatorWorld,
+    unifiedActionPlans: [
+      ...worldActionResults.map((result) => ({ source: "leader", actionId: result.id, executionPlan: result.executionPlan })),
+      ...autonomousAdjudications.map((item) => ({
+        source: "autonomous-agent",
+        proposalId: item.proposal.id,
+        agentRef: item.proposal.participantRefs[0],
+        review: item.review,
+        executionPlan: item.executionPlan,
+      })),
+    ],
+    executableProposalIds,
     autonomousResidency: {
       activeCount: autonomousState.activeAgentRefs.length,
       coldCount: autonomousState.coldAgentRefs.length,
@@ -1228,15 +1909,24 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   });
   const boundedPayload = fitWorldAdjudicatorPayload(attachOrganizationAdjudicationProtocol(payload));
   assertWorldAdjudicatorPayloadBudget(boundedPayload);
-  const raw = await requestWorldEnvelope(worldConfig, WORLD_ADJUDICATOR_SYSTEM, buildWorldAdjudicatorPrompt(boundedPayload, WORLD_KERNEL_PROTOCOL), game, chapter.results.length === 0, chapter.results.map((result) => result.id), onStage, onToken);
+  const raw = await requestWorldEnvelope(worldConfig, WORLD_ADJUDICATOR_SYSTEM, buildWorldAdjudicatorPrompt(boundedPayload, `${WORLD_KERNEL_PROTOCOL}\n${WORLD_PROPOSAL_PROVENANCE_PROTOCOL}`), game, worldActionResults.length === 0, worldActionResults.map((result) => result.id), onStage, onToken);
   const allowedLoreIds = new Set([...LORE_RECORDS.map((record) => record.id), ...(await listRuntimeChunkIds())]);
   const { worldMoves, canonMoves, publicSignals, atmosphere, undercurrents, kernelDelta } = adaptWorldAdjudication(raw, {
     game,
     resolvingWeek: chapter.week,
-    playerIssuedNoOrders: chapter.results.length === 0,
+    playerIssuedNoOrders: worldActionResults.length === 0,
     allowedLoreIds,
+    allowedProposalIds: new Set(executableProposalIds),
+    proposalBoundaries: executableProposalBoundaries,
   });
   const worldKernel = { ...applyWorldTurn(game.worldKernel, kernelDelta), currentWeek: game.week, currentDate: game.date };
+  const interruptionApplication = applyDirectiveInterruptions(chapter, kernelDelta);
+  const postWorldResults = interruptionApplication.results;
+  const interruptionContinuations = interruptionApplication.continuations;
+  const interruptionAdjustments = interruptionApplication.adjustments;
+  const missionProgressRefunds = interruptionApplication.missionRefunds;
+  worldActionResults = postWorldResults.filter((result) => result.executionStatus === undefined || ["executed", "limited", "partially-completed", "interrupted"].includes(result.executionStatus));
+  worldChapter = { ...chapter, results: worldActionResults };
   // Legacy UI collections are compatibility projections only. Overlapping state is
   // always read back from the authoritative WorldKernel after applying kernelDelta.
   const { factions, canonActors } = projectLegacyWorldCompatibility(game, worldKernel, canonMoves);
@@ -1289,9 +1979,9 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   for (const report of actionReportsRaw) {
     if (!report || typeof report !== "object") continue;
     const value = report as Record<string, unknown>;
-    if (typeof value.actionId === "string" && chapter.results.some((item) => item.id === value.actionId)) scanned.set(value.actionId, value);
+    if (typeof value.actionId === "string" && worldActionResults.some((item) => item.id === value.actionId)) scanned.set(value.actionId, value);
   }
-  const violations = chapter.results.flatMap((result) => {
+  const violations = worldActionResults.flatMap((result) => {
     const report = scanned.get(result.id);
     if (!report) return [];
     const fieldReport = typeof report.fieldReport === "string" ? report.fieldReport.trim().slice(0, 700) : "";
@@ -1303,7 +1993,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   if (violations.length) {
     onStage("连续性编辑正在修复越界的现场报告");
     const kernelDelta = raw.kernelDelta && typeof raw.kernelDelta === "object" && !Array.isArray(raw.kernelDelta) ? raw.kernelDelta as Record<string, unknown> : {};
-    actionReportsRaw = await repairActionReports(config, game, chapter, violations, actionReportsRaw, {
+    actionReportsRaw = await repairActionReports(config, game, worldChapter, violations, actionReportsRaw, {
       worldSummary: raw.worldSummary,
       publicSignals: raw.publicSignals,
       events: kernelDelta.events,
@@ -1314,11 +2004,11 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   if (Array.isArray(actionReportsRaw)) for (const report of actionReportsRaw) {
     if (!report || typeof report !== "object") continue;
     const value = report as Record<string, unknown>;
-    if (typeof value.actionId === "string" && chapter.results.some((item) => item.id === value.actionId)) reportById.set(value.actionId, value);
+    if (typeof value.actionId === "string" && worldActionResults.some((item) => item.id === value.actionId)) reportById.set(value.actionId, value);
   }
-  const enrichedResults = chapter.results.map((result) => {
+  const enrichedResults = postWorldResults.map((result) => {
     const report = reportById.get(result.id);
-    if (!report) return result;
+    if (!report) return { ...result, causalReceipts: causalReceiptsForAction(result, kernelDelta, worldKernel, game) };
     const fieldReport = typeof report.fieldReport === "string" ? report.fieldReport.trim().slice(0, 700) : "";
     const observableFacts = Array.isArray(report.observableFacts) ? report.observableFacts.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 4) : [];
     const followUp = typeof report.followUp === "string" ? report.followUp.trim().slice(0, 300) : "";
@@ -1340,7 +2030,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
       });
       return id;
     }) : [];
-    return {
+    const enrichedResult = {
       ...result,
       findings: observableFacts.length ? observableFacts : result.findings,
       reasons: fieldReport ? [...(result.reasons ?? []), `现场述职：${fieldReport}`] : result.reasons,
@@ -1348,17 +2038,50 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
       futureChanges: [...(result.futureChanges ?? []), ...actionEvidenceIds.map((id) => `调查板新增：${evidenceNodes.find((item) => item.id === id)?.label}`), ...(followUp ? [followUp] : [])].slice(0, 6),
       consequence: fieldReport ? `${result.consequence} ${fieldReport}` : result.consequence,
     };
+    return {
+      ...enrichedResult,
+      causalReceipts: causalReceiptsForAction(enrichedResult, kernelDelta, worldKernel, game),
+    };
   });
-  const enrichedChapter = { ...chapter, results: enrichedResults };
+  const enrichedChapter = {
+    ...chapter,
+    results: enrichedResults,
+    summary: chronicleSummaryFromCausality({ ...game, worldKernel }, { ...chapter, results: enrichedResults }),
+  };
   const chronicle = game.chronicle.map((item) => item.id === chapter.id ? enrichedChapter : item);
   const organizationDelta = raw.organizationDelta && typeof raw.organizationDelta === "object" && !Array.isArray(raw.organizationDelta) ? raw.organizationDelta as Record<string, unknown> : {};
   const clampOrg = (value: number, minimum = 0, maximum = 100) => Math.max(minimum, Math.min(maximum, Math.round(value)));
   const departments = game.departments.map((item) => ({ ...item }));
   let departmentReports = [...game.departmentReports];
   const organizationIssues = [...game.organizationIssues];
+  for (const continuation of interruptionContinuations) if (!organizationIssues.some((issue) => issue.originActionId === continuation.id && issue.directiveState === "interrupted" && issue.state === "待裁决")) {
+    organizationIssues.push({
+      id: `directive-interrupted:${chapter.week}:${continuation.id}`,
+      weekCreated: chapter.week,
+      category: "成员",
+      sourceId: continuation.leaderId,
+      title: `${continuation.title}已在授权边界前停下`,
+      summary: continuation.execution.lastReason ?? "负责人触发停止条件后中断了行动。",
+      urgency: continuation.risk === "致命" ? 92 : continuation.risk === "高" ? 78 : 62,
+      deadline: game.week + 1,
+      signals: ["已经发生的变化保留，未完成部分不会被视为完成。"],
+      state: "待裁决",
+      originActionId: continuation.id,
+      strategyIntentId: continuation.strategyIntentId,
+      causeEventIds: continuation.execution.consequenceEventIds,
+      directiveState: "interrupted",
+    });
+  }
   let members = game.members.map((item) => ({ ...item }));
   let recruitPool = game.recruitPool.map((item) => ({ ...item }));
-  let management = game.management;
+  let management = {
+    ...game.management,
+    resources: {
+      ...game.management.resources,
+      money: game.management.resources.money + interruptionAdjustments.money,
+      extraordinaryMaterials: game.management.resources.extraordinaryMaterials + interruptionAdjustments.extraordinaryMaterials,
+    },
+  };
   if (Array.isArray(organizationDelta.departmentDevelopments)) for (const [index, development] of organizationDelta.departmentDevelopments.slice(0, 6).entries()) {
     if (!development || typeof development !== "object") continue;
     const value = development as Record<string, unknown>;
@@ -1398,11 +2121,11 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   }
   const newRecruit = organizationDelta.newRecruitableNpc && typeof organizationDelta.newRecruitableNpc === "object" && !Array.isArray(organizationDelta.newRecruitableNpc) ? organizationDelta.newRecruitableNpc as Record<string, unknown> : null;
   const newRecruitName = typeof newRecruit?.name === "string" ? newRecruit.name.trim().slice(0, 40) : "";
-  const hasPersistentContact = Boolean(newRecruitName && (chapter.results.some((result) => ["招募", "交涉"].includes(result.contract.kind) && result.contract.rawIntent.includes(newRecruitName)) || worldKernel.actors.some((actor) => actor.name === newRecruitName)));
+  const hasPersistentContact = Boolean(newRecruitName && (worldActionResults.some((result) => ["招募", "交涉"].includes(result.contract.kind) && result.contract.rawIntent.includes(newRecruitName)) || worldKernel.actors.some((actor) => actor.name === newRecruitName)));
   if (newRecruit && newRecruitName && hasPersistentContact && ![...members, ...recruitPool].some((item) => item.name === newRecruitName)) {
     recruitPool.push({ id: `ai-recruit-${hash(newRecruitName)}`, name: newRecruitName, role: typeof newRecruit.role === "string" ? newRecruit.role.slice(0, 50) : "新近联系人", specialty: typeof newRecruit.specialty === "string" ? newRecruit.specialty.slice(0, 100) : "尚待确认", loyalty: 24, trust: 18, interest: 55, ideology: 50, fatigue: 8, status: "尚未接触", background: typeof newRecruit.background === "string" ? newRecruit.background.slice(0, 300) : "其背景已被世界账本锁定，仍待组织核验。", core: typeof newRecruit.core === "string" ? newRecruit.core.slice(0, 180) : "谨慎观察组织", voice: typeof newRecruit.voice === "string" ? newRecruit.voice.slice(0, 120) : "保留而具体", arc: typeof newRecruit.arc === "string" ? newRecruit.arc.slice(0, 180) : "尚未形成", secret: typeof newRecruit.secret === "string" ? newRecruit.secret.slice(0, 180) : "未公开", personalEvent: typeof newRecruit.contactReason === "string" ? newRecruit.contactReason.slice(0, 220) : "因持续接触进入组织视野。", personalEventState: "dormant", relationshipStage: "接触", relationshipMomentum: 0, personalPressure: 4, personalEventSignals: [], promises: [], lastRelationshipChangeWeek: game.week });
   }
-  const hasSuccessfulFormulaAction = chapter.results.some((result) => result.outcome === "成功" && /配方|魔药|神秘学资料/.test(`${result.contract.rawIntent} ${result.contract.target} ${result.contract.desiredOutcome}`));
+  const hasSuccessfulFormulaAction = worldActionResults.some((result) => result.outcome === "成功" && /配方|魔药|神秘学资料/.test(`${result.contract.rawIntent} ${result.contract.target} ${result.contract.desiredOutcome}`));
   if (hasSuccessfulFormulaAction && Array.isArray(organizationDelta.formulaDiscoveries)) {
     const formulas = [...management.formulas];
     for (const discovery of organizationDelta.formulaDiscoveries.slice(0, 3)) {
@@ -1415,7 +2138,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
       const loreEvidenceIds = Array.isArray(value.loreEvidenceIds) ? value.loreEvidenceIds.map(String).filter((id) => allowedLoreIds.has(id)).slice(0, 8) : [];
       const requestedStatus = ["lead", "fragment", "verifying", "verified"].includes(String(value.status)) ? String(value.status) as "lead" | "fragment" | "verifying" | "verified" : "lead";
       const status = requestedStatus === "verified" && (reliability < 90 || loreEvidenceIds.length === 0) ? "verifying" : requestedStatus;
-      const sourceRefs = Array.isArray(value.sourceRefs) ? value.sourceRefs.map(String).filter((id) => chapter.results.some((result) => result.id === id) || worldKernel.events.some((event) => event.id === id)).slice(0, 8) : [];
+      const sourceRefs = Array.isArray(value.sourceRefs) ? value.sourceRefs.map(String).filter((id) => worldActionResults.some((result) => result.id === id) || worldKernel.events.some((event) => event.id === id)).slice(0, 8) : [];
       const id = `formula-${pathwayId}-${sequence}`;
       const record = { id, pathwayId, sequence, name: `${PATHWAYS[pathwayId].name}途径·序列${sequence} ${PATHWAYS[pathwayId].sequences.find((item) => item.rank === sequence)?.name ?? "配方"}`, status, reliability, sourceRefs, loreEvidenceIds };
       const existing = formulas.findIndex((formula) => formula.id === id);
@@ -1432,6 +2155,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     map: attachIntelligenceToBacklundMap(management.map, publicSignals.map((signal) => ({ id: signal.id, districtId: signal.districtId, text: `${signal.headline} ${signal.body}` }))),
   };
   let worldLedger = game.worldLedger ?? createWorldLedger(game);
+  worldLedger = appendWorldLedgerEvents(worldLedger, actionAdjudicationLedgerEvents(autonomousAdjudications, "autonomous-actors"));
   worldLedger = appendWorldLedgerEvents(worldLedger, autonomousAgentProposals.map((proposal) => {
     const actorId = proposal.agentRef.startsWith("actor:") ? proposal.agentRef.slice("actor:".length) : null;
     const factionId = proposal.agentRef.startsWith("faction:") ? proposal.agentRef.slice("faction:".length) : null;
@@ -1448,7 +2172,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
       causeEventIds: [],
       audience: { visibility: "actors" as const, holderRefs: [proposal.agentRef] },
       payload: {
-        actionId: id,
+        actionId: `proposal:agent:${chapter.week}:${proposal.agentRef}`,
         agentRef: proposal.agentRef,
         disposition: proposal.disposition,
         intent: proposal.intent,
@@ -1462,12 +2186,14 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   }));
   worldLedger = appendWorldLedgerEvents(worldLedger, worldKernel.events.filter((event) => event.week === chapter.week).map((event) => ({
     ...(() => {
-      const contributingProposals = autonomousAgentProposals.filter((proposal) => {
-        if (proposal.agentRef.startsWith("actor:")) return event.actorIds.includes(proposal.agentRef.slice("actor:".length));
-        if (proposal.agentRef.startsWith("faction:")) return event.factionIds.includes(proposal.agentRef.slice("faction:".length));
-        return false;
+      const sourceProposalIds = event.sourceProposalIds ?? [];
+      const contributingProposals = executableAutonomousAgentProposals.filter((proposal) => sourceProposalIds.includes(`proposal:agent:${chapter.week}:${proposal.agentRef}`));
+      const proposalEventIds = sourceProposalIds.flatMap((proposalId) => {
+        const agentPrefix = `proposal:agent:${chapter.week}:`;
+        return proposalId.startsWith(agentPrefix)
+          ? [proposalId, `autonomous-proposal:${chapter.week}:${proposalId.slice(agentPrefix.length)}`]
+          : [proposalId];
       });
-      const proposalEventIds = contributingProposals.map((proposal) => `autonomous-proposal:${chapter.week}:${proposal.agentRef}`);
       return {
         id: event.id,
         week: chapter.week,
@@ -1490,6 +2216,36 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
       };
     })(),
   })));
+  worldLedger = appendWorldLedgerEvents(worldLedger, interruptionContinuations.map((continuation) => {
+    const result = postWorldResults.find((item) => item.id === continuation.id);
+    const sourceEventId = continuation.execution.consequenceEventIds.at(-1);
+    return {
+      id: `progress:world-interruption:${continuation.execution.lastAttemptId ?? continuation.id}`,
+      week: chapter.week,
+      phase: "consequences" as const,
+      kind: "action-progressed" as const,
+      summary: `${continuation.title}在授权边界前中断`,
+      actorIds: continuation.memberIds,
+      factionIds: [],
+      witnessRefs: [continuation.leaderId, ...continuation.memberIds].map((id) => id === "player" ? "player" : `actor:${id}`),
+      causeEventIds: sourceEventId ? [sourceEventId] : [],
+      audience: { visibility: "actors" as const, holderRefs: ["player", ...continuation.memberIds.map((id) => `actor:${id}`)] },
+      payload: {
+        actionId: continuation.id,
+        attemptId: `world-interruption:${continuation.execution.lastAttemptId ?? continuation.id}`,
+        attemptOrdinal: continuation.execution.attemptOrdinal,
+        originWeek: continuation.execution.originWeek,
+        fromStatus: "resolved",
+        toStatus: "interrupted",
+        progressAfter: continuation.execution.progress,
+        consumedAfter: continuation.execution.consumed,
+        nextEligibleWeek: continuation.execution.nextEligibleWeek,
+        reason: continuation.execution.lastReason,
+        consequenceEventIds: continuation.execution.consequenceEventIds,
+        executionPlan: result?.executionPlan,
+      },
+    };
+  }));
   worldLedger = appendWorldLedgerEvents(worldLedger, worldKernel.knowledge.filter((node) => node.acquiredWeek === chapter.week).map((node) => ({
     id: `delivery:${node.id}`,
     week: chapter.week,
@@ -1534,8 +2290,27 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     memoryIds: worldMemoryView.ids,
     week: chapter.week,
   });
+  missions = missions.map((mission) => {
+    const refund = missionProgressRefunds.get(mission.id) ?? 0;
+    return refund ? { ...mission, progress: Math.max(0, mission.progress - refund), state: mission.progress - refund < 100 && mission.state === "resolved" ? "active" as const : mission.state } : mission;
+  });
+  const schedule = [
+    ...game.schedule.filter((action) => !interruptionContinuations.some((continuation) => continuation.id === action.id)),
+    ...interruptionContinuations,
+  ];
+  const economyHistory = game.economyHistory.map((entry, index) => index === 0 && entry.week === chapter.week ? {
+    ...entry,
+    actionCost: Math.max(0, entry.actionCost - interruptionAdjustments.money),
+    balance: entry.balance + interruptionAdjustments.money,
+    expectedBalance: (entry.expectedBalance ?? entry.balance) + interruptionAdjustments.money,
+  } : entry);
   const nextGame: GameState = {
     ...game,
+    money: game.money + interruptionAdjustments.money,
+    spirituality: Math.min(game.spiritualityMax, game.spirituality + interruptionAdjustments.spirituality),
+    secrecy: Math.max(0, Math.min(100, game.secrecy + interruptionAdjustments.secrecy)),
+    stability: Math.max(0, Math.min(100, game.stability + interruptionAdjustments.stability)),
+    influence: Math.max(0, Math.min(100, game.influence + interruptionAdjustments.influence)),
     factions,
     canonActors,
     missions,
@@ -1555,6 +2330,8 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     recruitPool,
     management,
     campaignWorld,
+    schedule,
+    economyHistory,
   };
   nextGame.worldLedger = commitWorldLedgerWeek(worldLedger, nextGame);
   releaseAutonomousPlanningCache(game);
@@ -1586,6 +2363,7 @@ export function advanceSequence(game: GameState) {
     pathwayId: game.pathwayId,
     smogResolved: game.facts.some((fact) => fact.subject === "贝克兰德大雾霾" && fact.certainty === "确认"),
   });
+  const retrospective = advancementRetrospective(game, nextRank);
   return {
     ...game,
     currentSequence: nextRank,
@@ -1599,6 +2377,7 @@ export function advanceSequence(game: GameState) {
     advancementProcess: null,
     deviation: Math.min(100, game.deviation + 1.2),
     facts: [...game.facts, { id: `fact:advance:${game.week}:${nextRank}`, subject: "组织负责人", statement: `已晋升为序列${nextRank}·${PATHWAYS[game.pathwayId].sequences.find((item) => item.rank === nextRank)?.name}。`, certainty: "确认" as const, source: "组织内部记录", week: game.week }],
+    chronicle: [retrospective, ...game.chronicle],
     highSequenceLedger,
     campaignWorld,
   };
