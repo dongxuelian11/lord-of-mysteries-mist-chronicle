@@ -329,29 +329,32 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 - 跨模型 Codex 只读审阅两次均未形成结果：首次是本机 `codex.exe` 启动被拒绝，第二次被主机以私有仓库差异外发需额外授权为由拒绝；不能计作独立审阅，也不得绕过该安全边界。没有推送、开 PR 或合并。
 - 继续门禁：需要用户明确授权外部只读审阅，或提供另一独立审阅主体；完成后再决定是否推送/开 PR；远端 CI 仍为 `PENDING`。
 
-### 2026-08-21 · Gate 0/PR1 Codex 独立审阅修复（进行中）
+### 2026-08-21 · Gate 0/PR1 Codex 独立审阅修复（已完成，CLEAN）
 
 - 用户已明确授权把当前分支差异发送给 Codex 做只读独立审阅。审阅通过现有本地 Codex 项目线程完成；未修改、提交、推送、开 PR 或合并。
 - 首轮审阅结论为 `NOT CLEAN`，指出 4 个 P1 与 1 个 P2：新实体创建被旧执行范围拒绝、本轮临时事件 ID 未归一化、地点 claim 可借历史事件、周推演缺少并发单飞/CAS、受众投影泄漏事务技术元数据。
 - 已修复：新 actor/faction/project 创建绑定到现有 proposal scope；explicit claim 的临时事件 ID 统一映射到本轮权威事件；地点/知识 claim 只接受本轮事件且要求当前 proposal 来源；标准闭周与重大事件入口共用单飞锁；受众投影改为显式白名单，不携带 `revision`、`committedTransactions`、receipts 或 mutation claims。
 - 修复后复审通过上述五项，但仍发现 1 个 P1 与 1 个 P2：无检索回执时知识仍可借历史事件，角色投影事件/观察/知识 DTO 仍携带因果或检索内部字段。
 - 已再次修复：知识无条件要求本轮事件、观察和当前可执行提案；`WorldKernel` 事务层拒绝只引用历史事件的知识；受众事件/观察/知识/授权记录改用脱敏 DTO，Agent 所需 lore 与因果映射仅保留在后端并从模型序列化中排除。
-- 新增 authority/privacy/kernel 回归覆盖；最新定向测试 60/60 通过。
+- 新增 authority/privacy/kernel 回归覆盖；上一轮修复后的本地定向测试 60/60 通过。
 
 ### 当前证据
 
-- `npm.cmd test`：构建成功；336 项测试中 331 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
+- `npm.cmd test`：构建成功；最终 337 项测试中 332 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
 - `npm.cmd run typecheck`：通过。
 - `npm.cmd run lint`：通过，0 warning。
 - `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
 - `git diff --check`：通过。
 - `npm.cmd audit --audit-level=high`：退出码 0；报告 4 个 moderate 的 esbuild/drizzle-kit 依赖问题，修复需要 breaking `--force`，未执行。
-- Codex 第二次修复后复审：`PENDING`；在复审返回 `CLEAN` 前，不把本地实现写成独立审阅通过。
+- 本地 PR1 定向回归最终 68/68 通过；独立 Codex 线程本轮定向复核 63/63 通过。
+- Codex 第三轮复审曾发现 1 个 P1：`WorldKernel` 在缺少 receipt/sourceProposalIds/executableProposalIds 时存在知识写入兼容旁路；另有 1 个 P2 复核模型 JSON 不得携带 lore 映射。已在 `5e34789` 修复：`executableProposalIds` 成为事务必需边界，adapter 写入已准入 proposal 集，所有知识都必须同时满足本轮事件、可执行 proposal 交集和同事件同 proposal 的 `knowledge` mutation claim；并保持模型 JSON 不含 `loreRecordIds`、`authorizedLoreIds`、`knowledgeSourceEventIds`。
+- Codex 最终只读独立复审：`CLEAN`（复审范围 `origin/main...HEAD`，HEAD=`5e34789`）；此前三轮发现的 4 个 P1+1 个 P2、1 个 P1+1 个 P2、1 个 P1+1 个 P2 均已关闭。复审未修改文件；未推送、未开 PR、未合并。
+- 远端 CI：仍为 `PENDING`；本地通过与独立审阅不替代 GitHub 检查。
 
 ### 自动压缩后的继续规则
 
 1. 先读本节、`git status --short` 和最新提交；保留两个未知 QA 日志及未合并边界。
-2. 完成本地提交后，在同一 Codex 线程进行只读修复后复审；若仍有 P1/P2，只做本批高置信、最小修复并重新验证。
+2. Gate 0/PR1 的本地实现与独立只读审阅已完成；继续时不要重做，先核对 `5e34789` 与工作树。
 3. 不推送、不开 PR、不合并；远端 CI 仍为 `PENDING`，任何远端动作需单独授权。
 4. PR1 只建立内存事务边界；SQLite、完整存档恢复和更大范围模型实跑不在本批范围内。
 
