@@ -197,7 +197,7 @@ export function proposalFromAgentProposal(raw: AgentProposal, projection: AgentP
   const startDay = 1 + stableNumber(`${raw.planningWeek}:${raw.agentRef}:${raw.disposition}`) % latestStart;
   const knowledgeEvents = projection.visibleKnowledge
     .filter((node) => raw.requiredKnowledgeIds.includes(node.id))
-    .map((node) => node.sourceEventId ?? "")
+    .map((node) => projection.knowledgeSourceEventIds?.[node.id] ?? (node as { sourceEventId?: string }).sourceEventId ?? "")
     .filter(Boolean);
   const agentId = raw.agentRef.replace(/^(actor|faction):/, "");
   const authorization: DirectiveAuthorization = {

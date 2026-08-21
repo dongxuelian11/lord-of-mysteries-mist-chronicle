@@ -295,6 +295,42 @@ test("adapter rejects knowledge that reuses a historical event and proposal", as
     allowedProposalIds: new Set(["new-proposal"]),
     proposalBoundaries: new Map(),
     retrievalReceipt: { requestId: "rag:test", indexVersion: "index-test-v2", audienceRef: "world", queryHash: "aaaaaaaa", filterHash: "bbbbbbbb", chunkIds: ["lore-a"], contextHash: "cccccccc" },
+}), /本轮事件|历史事件/);
+});
+
+test("adapter rejects historical knowledge evidence even without a retrieval receipt", async () => {
+  const { createInitialGame } = await loadRuntimeModule("app/game-model.ts");
+  const { adaptWorldAdjudication } = await loadRuntimeModule("app/world-output-adapter.ts");
+  const game = createInitialGame("seer");
+  game.worldKernel.events = [{
+    id: "historical-event",
+    week: 1,
+    title: "历史事件",
+    detail: "上一周已结算的事件。",
+    actorIds: [],
+    factionIds: [],
+    causeIds: [],
+    visibility: "world",
+    sourceProposalIds: ["old-proposal"],
+  }];
+  assert.throws(() => adaptWorldAdjudication({
+    publicSignals: [
+      { channel: "报纸", headline: "本周消息", body: "本周消息保持可见。", reliability: "公开事实", districtId: "dock" },
+      { channel: "街谈", headline: "本周街谈", body: "本周街谈保持可见。", reliability: "单一消息", districtId: "east" },
+    ],
+    worldSummary: { atmosphere: "本周世界仍在运转。" },
+    kernelDelta: {
+      events: [],
+      observations: [{ eventId: "historical-event", channel: "调查", text: "模型伪造了本周观察。", visibility: "public" }],
+      knowledge: [{ subject: "旧事件", statement: "不应由历史事件直接生成本周知识。", truth: "likely", visibility: "public", loreRecordIds: ["lore-a"], sourceEventId: "historical-event" }],
+    },
+  }, {
+    game,
+    resolvingWeek: 2,
+    playerIssuedNoOrders: false,
+    allowedLoreIds: new Set(["lore-a"]),
+    allowedProposalIds: new Set(["new-proposal"]),
+    proposalBoundaries: new Map(),
   }), /本轮事件|历史事件/);
 });
 

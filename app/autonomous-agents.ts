@@ -442,7 +442,7 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
         driveSignals: profile.reflection.driveSignals,
       },
       observations: view.observations.map((observation) => [observation.id, observation.eventId, observation.channel, observation.text, observation.visibility, observation.perceivedRefs ?? []]).sort(),
-      knowledge: view.knowledge.map((node) => [node.id, node.subject, node.statement, node.truth, node.visibility, node.sourceEventId]).sort(),
+      knowledge: view.knowledge.map((node) => [node.id, node.subject, node.statement, node.truth, node.visibility]).sort(),
       memory: [materialMemory.referenceIds.slice().sort(), materialMemory.text],
       relationships,
       projects: kernel.projects.filter((project) => project.ownerId === profile.entityId && project.status === "active").map((project) => [project.id, project.stage, project.progress, project.nextMilestone, project.blockers]).sort(),
@@ -488,6 +488,7 @@ function buildStructuredReflection(
   const worldView = projectWorldForAudience(after, audience);
   const visibleEvents = worldView.events.filter((event) => event.week === week);
   const visibleKnowledge = worldView.knowledge.filter((knowledge) => knowledge.acquiredWeek === week);
+  const sourceEventIdForKnowledge = new Map(after.knowledge.map((node) => [node.id, node.sourceEventId]));
   const memoryProjection = buildAutonomousMemoryProjection(memory, memoryAudience, week, {
     objective: profile.currentObjective,
     nextAction: profile.nextAction,
@@ -513,7 +514,7 @@ function buildStructuredReflection(
   ].slice(0, 8);
   const conclusionEvidence = [
     ...(plan ? [{ sourceRefs: [plan.id], sourceEventIds: plan.sourceEventIds }] : []),
-    ...(knowledge ? [{ sourceRefs: [knowledge.id], sourceEventIds: knowledge.sourceEventId ? [knowledge.sourceEventId] : [] }] : []),
+    ...(knowledge ? [{ sourceRefs: [knowledge.id], sourceEventIds: sourceEventIdForKnowledge.get(knowledge.id) ? [sourceEventIdForKnowledge.get(knowledge.id)!] : [] }] : []),
     ...(belief ? [{ sourceRefs: [belief.id, belief.learnedFrom.sourceId], sourceEventIds: [belief.learnedFrom.sourceId] }] : []),
     ...(commitment ? [{ sourceRefs: [commitment.id], sourceEventIds: [commitment.sourceEventId] }] : []),
     ...(relationship ? [{ sourceRefs: [relationship.id], sourceEventIds: [relationship.sourceEventId] }] : []),
@@ -545,7 +546,7 @@ function buildStructuredReflection(
     ])].slice(0, 32),
     sourceEventIds: [...new Set([
       ...visibleEvents.map((item) => item.id),
-      ...visibleKnowledge.flatMap((item) => item.sourceEventId ? [item.sourceEventId] : []),
+      ...visibleKnowledge.flatMap((item) => sourceEventIdForKnowledge.get(item.id) ? [sourceEventIdForKnowledge.get(item.id)!] : []),
       ...memoryProjection.sourceEventIds,
     ])].slice(0, 24),
     recommendedObjective,
@@ -559,8 +560,8 @@ function buildStructuredReflection(
           : [],
     recommendationSourceEventIds: plan
       ? plan.sourceEventIds
-      : knowledge?.sourceEventId
-        ? [knowledge.sourceEventId]
+      : sourceEventIdForKnowledge.get(knowledge?.id ?? "")
+        ? [sourceEventIdForKnowledge.get(knowledge?.id ?? "")!]
         : relationship
           ? [relationship.sourceEventId]
           : [],

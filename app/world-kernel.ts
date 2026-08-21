@@ -439,8 +439,13 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
   }))].slice(-240);
   const eventIds = new Set(events.map((event) => event.id));
   const observations = [...kernel.observations, ...delta.observations.filter((observation) => eventIds.has(observation.eventId)).map((observation) => ({ ...observation, week: delta.week }))].slice(-320);
+  const currentTurnEventIds = new Set((delta.events ?? []).map((event) => event.id));
+  for (const node of delta.knowledge ?? []) {
+    if (!node.sourceEventId || !currentTurnEventIds.has(node.sourceEventId)) {
+      throw new Error(`Knowledge mutation must reference a current-turn event: ${node.id}`);
+    }
+  }
   const incomingKnowledge = (delta.knowledge ?? [])
-    .filter((node) => !node.sourceEventId || eventIds.has(node.sourceEventId))
     .map((node) => ({ ...node, loreRecordIds: node.loreRecordIds ?? [], acquiredWeek: delta.week }));
   const incomingKnowledgeIds = new Set(incomingKnowledge.map((node) => node.id));
   const incomingKnowledgeGrants = (delta.knowledgeGrants ?? []).map((grant) => ({ ...grant, week: delta.week }));
@@ -533,8 +538,22 @@ export type AudienceLocationProjection = {
   updatedWeek: number;
 };
 
-export type AudienceWorldProjection = Pick<WorldKernel, "events" | "observations" | "knowledge" | "knowledgeGrants"> & {
+export type AudienceWorldEvent = Pick<PersistentWorldEvent, "id" | "week" | "title" | "detail" | "locationId" | "actorIds" | "factionIds" | "visibility">;
+
+export type AudienceWorldObservation = Pick<WorldObservation, "id" | "week" | "eventId" | "channel" | "text" | "visibility" | "perceivedRefs" | "acquisitionKind">;
+
+export type AudienceWorldKnowledge = Pick<WorldKnowledgeNode, "id" | "subject" | "statement" | "truth" | "visibility" | "acquiredWeek">;
+
+export type AudienceKnowledgeGrant = Pick<WorldKnowledgeGrant, "knowledgeId" | "kind">;
+
+export type AudienceWorldProjection = {
+  currentWeek: number;
+  currentDate: string;
   locations: AudienceLocationProjection[];
+  events: AudienceWorldEvent[];
+  observations: AudienceWorldObservation[];
+  knowledge: AudienceWorldKnowledge[];
+  knowledgeGrants: AudienceKnowledgeGrant[];
   projectionHash: string;
 };
 
@@ -593,22 +612,28 @@ export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudi
   const visibleKnowledge = kernel.knowledge.filter((node) => canSee(node.visibility, node.holderIds, node.holderRefs, audience));
   const visibleKnowledgeGrants = (kernel.knowledgeGrants ?? []).filter((grant) => grant.holderRef === reference);
   const locations = kernel.locations.map((location) => projectLocationForAudience(location, audience, visibleEvents, visibleObservations));
+  const audienceEvents: AudienceWorldEvent[] = visibleEvents.map(({ id, week, title, detail, locationId, actorIds, factionIds, visibility }) => ({ id, week, title, detail, locationId, actorIds, factionIds, visibility }));
+  const audienceObservations: AudienceWorldObservation[] = visibleObservations.map(({ id, week, eventId, channel, text, visibility, perceivedRefs, acquisitionKind }) => ({ id, week, eventId, channel, text, visibility, perceivedRefs, acquisitionKind }));
+  const audienceKnowledge: AudienceWorldKnowledge[] = visibleKnowledge.map(({ id, subject, statement, truth, visibility, acquiredWeek }) => ({ id, subject, statement, truth, visibility, acquiredWeek }));
+  const audienceKnowledgeGrants: AudienceKnowledgeGrant[] = visibleKnowledgeGrants.map(({ knowledgeId, kind }) => ({ knowledgeId, kind }));
   const projectionHash = hashText(stableSerialize({
     audience: reference,
     currentWeek: kernel.currentWeek,
     currentDate: kernel.currentDate,
     locations,
-    events: visibleEvents,
-    observations: visibleObservations,
-    knowledge: visibleKnowledge,
-    knowledgeGrants: visibleKnowledgeGrants,
+    events: audienceEvents,
+    observations: audienceObservations,
+    knowledge: audienceKnowledge,
+    knowledgeGrants: audienceKnowledgeGrants,
   }));
   return {
+    currentWeek: kernel.currentWeek,
+    currentDate: kernel.currentDate,
     locations,
-    events: visibleEvents,
-    observations: visibleObservations,
-    knowledge: visibleKnowledge,
-    knowledgeGrants: visibleKnowledgeGrants,
+    events: audienceEvents,
+    observations: audienceObservations,
+    knowledge: audienceKnowledge,
+    knowledgeGrants: audienceKnowledgeGrants,
     projectionHash,
   };
 }

@@ -130,3 +130,26 @@ test("private knowledge authority cannot bypass grants or borrow another holder'
     /invalid observation/,
   );
 });
+
+test("world kernel rejects knowledge that references only a historical event", () => {
+  const initial = createWorldKernel({
+    week: 1,
+    date: "1349年1月1日",
+    factions: [],
+    actors: [],
+    locations: [{ id: "dock", name: "码头区", risk: 20 }],
+    timeline: [],
+  });
+  initial.events = [{ id: "historical-event", week: 1, title: "历史事件", detail: "上一周的事实。", actorIds: [], factionIds: [], causeIds: [], visibility: "world", sourceProposalIds: ["old-proposal"] }];
+  assert.throws(() => applyWorldTurn(initial, {
+    week: 1,
+    playerIssuedNoOrders: true,
+    actorUpdates: [],
+    factionUpdates: [],
+    projectUpdates: [],
+    locationUpdates: [],
+    events: [],
+    observations: [],
+    knowledge: [{ id: "historical-knowledge", subject: "旧事实", statement: "不能在本周重新获得。", truth: "likely", visibility: "public", holderIds: [], loreRecordIds: [], sourceEventId: "historical-event" }],
+  }), /current-turn event/);
+});

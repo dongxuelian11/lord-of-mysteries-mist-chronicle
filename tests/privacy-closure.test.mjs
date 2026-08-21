@@ -78,6 +78,7 @@ test("角色地点投影只暴露受众已知的边界字段", () => {
   assert.equal("committedTransactions" in firstProjection, false);
   assert.equal("retrievalReceipts" in firstProjection, false);
   assert.equal("mutationClaims" in firstProjection, false);
+  assert.equal(firstProjection.events.some((event) => "sourceProposalIds" in event || "causeIds" in event || "witnessRefs" in event), false);
   assert.equal(firstProjection.projectionHash, replayProjection.projectionHash);
   const hiddenOnlyChange = structuredClone(next);
   hiddenOnlyChange.locations[0].actorIds.push("hidden-2");
@@ -85,6 +86,39 @@ test("角色地点投影只暴露受众已知的边界字段", () => {
   const visibleChange = structuredClone(next);
   visibleChange.events[0].detail = "公开目击发生了变化。";
   assert.notEqual(projectWorldForAudience(visibleChange, { kind: "actor", holderId: "owner" }).projectionHash, firstProjection.projectionHash);
+});
+
+test("受众世界投影不携带知识与观察的权威内部字段", () => {
+  const kernel = createWorldKernel({
+    week: 1,
+    date: "1349年1月1日",
+    actors: [{ id: "owner", name: "持有者", locationId: "vault", agenda: "观察" }],
+    factions: [],
+    locations: [{ id: "vault", name: "封闭地点", risk: 30 }],
+    timeline: [],
+  });
+  const next = commit(kernel, {
+    week: 1,
+    playerIssuedNoOrders: true,
+    actorUpdates: [],
+    factionUpdates: [],
+    projectUpdates: [],
+    locationUpdates: [],
+    events: [{ id: "visible-event", title: "公开核验", detail: "核验完成。", locationId: "vault", actorIds: ["owner"], factionIds: [], causeIds: [], visibility: "public" }],
+    observations: [{ id: "visible-observation", eventId: "visible-event", channel: "调查", text: "持有者看见了核验结果。", visibility: "public", holderIds: ["owner"], holderRefs: ["actor:owner"] }],
+    knowledge: [{ id: "visible-knowledge", subject: "核验", statement: "核验已经完成。", truth: "confirmed", visibility: "public", holderIds: [], holderRefs: [], loreRecordIds: ["lore-internal"], sourceEventId: "visible-event" }],
+    knowledgeGrants: [{ id: "visible-grant", knowledgeId: "visible-knowledge", holderRef: "actor:owner", kind: "witness", sourceEventId: "visible-event", sourceObservationId: "visible-observation" }],
+  });
+  const projection = projectWorldForAudience(next, { kind: "actor", holderId: "owner" });
+  assert.equal("sourceProposalIds" in projection.events[0], false);
+  assert.equal("causeIds" in projection.events[0], false);
+  assert.equal("witnessRefs" in projection.events[0], false);
+  assert.equal("holderIds" in projection.observations[0], false);
+  assert.equal("holderRefs" in projection.observations[0], false);
+  assert.equal("sourceEventId" in projection.knowledge[0], false);
+  assert.equal("loreRecordIds" in projection.knowledge[0], false);
+  assert.equal("holderRefs" in projection.knowledge[0], false);
+  assert.deepEqual(projection.knowledgeGrants, [{ knowledgeId: "visible-knowledge", kind: "witness" }]);
 });
 
 test("议会模型调用按成员隔离私有上下文", async () => {

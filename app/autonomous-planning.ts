@@ -20,7 +20,7 @@ async function loreForAutonomousAgent(
   projection: AgentPlanningProjection,
   runtime: AutonomousPlanningRuntime,
 ) {
-  const knownLoreIds = [...new Set(projection.visibleKnowledge.flatMap((node) => node.loreRecordIds ?? []))];
+  const knownLoreIds = projection.authorizedLoreIds;
   return retrieveLoreContextAsync(records, {
     query: `${projection.agent.displayName} ${projection.agent.currentObjective} ${projection.agent.nextAction} ${projection.ownedProjects.map((project) => project.title).join(" ")}`,
     audience: { kind: autonomousRagAudience(projection), knownLoreIds, topicGrants: [] },
@@ -35,11 +35,14 @@ async function loreForAutonomousAgent(
 export async function requestAutonomousAgentProposal(
   config: AiConfig,
   records: LegacyLoreRecord[],
-  projection: AgentPlanningProjection,
+  projectionInput: AgentPlanningProjection,
   runtime: AutonomousPlanningRuntime,
   context: { attempt: number; previousIssue?: string },
 ) {
-  const lore = await loreForAutonomousAgent(records, projection, runtime);
+  const lore = await loreForAutonomousAgent(records, projectionInput, runtime);
+  const projection = Object.fromEntries(
+    Object.entries(projectionInput).filter(([key]) => key !== "authorizedLoreIds" && key !== "knowledgeSourceEventIds"),
+  ) as Omit<AgentPlanningProjection, "authorizedLoreIds" | "knowledgeSourceEventIds">;
   const repair = context.previousIssue
     ? `\n上一次提案未通过本主体的局部校验：${context.previousIssue}。只修复该问题，不改变主体掌握的信息。`
     : "";
