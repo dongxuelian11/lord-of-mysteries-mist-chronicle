@@ -105,11 +105,20 @@ export type WorldAudience =
   | { kind: "actor"; holderId: string }
   | { kind: "faction"; holderId: string };
 
+export type WorldTurnTransaction = {
+  turnId: string;
+  resolvingWeek: number;
+  baseRevision: number;
+  inputHash: string;
+};
+
 export type WorldKernel = {
   schemaVersion: 1;
   currentWeek: number;
   currentDate: string;
   lastResolvedWeek: number;
+  revision: number;
+  committedTransactions: WorldTurnTransaction[];
   actors: PersistentWorldActor[];
   factions: PersistentWorldFaction[];
   projects: PersistentWorldProject[];
@@ -144,6 +153,7 @@ export type WorldKernelSeed = {
 
 export type WorldTurnDelta = {
   week: number;
+  transaction?: WorldTurnTransaction;
   playerIssuedNoOrders: boolean;
   newActors?: (Omit<PersistentWorldActor, "lastAction" | "knowledgeIds"> & { lastAction?: string; knowledgeIds?: string[]; sourceProposalIds: string[] })[];
   newFactions?: (Omit<PersistentWorldFaction, "lastAction"> & { lastAction?: string; sourceProposalIds: string[] })[];
@@ -161,6 +171,79 @@ export type WorldTurnDelta = {
 };
 
 const clamp = (value: number, minimum = 0, maximum = 100) => Math.max(minimum, Math.min(maximum, value));
+
+const MAX_COMMITTED_WORLD_TRANSACTIONS = 256;
+
+function stableSerialize(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "null";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(String(value));
+}
+
+function hashText(value: string): string {
+  let output = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    output ^= value.charCodeAt(index);
+    output = Math.imul(output, 16777619);
+  }
+  return (output >>> 0).toString(16).padStart(8, "0");
+}
+
+export function worldTurnInputHash(delta: WorldTurnDelta): string {
+  const payload = { ...delta };
+  delete payload.transaction;
+  return hashText(stableSerialize(payload));
+}
+
+function kernelRevision(kernel: Pick<WorldKernel, "revision">): number {
+  return Number.isInteger(kernel.revision) && kernel.revision >= 0 ? kernel.revision : 0;
+}
+
+export function createWorldTurnTransaction(kernel: Pick<WorldKernel, "revision">, delta: WorldTurnDelta, turnId?: string): WorldTurnTransaction {
+  const inputHash = worldTurnInputHash(delta);
+  return {
+    turnId: turnId?.trim() || `world-turn:${delta.week}:${inputHash}`,
+    resolvingWeek: delta.week,
+    baseRevision: kernelRevision(kernel),
+    inputHash,
+  };
+}
+
+function isWorldTurnTransaction(value: unknown): value is WorldTurnTransaction {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const transaction = value as Partial<WorldTurnTransaction>;
+  const baseRevision = transaction.baseRevision;
+  return typeof transaction.turnId === "string"
+    && transaction.turnId.trim().length > 0
+    && Number.isInteger(transaction.resolvingWeek)
+    && typeof baseRevision === "number"
+    && Number.isInteger(baseRevision)
+    && baseRevision >= 0
+    && typeof transaction.inputHash === "string"
+    && /^[0-9a-f]{8}$/.test(transaction.inputHash);
+}
+
+export function ensureWorldKernelTransactionState(value: unknown): WorldKernel {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Partial<WorldKernel>
+    : {};
+  const committedTransactions = Array.isArray(source.committedTransactions)
+    ? source.committedTransactions.filter(isWorldTurnTransaction).slice(-MAX_COMMITTED_WORLD_TRANSACTIONS)
+    : [];
+  const sourceRevision = Number.isInteger(source.revision) && (source.revision as number) >= 0 ? source.revision as number : 0;
+  return {
+    ...(source as WorldKernel),
+    revision: Math.max(sourceRevision, committedTransactions.length),
+    committedTransactions,
+  };
+}
 
 function withoutMutationProvenance<T extends { sourceProposalIds: string[] }>(value: T): Omit<T, "sourceProposalIds"> {
   const copy: Partial<T> = { ...value };
@@ -182,6 +265,8 @@ export function createWorldKernel(seed: WorldKernelSeed): WorldKernel {
     currentWeek: seed.week,
     currentDate: seed.date,
     lastResolvedWeek: Math.max(0, seed.week - 1),
+    revision: 0,
+    committedTransactions: [],
     actors: seed.actors.map((actor) => ({ id: actor.id, name: actor.name, locationId: actor.locationId, agenda: actor.agenda, shortTermGoal: actor.agenda, lastAction: actor.lastAction ?? "尚未产生新的可记录行动", condition: actor.state ?? "正常活动", knowledgeIds: [] })),
     factions: seed.factions.map((faction) => ({ id: faction.id, name: faction.name, posture: faction.plan, resources: 50, suspicion: faction.suspicion ?? 0, lastAction: "正在推进既定计划" })),
     projects: [
@@ -202,8 +287,53 @@ export function createWorldKernel(seed: WorldKernelSeed): WorldKernel {
   };
 }
 
+function assertUniqueEntityIds<T>(items: readonly T[], getId: (item: T) => string, label: string) {
+  const seen = new Set<string>();
+  for (const item of items) {
+    const id = getId(item);
+    if (seen.has(id)) throw new Error(`世界${label}更新标识重复：${id}`);
+    seen.add(id);
+  }
+}
+
+function assertUniqueTurnEntityIds(kernel: WorldKernel, delta: WorldTurnDelta) {
+  assertUniqueEntityIds(delta.actorUpdates, (item) => item.actorId, "角色");
+  assertUniqueEntityIds(delta.factionUpdates ?? [], (item) => item.factionId, "势力");
+  assertUniqueEntityIds(delta.projectUpdates, (item) => item.projectId, "项目");
+  assertUniqueEntityIds(delta.locationUpdates, (item) => item.locationId, "地点");
+  const actorIds = new Set(kernel.actors.map((item) => item.id));
+  const factionIds = new Set(kernel.factions.map((item) => item.id));
+  const projectIds = new Set(kernel.projects.map((item) => item.id));
+  assertUniqueEntityIds(delta.newActors ?? [], (item) => item.id, "新角色");
+  assertUniqueEntityIds(delta.newFactions ?? [], (item) => item.id, "新势力");
+  assertUniqueEntityIds(delta.newProjects ?? [], (item) => item.id, "新项目");
+  for (const actor of delta.newActors ?? []) if (actorIds.has(actor.id)) throw new Error(`新角色标识已存在：${actor.id}`);
+  for (const faction of delta.newFactions ?? []) if (factionIds.has(faction.id)) throw new Error(`新势力标识已存在：${faction.id}`);
+  for (const project of delta.newProjects ?? []) if (projectIds.has(project.id)) throw new Error(`新项目标识已存在：${project.id}`);
+}
+
+function validateWorldTurnTransaction(kernel: WorldKernel, delta: WorldTurnDelta): { transaction: WorldTurnTransaction; replay: boolean } {
+  const transaction = delta.transaction;
+  if (!isWorldTurnTransaction(transaction)) throw new Error("世界事务缺少完整事务身份");
+  const expectedInputHash = worldTurnInputHash(delta);
+  if (transaction.inputHash !== expectedInputHash) throw new Error("世界事务输入哈希不匹配");
+  const committedTransactions = Array.isArray(kernel.committedTransactions) ? kernel.committedTransactions : [];
+  const existing = committedTransactions.find((item) => item.turnId === transaction.turnId);
+  if (existing) {
+    if (existing.resolvingWeek !== transaction.resolvingWeek || existing.baseRevision !== transaction.baseRevision || existing.inputHash !== transaction.inputHash) {
+      throw new Error(`世界事务标识已用于不同输入：${transaction.turnId}`);
+    }
+    return { transaction, replay: true };
+  }
+  if (transaction.resolvingWeek !== delta.week || delta.week !== kernel.lastResolvedWeek + 1 || delta.week > kernel.currentWeek) throw new Error("世界推演事务周次必须严格连续");
+  if (transaction.baseRevision !== kernelRevision(kernel)) throw new Error("世界推演事务基准修订号已过期");
+  return { transaction, replay: false };
+}
+
 export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): WorldKernel {
-  if (delta.week < kernel.lastResolvedWeek || delta.week > kernel.currentWeek) throw new Error("世界推演周次与持续状态不一致");
+  const transactionState = validateWorldTurnTransaction(kernel, delta);
+  if (transactionState.replay) return kernel;
+  assertUniqueTurnEntityIds(kernel, delta);
   const existingEventIds = new Set(kernel.events.map((event) => event.id));
   const incomingEventIds = new Set(delta.events.map((event) => event.id));
   if (incomingEventIds.size !== delta.events.length || [...incomingEventIds].some((id) => existingEventIds.has(id))) throw new Error("世界事件标识重复");
@@ -306,7 +436,12 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
   return {
     ...kernel,
     currentWeek: Math.max(kernel.currentWeek, delta.week + 1),
-    lastResolvedWeek: Math.max(kernel.lastResolvedWeek, delta.week),
+    lastResolvedWeek: delta.week,
+    revision: kernelRevision(kernel) + 1,
+    committedTransactions: [
+      ...(Array.isArray(kernel.committedTransactions) ? kernel.committedTransactions : []),
+      transactionState.transaction,
+    ].slice(-MAX_COMMITTED_WORLD_TRANSACTIONS),
     actors,
     factions,
     projects,

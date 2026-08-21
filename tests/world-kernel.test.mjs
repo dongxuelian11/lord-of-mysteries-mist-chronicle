@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyWorldTurn, createWorldKernel, projectWorldForAudience } from "../app/world-kernel.ts";
+import { applyWorldTurn as commitWorldTurn, createWorldKernel, createWorldTurnTransaction, projectWorldForAudience } from "../app/world-kernel.ts";
 import { createInitialGame } from "../app/game-model.ts";
+
+function applyWorldTurn(kernel, delta, turnId = `test:${delta.week}`) {
+  return commitWorldTurn(kernel, { ...delta, transaction: createWorldTurnTransaction(kernel, delta, turnId) });
+}
 
 test("a new campaign begins with a persistent anchored world, not an empty weekly summary shell", () => {
   const game = createInitialGame("spectator");

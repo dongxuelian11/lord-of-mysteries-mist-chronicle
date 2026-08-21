@@ -8,7 +8,11 @@ import {
   ensureAutonomousWorldState,
 } from "../app/autonomous-agents.ts";
 import { deriveMemory, emptyMemoryState } from "../app/memory/index.ts";
-import { applyWorldTurn, createWorldKernel } from "../app/world-kernel.ts";
+import { applyWorldTurn as commitWorldTurn, createWorldKernel, createWorldTurnTransaction } from "../app/world-kernel.ts";
+
+function applyWorldTurn(kernel, delta, turnId = `test:${delta.week}`) {
+  return commitWorldTurn(kernel, { ...delta, transaction: createWorldTurnTransaction(kernel, delta, turnId) });
+}
 
 function baseKernel() {
   return createWorldKernel({

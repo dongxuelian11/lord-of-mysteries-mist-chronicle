@@ -1,7 +1,7 @@
 # 《灰雾纪事》核心玩法构建总账
 
 状态：执行中
-最后更新：2026-08-20
+最后更新：2026-08-21
 维护规则：每完成一个工作包，必须更新本文件的状态、证据与下一步。后续会话先读本文件，再读 `git status --short`，不得依赖聊天上下文恢复目标。
 
 ## 北极星体验
@@ -230,6 +230,43 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 5. 增加方案差异性、知识权限、输入框回填、不直接执行与三件大事纪律测试；完成 CG-04 后进入 CG-07，让纪事段落消费并引用结构化因果收据。
 
 当前阻塞：无。保留未知来源的 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log`，不得清理或覆盖。
+
+## 自动压缩恢复断点（2026-08-21 · Gate 0 + PR1）
+
+当前任务目标：**先完成 Gate 0 与 PR1（MIST-TURN-01），建立可恢复、不可重复结算的世界周事务边界；不要在此任务中扩展玩家表面或引入 SQLite。**
+
+当前分支：`codex/gate0-pr1-turn-guard`。工作树中两个未知来源的 QA 日志仍保持未跟踪，禁止清理或覆盖。
+
+### Gate 0 状态
+
+- 已完成注意力模拟修复：授权历史不再静默截断到 24 项；分部候选会检查所在 district 的异常；新增 2 条回归测试。
+- 已完成 CI 矩阵：`.github/workflows/ci.yml` 在 Ubuntu 与 Windows 上执行相同的 typecheck、lint、test、bundle budget 与 high-severity audit。
+- 已完成并复核 `main` 分支保护：严格要求两个矩阵检查、至少 1 次 PR 审阅、线性历史、会话解决，禁止强推与删除。
+- 远端 CI：`PENDING`（当前分支尚未推送/开 PR；本地通过不替代远端检查）。
+
+### PR1 / MIST-TURN-01 状态
+
+- `WorldKernel` 增加 `revision` 与有界 `committedTransactions`，旧存档归一化会 additive 补齐这两个字段。
+- 每个提交事务携带 `turnId / resolvingWeek / baseRevision / inputHash`；周次必须严格为 `lastResolvedWeek + 1`，基准修订号必须匹配。
+- 同一事务以完全相同的输入重放时直接返回原内核（零差异）；同一 ID 绑定不同输入、哈希不匹配、更新 ID 重复或事务身份缺失都会拒绝。
+- 生产世界推演使用稳定的 `world:<week>` 事务 ID；不新增数据库、不把模型输出当作第二套 authority。
+
+### 已验证证据
+
+- `npm.cmd test`：构建成功；320 项测试中 315 通过、5 项按既有公共知识库/可选 Playwright 条件跳过、0 失败。
+- `npm.cmd run typecheck`：通过。
+- `npm.cmd run lint`：通过，0 warning。
+- `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+- `git diff --check`：通过。
+- `npm.cmd audit --audit-level=high`：退出码 0；报告 4 个 moderate，未执行会引入 breaking change 的 `--force` 修复。
+- Gate 0 主分支保护：只读 API 已复核上述两个检查和保护规则；这不是远端 CI 通过证明。
+
+### 自动压缩后的继续规则
+
+1. 先读本节与 `git status --short`，保留当前分支、两个 QA 日志和未合并边界。
+2. 不重复实现 Gate 0/PR1；只完成本地提交和必要的独立复核。
+3. 若要让 GitHub CI 运行，先单独确认推送/开 PR；在 CI 通过和独立审阅前不得合并。
+4. 下一阶段只在 PR1 证据稳定后规划 SQLite/恢复点等后续工作，不把本地专项通过写成生产可用。
 
 ### 2026-08-20 · 注意力驱动模拟 H
 

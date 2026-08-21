@@ -6,6 +6,7 @@ import {
   advanceAttentionSimulation,
   attentionAutomationCandidates,
   confirmAttentionAutomation,
+  ensureAttentionSimulationState,
   focusAttention,
   projectAttentionForPlayer,
   reopenAttention,
@@ -92,4 +93,56 @@ test("旧存档缺少注意力字段时安全补默认，坏引用不会进入�
   assert.deepEqual(restored.attentionSimulation?.focusRefs, ["secret:hidden"]);
   assert.deepEqual(restored.attentionSimulation?.reopenedRefs, ["district:east"]);
   assert.equal(projectAttentionForPlayer(restored).items[0].focused, false);
+});
+
+test("授权历史超过 24 项时不会静默丢失最早的确认", () => {
+  const approvals = Array.from({ length: 25 }, (_, index) => ({
+    id: `department:department-${index + 1}`,
+    label: `部门${index + 1}的常设命令`,
+    scope: "department",
+    status: "confirmed",
+    confirmedWeek: index + 1,
+    lastRunWeek: index + 1,
+    runCount: 1,
+    sourceRefs: [`department-${index + 1}`],
+  }));
+  const restored = ensureAttentionSimulationState({ approvals });
+  assert.equal(restored.approvals.length, 25);
+  assert.equal(restored.approvals[0].id, "department:department-1");
+  assert.equal(restored.approvals.at(-1)?.id, "department:department-25");
+});
+
+test("分部自动化候选会被其所在 district 的高紧急度资源异常阻止", () => {
+  const base = stableGame();
+  const district = base.management.map.districts[0];
+  const block = district.blocks[0];
+  const branch = {
+    id: "branch-test-east",
+    name: "东区测试分部",
+    districtId: district.id,
+    blockId: block.id,
+    supervisorId: base.members[0].id,
+    stationedManpower: 4,
+    stationedBeyonderIds: [base.members[0].id],
+    policy: "intelligence",
+    status: "active",
+    controlSupport: 8,
+    warningRefs: [],
+  };
+  const game = {
+    ...base,
+    management: {
+      ...base.management,
+      branches: [branch],
+      map: {
+        ...base.management.map,
+        districts: base.management.map.districts.map((item) => item.id === district.id ? { ...item, control: 80 } : item),
+      },
+    },
+    organizationIssues: [{ sourceId: district.id, category: "资源", state: "待裁决", urgency: 86 }],
+  };
+  const candidate = attentionAutomationCandidates(game).find((item) => item.id === "branch:branch-test-east");
+  assert.ok(candidate);
+  assert.equal(candidate.ready, false);
+  assert.match(candidate.reason, /异常/);
 });

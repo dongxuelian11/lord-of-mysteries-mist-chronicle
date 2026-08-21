@@ -36,7 +36,7 @@ import {
   worldSystemAudience,
 } from "./memory/index";
 export type LoreRecord = LegacyLoreRecord;
-import { applyWorldTurn, type WorldTurnDelta } from "./world-kernel";
+import { applyWorldTurn, createWorldTurnTransaction, type WorldTurnDelta } from "./world-kernel";
 import { abilitiesFor, abilityRuleSummary } from "./pathway-abilities";
 import { advanceAdvancementStage, createAdvancementProcess, evaluateActing } from "./progression-system";
 import { advanceOrganizationCausality } from "./organization-causality";
@@ -1919,7 +1919,11 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     allowedProposalIds: new Set(executableProposalIds),
     proposalBoundaries: executableProposalBoundaries,
   });
-  const worldKernel = { ...applyWorldTurn(game.worldKernel, kernelDelta), currentWeek: game.week, currentDate: game.date };
+  const committedKernelDelta = {
+    ...kernelDelta,
+    transaction: createWorldTurnTransaction(game.worldKernel, kernelDelta, `world:${chapter.week}`),
+  };
+  const worldKernel = { ...applyWorldTurn(game.worldKernel, committedKernelDelta), currentWeek: game.week, currentDate: game.date };
   const interruptionApplication = applyDirectiveInterruptions(chapter, kernelDelta);
   const postWorldResults = interruptionApplication.results;
   const interruptionContinuations = interruptionApplication.continuations;

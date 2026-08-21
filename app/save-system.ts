@@ -20,6 +20,7 @@ import { ensureFactionStrategyState, type FactionStrategyState } from "./faction
 import { ensureHighSequenceLedger, type HighSequenceLedger } from "./high-sequence-ledger.ts";
 import { ensureCampaignWorldState, type CampaignWorldState } from "./campaign-world.ts";
 import { ensureAttentionSimulationState } from "./attention-simulation.ts";
+import { ensureWorldKernelTransactionState } from "./world-kernel.ts";
 
 export const ACTIVE_SAVE_KEY = "mist-chronicle-complete-v21";
 export const LEGACY_ACTIVE_SAVE_KEYS = Array.from(
@@ -265,7 +266,7 @@ export function normalizeStoredGame(input: Partial<GameState>): GameState {
     : {};
   const base = { ...fresh, ...input, ...legacyAbilityFields, version: SAVE_SCHEMA_VERSION } as GameState;
   const management = migrateOrganizationManagementState(input.management ?? fresh.management);
-  const worldKernel = input.worldKernel ?? initializeWorldKernel(base);
+  const worldKernel = ensureWorldKernelTransactionState(input.worldKernel ?? initializeWorldKernel(base));
   const normalized: GameState = {
     ...base,
     playerOrigin: {

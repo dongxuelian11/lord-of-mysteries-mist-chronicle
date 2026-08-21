@@ -18,7 +18,11 @@ import {
   verifyWorldLedger,
 } from "../app/world-ledger.ts";
 import { adjudicateWorldActionProposals } from "../app/world-actions.ts";
-import { applyWorldTurn, createWorldKernel, projectWorldForAudience } from "../app/world-kernel.ts";
+import { applyWorldTurn as commitWorldTurn, createWorldKernel, createWorldTurnTransaction, projectWorldForAudience } from "../app/world-kernel.ts";
+
+function applyWorldTurn(kernel, delta, turnId = `test:${delta.week}`) {
+  return commitWorldTurn(kernel, { ...delta, transaction: createWorldTurnTransaction(kernel, delta, turnId) });
+}
 
 test("the append-only ledger snapshots and replays authoritative world state", () => {
   const game = createInitialGame("spectator");
