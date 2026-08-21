@@ -348,13 +348,13 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 - `npm.cmd audit --audit-level=high`：退出码 0；报告 4 个 moderate 的 esbuild/drizzle-kit 依赖问题，修复需要 breaking `--force`，未执行。
 - 本地 PR1 定向回归最终 68/68 通过；独立 Codex 线程本轮定向复核 63/63 通过。
 - Codex 第三轮复审曾发现 1 个 P1：`WorldKernel` 在缺少 receipt/sourceProposalIds/executableProposalIds 时存在知识写入兼容旁路；另有 1 个 P2 复核模型 JSON 不得携带 lore 映射。已在 `5e34789` 修复：`executableProposalIds` 成为事务必需边界，adapter 写入已准入 proposal 集，所有知识都必须同时满足本轮事件、可执行 proposal 交集和同事件同 proposal 的 `knowledge` mutation claim；并保持模型 JSON 不含 `loreRecordIds`、`authorizedLoreIds`、`knowledgeSourceEventIds`。
-- Codex 最终只读独立复审：`CLEAN`（复审范围 `origin/main...HEAD`，HEAD=`5e34789`）；此前三轮发现的 4 个 P1+1 个 P2、1 个 P1+1 个 P2、1 个 P1+1 个 P2 均已关闭。复审未修改文件；未推送、未开 PR、未合并。
+- Codex 最终只读独立复审：`CLEAN`（复审范围 `origin/main...HEAD`，HEAD=`23dcbe3`；代码修复提交=`5e34789`）；此前三轮发现的 4 个 P1+1 个 P2、1 个 P1+1 个 P2、1 个 P1+1 个 P2 均已关闭。复审未修改文件；未推送、未开 PR、未合并。
 - 远端 CI：仍为 `PENDING`；本地通过与独立审阅不替代 GitHub 检查。
 
 ### 自动压缩后的继续规则
 
 1. 先读本节、`git status --short` 和最新提交；保留两个未知 QA 日志及未合并边界。
-2. Gate 0/PR1 的本地实现与独立只读审阅已完成；继续时不要重做，先核对 `5e34789` 与工作树。
+2. Gate 0/PR1 的本地实现与独立只读审阅已完成；继续时不要重做，先核对 `23dcbe3` 与工作树。
 3. 不推送、不开 PR、不合并；远端 CI 仍为 `PENDING`，任何远端动作需单独授权。
 4. PR1 只建立内存事务边界；SQLite、完整存档恢复和更大范围模型实跑不在本批范围内。
 
