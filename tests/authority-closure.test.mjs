@@ -157,6 +157,43 @@ test("adapter rejects a lore ID that exists in the corpus but is absent from thi
   }), /UNRETRIEVED_LORE_REFERENCE_REJECTED/);
 });
 
+test("adapter rejects knowledge that reuses a historical event and proposal", async () => {
+  const { createInitialGame } = await loadRuntimeModule("app/game-model.ts");
+  const { adaptWorldAdjudication } = await loadRuntimeModule("app/world-output-adapter.ts");
+  const game = createInitialGame("seer");
+  game.worldKernel.events = [{
+    id: "historical-event",
+    week: 1,
+    title: "历史事件",
+    detail: "上一周已结算的事件。",
+    actorIds: [],
+    factionIds: [],
+    causeIds: [],
+    visibility: "world",
+    sourceProposalIds: ["old-proposal"],
+  }];
+  assert.throws(() => adaptWorldAdjudication({
+    publicSignals: [
+      { channel: "报纸", headline: "本周消息", body: "本周消息保持可见。", reliability: "公开事实", districtId: "dock" },
+      { channel: "街谈", headline: "本周街谈", body: "本周街谈保持可见。", reliability: "单一消息", districtId: "east" },
+    ],
+    worldSummary: { atmosphere: "本周世界仍在运转。" },
+    kernelDelta: {
+      events: [],
+      observations: [{ eventId: "historical-event", channel: "调查", text: "模型伪造了本周观察。", visibility: "public" }],
+      knowledge: [{ subject: "旧事件", statement: "不应由历史事件直接生成本周知识。", truth: "likely", visibility: "public", loreRecordIds: ["lore-a"], sourceEventId: "historical-event" }],
+    },
+  }, {
+    game,
+    resolvingWeek: 2,
+    playerIssuedNoOrders: false,
+    allowedLoreIds: new Set(["lore-a"]),
+    allowedProposalIds: new Set(["new-proposal"]),
+    proposalBoundaries: new Map(),
+    retrievalReceipt: { requestId: "rag:test", indexVersion: "index-test-v2", audienceRef: "world", queryHash: "aaaaaaaa", filterHash: "bbbbbbbb", chunkIds: ["lore-a"], contextHash: "cccccccc" },
+  }), /本轮事件|历史事件/);
+});
+
 test("receipt and mutation claims are committed with the turn and replay without a second write", async () => {
   const { createWorldKernel, createWorldTurnTransaction, applyWorldTurn } = await loadRuntimeModule("app/world-kernel.ts");
   const kernel = createWorldKernel({ week: 1, date: "1349年1月1日", factions: [], actors: [], locations: [{ id: "dock", name: "码头", risk: 20 }], timeline: [] });

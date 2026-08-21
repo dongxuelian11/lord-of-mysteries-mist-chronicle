@@ -290,7 +290,14 @@ function parseWorldKernelDelta(
   }
   for (const node of knowledge) {
     const sourceEvent = evidenceEvents.find((event) => event.id === node.sourceEventId);
-    const sourceProposalIds = sourceEvent?.sourceProposalIds ?? [];
+    const currentTurnSourceEvent = events.find((event) => event.id === node.sourceEventId);
+    if (retrievalReceipt && !currentTurnSourceEvent) {
+      throw new Error(`MUTATION_EVIDENCE_REJECTED: 知识变化必须绑定本轮事件，不能复用历史事件：${node.sourceEventId ?? ""}`);
+    }
+    const sourceProposalIds = (currentTurnSourceEvent?.sourceProposalIds ?? []).filter((id) => allowedProposalIds.has(id));
+    if (retrievalReceipt && !sourceProposalIds.length) {
+      throw new Error(`UNRELATED_PROPOSAL_MUTATION_REJECTED: 知识变化没有绑定本轮可执行提案：${node.id}`);
+    }
     validateAndRecord("knowledge", `knowledge:${node.id}`, [
       ...node.loreRecordIds.map((id) => `lore:${id}`),
       ...(node.holderRefs ?? []),
