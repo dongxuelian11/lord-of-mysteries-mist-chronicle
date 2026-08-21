@@ -268,6 +268,37 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 3. 若要让 GitHub CI 运行，先单独确认推送/开 PR；在 CI 通过和独立审阅前不得合并。
 4. 下一阶段只在 PR1 证据稳定后规划 SQLite/恢复点等后续工作，不把本地专项通过写成生产可用。
 
+## 自动压缩恢复断点（2026-08-21 · MIST-AUTH-01）
+
+当前任务目标：**把“知识 ID 存在”升级为“本轮实际获得的证据”，把“提案 ID 合法”升级为“该提案实际授权的变化”；不新增 UI、剧情、SQLite、本地模型或大规模 Agent 能力。**
+
+当前分支仍为：`codex/gate0-pr1-turn-guard`。两个未知来源的 QA 日志 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log` 仍保持未跟踪，禁止清理或覆盖。
+
+### MIST-AUTH-01 已完成的本地闭环
+
+- `app/rag/client.ts` 的异步检索现在返回 `RetrievalReceipt`：包含 `requestId`、`indexVersion`、`audienceRef`、`queryHash`、`filterHash`、最终过滤后的 `chunkIds` 与 `contextHash`；Electron worker 从索引元数据提供稳定版本标识，旧检索回退使用明确的 `legacy-v1`。
+- 世界裁决只使用 `receipt.chunkIds` 作为 `allowedLoreIds`；知识与配方引用未在本轮检索结果中的 lore 会以 `UNRETRIEVED_LORE_REFERENCE_REJECTED` 拒绝，不再用整个静态语料或运行时索引白名单代替本轮证据。
+- 新增 `app/world-authority-closure.ts` 的 `MutationClaim`、`ExecutionPlanScope` 和确定性校验器：检查参与者/目标/持有者范围、资源投入上限、地点同地点来源事件、知识事件与观察链；无关实体会以 `UNRELATED_PROPOSAL_MUTATION_REJECTED` 拒绝。
+- `WorldKernel` turn delta 携带 receipt 与 mutation claims；它们进入事务输入哈希、有限历史与幂等重放。`narrative-ready` 账本事件绑定 `modelCallId`、receipt 与 claims，保留模型结果与权威提交之间的证据链。
+- 世界协议已要求模型声明 `mutationClaims`；玩家表面和现有三件大事循环未扩展。
+
+### 当前证据
+
+- `npm.cmd test`：构建成功；327 项测试中 322 通过、5 项按公共空壳知识库或可选 Playwright 条件跳过、0 失败。
+- `npm.cmd run typecheck`：通过。
+- `npm.cmd run lint`：通过，0 warning。
+- `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+- `npm.cmd audit --audit-level=high`：退出码 0；报告 4 个 moderate 的 esbuild/drizzle-kit 依赖问题，修复会触发 breaking change，未执行 `--force`。
+- 新增负向与重放覆盖：本轮未检索 lore、合法 proposal 绑定无关势力、地点缺少来源事件、receipt/claims 事务重放；现有世界周集成测试保持通过。
+- 远端 CI：仍为 `PENDING`；分支尚未推送/开 PR，本地通过不替代 GitHub 检查或独立审阅。
+
+### 自动压缩后的继续规则
+
+1. 先读本节、`git status --short` 与当前提交；不要重做 Gate 0/PR1 或 MIST-AUTH-01。
+2. 当前本地提交需要独立 review 后再决定是否推送；不得自动合并，也不得把本地证据写成远端 CI 通过。
+3. 下一项按原审查顺序进入 exactly-once 与角色隐私闭环；SQLite 仍不在本批范围内。
+4. 继续工作时保留两个未知 QA 日志，不扩大玩家表面，不引入新的剧情或 Agent 能力。
+
 ### 2026-08-20 · 注意力驱动模拟 H
 
 - 状态：CG-09 已完成；剩余 1 个工作包：CG-10。

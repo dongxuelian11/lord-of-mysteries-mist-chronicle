@@ -8,7 +8,7 @@ const indexDir = process.env.RAG_INDEX_DIR || "";
 const port = process.parentPort ?? null;
 
 let retriever = null;
-let status = { available: false, chunks: 0, reason: "no-index", indexDir };
+let status = { available: false, chunks: 0, reason: "no-index", indexDir, indexVersion: "unavailable" };
 let activeRequests = 0;
 
 function readJson(file) {
@@ -21,7 +21,7 @@ function readJson(file) {
 
 function loadIndex() {
   retriever = null;
-  status = { available: false, chunks: 0, reason: "no-index", indexDir };
+  status = { available: false, chunks: 0, reason: "no-index", indexDir, indexVersion: "unavailable" };
   if (!indexDir) {
     status.reason = "RAG_INDEX_DIR-not-set";
     return;
@@ -36,7 +36,16 @@ function loadIndex() {
   const aliasMap = readJson(path.join(indexDir, "alias-map.json")) ?? {};
   const vectors = readJson(path.join(indexDir, "vectors.json")) ?? undefined;
   retriever = new JsHybridRetriever({ chunks, inverted, aliasMap, vectors });
-  status = { available: true, chunks: chunks.length, indexDir };
+  status = {
+    available: true,
+    chunks: chunks.length,
+    indexDir,
+    indexVersion: typeof meta.indexVersion === "string" && meta.indexVersion.trim()
+      ? meta.indexVersion.trim()
+      : typeof meta.builtAt === "string" && meta.builtAt.trim()
+        ? meta.builtAt.trim()
+        : `schema-v${meta.version}`,
+  };
 }
 
 loadIndex();
@@ -190,6 +199,7 @@ function handleMessage(message) {
             eventId: chunk.eventId,
           })),
           context: result.context,
+          indexVersion: status.indexVersion,
         },
       });
       return;

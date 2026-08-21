@@ -1,3 +1,5 @@
+import type { MutationClaim, RetrievalReceipt } from "./world-authority-closure.ts";
+
 export type WorldVisibility = "world" | "public" | "player" | "actors";
 
 export type PersistentWorldActor = {
@@ -119,6 +121,8 @@ export type WorldKernel = {
   lastResolvedWeek: number;
   revision: number;
   committedTransactions: WorldTurnTransaction[];
+  retrievalReceipts: RetrievalReceipt[];
+  mutationClaims: MutationClaim[];
   actors: PersistentWorldActor[];
   factions: PersistentWorldFaction[];
   projects: PersistentWorldProject[];
@@ -154,6 +158,8 @@ export type WorldKernelSeed = {
 export type WorldTurnDelta = {
   week: number;
   transaction?: WorldTurnTransaction;
+  retrievalReceipt?: RetrievalReceipt;
+  mutationClaims?: MutationClaim[];
   playerIssuedNoOrders: boolean;
   newActors?: (Omit<PersistentWorldActor, "lastAction" | "knowledgeIds"> & { lastAction?: string; knowledgeIds?: string[]; sourceProposalIds: string[] })[];
   newFactions?: (Omit<PersistentWorldFaction, "lastAction"> & { lastAction?: string; sourceProposalIds: string[] })[];
@@ -173,6 +179,7 @@ export type WorldTurnDelta = {
 const clamp = (value: number, minimum = 0, maximum = 100) => Math.max(minimum, Math.min(maximum, value));
 
 const MAX_COMMITTED_WORLD_TRANSACTIONS = 256;
+const MAX_AUTHORITY_RECEIPTS = 256;
 
 function stableSerialize(value: unknown): string {
   if (value === null) return "null";
@@ -230,6 +237,31 @@ function isWorldTurnTransaction(value: unknown): value is WorldTurnTransaction {
     && /^[0-9a-f]{8}$/.test(transaction.inputHash);
 }
 
+function isRetrievalReceipt(value: unknown): value is RetrievalReceipt {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const receipt = value as Partial<RetrievalReceipt>;
+  return typeof receipt.requestId === "string"
+    && typeof receipt.indexVersion === "string"
+    && typeof receipt.audienceRef === "string"
+    && typeof receipt.queryHash === "string"
+    && typeof receipt.filterHash === "string"
+    && Array.isArray(receipt.chunkIds)
+    && receipt.chunkIds.every((id) => typeof id === "string")
+    && typeof receipt.contextHash === "string";
+}
+
+function isMutationClaim(value: unknown): value is MutationClaim {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const claim = value as Partial<MutationClaim>;
+  return typeof claim.proposalId === "string"
+    && typeof claim.effectKind === "string"
+    && typeof claim.subjectRef === "string"
+    && Array.isArray(claim.targetRefs)
+    && claim.targetRefs.every((ref) => typeof ref === "string")
+    && (claim.resourceImpact === undefined || (typeof claim.resourceImpact === "object" && claim.resourceImpact !== null))
+    && (claim.sourceEventId === undefined || typeof claim.sourceEventId === "string");
+}
+
 export function ensureWorldKernelTransactionState(value: unknown): WorldKernel {
   const source = value && typeof value === "object" && !Array.isArray(value)
     ? value as Partial<WorldKernel>
@@ -237,11 +269,19 @@ export function ensureWorldKernelTransactionState(value: unknown): WorldKernel {
   const committedTransactions = Array.isArray(source.committedTransactions)
     ? source.committedTransactions.filter(isWorldTurnTransaction).slice(-MAX_COMMITTED_WORLD_TRANSACTIONS)
     : [];
+  const retrievalReceipts = Array.isArray(source.retrievalReceipts)
+    ? source.retrievalReceipts.filter(isRetrievalReceipt).slice(-MAX_AUTHORITY_RECEIPTS)
+    : [];
+  const mutationClaims = Array.isArray(source.mutationClaims)
+    ? source.mutationClaims.filter(isMutationClaim).slice(-MAX_AUTHORITY_RECEIPTS * 4)
+    : [];
   const sourceRevision = Number.isInteger(source.revision) && (source.revision as number) >= 0 ? source.revision as number : 0;
   return {
     ...(source as WorldKernel),
     revision: Math.max(sourceRevision, committedTransactions.length),
     committedTransactions,
+    retrievalReceipts,
+    mutationClaims,
   };
 }
 
@@ -267,6 +307,8 @@ export function createWorldKernel(seed: WorldKernelSeed): WorldKernel {
     lastResolvedWeek: Math.max(0, seed.week - 1),
     revision: 0,
     committedTransactions: [],
+    retrievalReceipts: [],
+    mutationClaims: [],
     actors: seed.actors.map((actor) => ({ id: actor.id, name: actor.name, locationId: actor.locationId, agenda: actor.agenda, shortTermGoal: actor.agenda, lastAction: actor.lastAction ?? "尚未产生新的可记录行动", condition: actor.state ?? "正常活动", knowledgeIds: [] })),
     factions: seed.factions.map((faction) => ({ id: faction.id, name: faction.name, posture: faction.plan, resources: 50, suspicion: faction.suspicion ?? 0, lastAction: "正在推进既定计划" })),
     projects: [
@@ -442,6 +484,12 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
       ...(Array.isArray(kernel.committedTransactions) ? kernel.committedTransactions : []),
       transactionState.transaction,
     ].slice(-MAX_COMMITTED_WORLD_TRANSACTIONS),
+    retrievalReceipts: delta.retrievalReceipt
+      ? [...(kernel.retrievalReceipts ?? []), delta.retrievalReceipt].slice(-MAX_AUTHORITY_RECEIPTS)
+      : [...(kernel.retrievalReceipts ?? [])],
+    mutationClaims: delta.mutationClaims?.length
+      ? [...(kernel.mutationClaims ?? []), ...delta.mutationClaims].slice(-MAX_AUTHORITY_RECEIPTS * 4)
+      : [...(kernel.mutationClaims ?? [])],
     actors,
     factions,
     projects,

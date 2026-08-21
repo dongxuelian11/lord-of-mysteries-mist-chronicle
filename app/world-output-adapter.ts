@@ -1,7 +1,15 @@
 import { DISTRICTS, type GameState, type WorldMove, type WorldSignal } from "./game-model.ts";
+import {
+  type ExecutionPlanScope,
+  type MutationClaim,
+  type MutationEffectKind,
+  type ResourceDelta,
+  type RetrievalReceipt,
+  validateMutationClaim,
+} from "./world-authority-closure.ts";
 import type { WorldTurnDelta } from "./world-kernel.ts";
 
-export type ExecutableProposalBoundary = {
+export type ExecutableProposalBoundary = ExecutionPlanScope & {
   redLines: string[];
   mustEscalateWhen: string[];
   retreatCondition: string;
@@ -15,6 +23,7 @@ type KernelDeltaParseOptions = {
   allowedLoreIds: ReadonlySet<string>;
   allowedProposalIds: ReadonlySet<string>;
   proposalBoundaries: ReadonlyMap<string, ExecutableProposalBoundary>;
+  retrievalReceipt?: RetrievalReceipt;
 };
 
 function legacyHash(value: string) {
@@ -30,12 +39,20 @@ function parseWorldKernelDelta(
   raw: Record<string, unknown>,
   options: KernelDeltaParseOptions,
 ): WorldTurnDelta {
-  const { game, resolvingWeek, playerIssuedNoOrders, publicSignals, allowedLoreIds, allowedProposalIds, proposalBoundaries } = options;
+  const { game, resolvingWeek, playerIssuedNoOrders, publicSignals, allowedLoreIds, allowedProposalIds, proposalBoundaries, retrievalReceipt } = options;
   const source = raw.kernelDelta && typeof raw.kernelDelta === "object" && !Array.isArray(raw.kernelDelta) ? raw.kernelDelta as Record<string, unknown> : {};
   const list = (key: string) => Array.isArray(source[key]) ? source[key] as unknown[] : [];
   const proposalSources = (value: Record<string, unknown>) => Array.isArray(value.sourceProposalIds)
     ? [...new Set(value.sourceProposalIds.map(String).filter((id) => allowedProposalIds.has(id)))].slice(0, 8)
     : [];
+  const explicitClaims = list("mutationClaims").filter((item): item is MutationClaim => Boolean(item && typeof item === "object" && !Array.isArray(item) && typeof (item as Record<string, unknown>).proposalId === "string" && typeof (item as Record<string, unknown>).effectKind === "string" && typeof (item as Record<string, unknown>).subjectRef === "string" && Array.isArray((item as Record<string, unknown>).targetRefs))).map((item) => ({
+    proposalId: item.proposalId,
+    effectKind: item.effectKind,
+    subjectRef: item.subjectRef.trim(),
+    targetRefs: item.targetRefs.map(String).map((ref) => ref.trim()).filter(Boolean).slice(0, 16),
+    ...(item.resourceImpact ? { resourceImpact: item.resourceImpact } : {}),
+    ...(item.sourceEventId ? { sourceEventId: item.sourceEventId.trim() } : {}),
+  }));
   const actorIds = new Set(game.worldKernel.actors.map((item) => item.id));
   const factionIds = new Set(game.worldKernel.factions.map((item) => item.id));
   const projectIds = new Set(game.worldKernel.projects.map((item) => item.id));
@@ -51,6 +68,15 @@ function parseWorldKernelDelta(
       : factionIds.has(id)
         ? `faction:${id}`
         : "";
+  const ownerRefForId = (id: string) => id === "player" || id === "organization"
+    ? id
+    : actorIds.has(id)
+      ? `actor:${id}`
+      : factionIds.has(id)
+        ? `faction:${id}`
+        : id === "world" || id === "canon"
+          ? id
+          : `project-owner:${id}`;
   const newActors = list("newActors").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 8).flatMap((value, index) => {
     const sourceProposalIds = proposalSources(value);
     const name = typeof value.name === "string" ? value.name.trim().slice(0, 60) : "";
@@ -152,7 +178,11 @@ function parseWorldKernelDelta(
       ...(Array.isArray(value.holderRefs) ? value.holderRefs.map(String).filter(validHolderRef).slice(0, 12) : []),
       ...requestedHolderIds.map(holderRefForId).filter(Boolean),
     ])];
-    const sourceEventId = eventIdMap.get(String(value.sourceEventId ?? ""));
+    const requestedSourceEventId = typeof value.sourceEventId === "string" ? value.sourceEventId.trim() : "";
+    const sourceEventId = eventIdMap.get(requestedSourceEventId) ?? (existingEventIds.has(requestedSourceEventId) ? requestedSourceEventId : undefined);
+    if (retrievalReceipt && (!sourceEventId || !observations.some((observation) => observation.eventId === sourceEventId))) {
+      throw new Error(`MUTATION_EVIDENCE_REJECTED: 知识变化必须绑定本轮事件与观察证据`);
+    }
     const privateHolders = visibility === "actors" || visibility === "player" ? requestedHolderRefs : [];
     for (const holderRef of privateHolders) {
       const sourceObservation = observations.find((observation) => observation.eventId === sourceEventId && observation.holderRefs.includes(holderRef));
@@ -160,7 +190,12 @@ function parseWorldKernelDelta(
     }
     const holderRefs = privateHolders;
     const holderIds = holderRefs.map((ref) => ref === "player" || ref === "organization" ? ref : ref.replace(/^(actor|faction):/, ""));
-    return [{ id: `knowledge-${resolvingWeek}-${index}-${legacyHash(statement)}`, subject: typeof value.subject === "string" ? value.subject.slice(0, 80) : "世界变化", statement, truth, visibility, holderIds, holderRefs, loreRecordIds: Array.isArray(value.loreRecordIds) ? value.loreRecordIds.map(String).filter((id) => allowedLoreIds.has(id)).slice(0, 8) : [], sourceEventId }];
+    const requestedLoreRecordIds = Array.isArray(value.loreRecordIds) ? [...new Set(value.loreRecordIds.map(String).map((id) => id.trim()).filter(Boolean))].slice(0, 8) : [];
+    const unretrievedLoreIds = requestedLoreRecordIds.filter((id) => !allowedLoreIds.has(id));
+    if (unretrievedLoreIds.length && retrievalReceipt) {
+      throw new Error(`UNRETRIEVED_LORE_REFERENCE_REJECTED: ${unretrievedLoreIds.join("、")}`);
+    }
+    return [{ id: `knowledge-${resolvingWeek}-${index}-${legacyHash(statement)}`, subject: typeof value.subject === "string" ? value.subject.slice(0, 80) : "世界变化", statement, truth, visibility, holderIds, holderRefs, loreRecordIds: retrievalReceipt ? requestedLoreRecordIds : requestedLoreRecordIds.filter((id) => allowedLoreIds.has(id)), sourceEventId }];
   });
   const knowledgeGrants = knowledge.flatMap((node) => node.holderRefs.map((holderRef) => {
     const observation = observations.find((candidate) => candidate.eventId === node.sourceEventId && candidate.holderRefs.includes(holderRef));
@@ -191,9 +226,88 @@ function parseWorldKernelDelta(
       if (!proposalId || !sourceEventId || !sourceEvent || !triggeredBoundary || !validBoundaries.includes(triggeredBoundary) || !reason) return [];
       return [{ proposalId, sourceEventId, triggeredBoundary, reason, completedFraction }];
     });
+  const evidenceEvents = [...game.worldKernel.events, ...events];
+  const mutationClaims: MutationClaim[] = [];
+  const claimKeys = new Set<string>();
+  const explicitClaimFor = (proposalId: string, effectKind: MutationEffectKind, subjectRef: string) => explicitClaims.find((claim) => claim.proposalId === proposalId && claim.effectKind === effectKind && claim.subjectRef === subjectRef);
+  const validateAndRecord = (
+    effectKind: MutationEffectKind,
+    subjectRef: string,
+    targetRefs: string[],
+    sourceProposalIds: string[],
+    sourceEventId?: string,
+    resourceImpact?: ResourceDelta,
+  ) => {
+    for (const proposalId of sourceProposalIds) {
+      const explicit = explicitClaimFor(proposalId, effectKind, subjectRef);
+      const claim: MutationClaim = explicit ?? {
+        proposalId,
+        effectKind,
+        subjectRef,
+        targetRefs: [...new Set(targetRefs.filter(Boolean))],
+        ...(resourceImpact ? { resourceImpact } : {}),
+        ...(sourceEventId ? { sourceEventId } : {}),
+      };
+      const scope = proposalBoundaries.get(proposalId);
+      if (scope) {
+        const checked = validateMutationClaim(claim, {
+          ...scope,
+          proposalId: scope.proposalId ?? proposalId,
+        }, {
+          events: evidenceEvents,
+          observations,
+          allowedLoreIds,
+        });
+        if (!checked.ok) throw new Error(`${checked.code ?? "MUTATION_REJECTED"}: ${proposalId}:${effectKind}:${subjectRef}: ${checked.reasons.join("；")}`);
+      }
+      const key = `${claim.proposalId}:${claim.effectKind}:${claim.subjectRef}`;
+      if (!claimKeys.has(key)) {
+        claimKeys.add(key);
+        mutationClaims.push(claim);
+      }
+    }
+  };
+  for (const actor of newActors) validateAndRecord("actor-state", `actor:${actor.id}`, [`location:${actor.locationId}`], actor.sourceProposalIds);
+  for (const faction of newFactions) validateAndRecord("faction-state", `faction:${faction.id}`, [`faction:${faction.id}`], faction.sourceProposalIds);
+  for (const project of newProjects) validateAndRecord("project-progress", `project:${project.id}`, [`project:${project.id}`, ownerRefForId(project.ownerId)], project.sourceProposalIds);
+  for (const event of events) validateAndRecord("event", `event:${event.id}`, [
+    ...(event.locationId ? [`location:${event.locationId}`] : []),
+    ...event.actorIds.map((id) => `actor:${id}`),
+    ...event.factionIds.map((id) => `faction:${id}`),
+  ], event.sourceProposalIds ?? []);
+  for (const update of actorUpdates) validateAndRecord("actor-state", `actor:${update.actorId}`, [
+    `actor:${update.actorId}`,
+    ...(update.locationId ? [`location:${update.locationId}`] : []),
+  ], update.sourceProposalIds);
+  for (const update of factionUpdates) validateAndRecord("faction-state", `faction:${update.factionId}`, [`faction:${update.factionId}`], update.sourceProposalIds);
+  for (const update of projectUpdates) {
+    const project = game.worldKernel.projects.find((candidate) => candidate.id === update.projectId);
+    validateAndRecord("project-progress", `project:${update.projectId}`, [`project:${update.projectId}`, ...(project ? [ownerRefForId(project.ownerId)] : [])], update.sourceProposalIds);
+  }
+  for (const update of locationUpdates) {
+    const sourceEventId = events.find((event) => event.locationId === update.locationId && (event.sourceProposalIds ?? []).some((id) => update.sourceProposalIds.includes(id)))?.id;
+    validateAndRecord("location-state", `location:${update.locationId}`, [`location:${update.locationId}`], update.sourceProposalIds, sourceEventId);
+  }
+  for (const node of knowledge) {
+    const sourceEvent = evidenceEvents.find((event) => event.id === node.sourceEventId);
+    const sourceProposalIds = sourceEvent?.sourceProposalIds ?? [];
+    validateAndRecord("knowledge", `knowledge:${node.id}`, [
+      ...node.loreRecordIds.map((id) => `lore:${id}`),
+      ...(node.holderRefs ?? []),
+      ...(sourceEvent?.locationId ? [`location:${sourceEvent.locationId}`] : []),
+      ...(sourceEvent?.actorIds ?? []).map((id) => `actor:${id}`),
+      ...(sourceEvent?.factionIds ?? []).map((id) => `faction:${id}`),
+    ], sourceProposalIds, node.sourceEventId);
+  }
+  for (const claim of explicitClaims) {
+    if (!allowedProposalIds.has(claim.proposalId)) throw new Error(`UNRELATED_PROPOSAL_MUTATION_REJECTED: mutation claim 引用了不可执行提案 ${claim.proposalId}`);
+    if (!mutationClaims.some((candidate) => candidate.proposalId === claim.proposalId && candidate.effectKind === claim.effectKind && candidate.subjectRef === claim.subjectRef)) {
+      throw new Error(`UNRELATED_PROPOSAL_MUTATION_REJECTED: mutation claim 没有对应的实际变化 ${claim.subjectRef}`);
+    }
+  }
   const canonValue = source.canon && typeof source.canon === "object" && !Array.isArray(source.canon) ? source.canon as Record<string, unknown> : {};
   const mayDiverge = game.deviation >= 15 || game.pivots.some((pivot) => pivot.magnitude >= 20);
-  return { week: resolvingWeek, playerIssuedNoOrders: playerIssuedNoOrders, newActors, newFactions, newProjects, actorUpdates, factionUpdates, projectUpdates, locationUpdates, events, observations, knowledge, knowledgeGrants, directiveInterruptions, canon: { mode: mayDiverge && canonValue.mode === "diverging" ? "diverging" : "anchored", deviationDelta: Math.max(0, Math.min(8, Number(canonValue.deviationDelta) || 0)), pivotEventIds: mayDiverge && Array.isArray(canonValue.pivotEventIds) ? canonValue.pivotEventIds.map(String).map((id) => eventIdMap.get(id) ?? id).filter((id) => events.some((event) => event.id === id)).slice(0, 4) : [] } };
+  return { week: resolvingWeek, playerIssuedNoOrders: playerIssuedNoOrders, ...(retrievalReceipt ? { retrievalReceipt } : {}), mutationClaims, newActors, newFactions, newProjects, actorUpdates, factionUpdates, projectUpdates, locationUpdates, events, observations, knowledge, knowledgeGrants, directiveInterruptions, canon: { mode: mayDiverge && canonValue.mode === "diverging" ? "diverging" : "anchored", deviationDelta: Math.max(0, Math.min(8, Number(canonValue.deviationDelta) || 0)), pivotEventIds: mayDiverge && Array.isArray(canonValue.pivotEventIds) ? canonValue.pivotEventIds.map(String).map((id) => eventIdMap.get(id) ?? id).filter((id) => events.some((event) => event.id === id)).slice(0, 4) : [] } };
 }
 
 export function adaptWorldAdjudication(
@@ -205,6 +319,7 @@ export function adaptWorldAdjudication(
     allowedLoreIds: ReadonlySet<string>;
     allowedProposalIds: ReadonlySet<string>;
     proposalBoundaries: ReadonlyMap<string, ExecutableProposalBoundary>;
+    retrievalReceipt?: RetrievalReceipt;
   },
 ) {
   const basics = parseWorldAdjudicationBasics(raw, options.game, options.resolvingWeek);
@@ -218,6 +333,7 @@ export function adaptWorldAdjudication(
       allowedLoreIds: options.allowedLoreIds,
       allowedProposalIds: options.allowedProposalIds,
       proposalBoundaries: options.proposalBoundaries,
+      retrievalReceipt: options.retrievalReceipt,
     }),
   };
 }

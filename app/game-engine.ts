@@ -21,7 +21,7 @@ import {
 import { createFinaleCampaign } from "./finale-system";
 import { callModel as invokeModel, type AiConfig } from "./ai-client";
 import { type LegacyLoreRecord } from "./rag";
-import { listRuntimeChunkIds, retrieveLoreContextAsync } from "./rag/client";
+import { retrieveLoreContextAsync } from "./rag/client";
 import {
   deriveLocalMemory,
   deriveMemoryFromWorldState,
@@ -74,7 +74,7 @@ import { repairActionReports, requestWorldEnvelope } from "./world-envelope.ts";
 import { planAutonomousAgentsForWeek, releaseAutonomousPlanningCache } from "./agent-planning-service.ts";
 import { buildWorldAdjudicatorInput, projectLegacyWorldCompatibility } from "./world-authority.ts";
 import { advanceAttentionSimulation } from "./attention-simulation.ts";
-import { adaptWorldAdjudication } from "./world-output-adapter.ts";
+import { adaptWorldAdjudication, type ExecutableProposalBoundary } from "./world-output-adapter.ts";
 import { attachOrganizationAdjudicationProtocol, WORLD_KERNEL_PROTOCOL, WORLD_PROPOSAL_PROVENANCE_PROTOCOL } from "./world-adjudication-protocol.ts";
 import { chronicleSummaryFromCausality, advancementRetrospective } from "./chronicle-causality.ts";
 export type { AiConfig } from "./ai-client";
@@ -1855,23 +1855,26 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     .map((item) => item.proposal.participantRefs[0]));
   const executableAutonomousAgentProposals = autonomousAgentProposals
     .filter((proposal) => executableAutonomousRefs.has(proposal.agentRef));
-  const executableProposalBoundaries = new Map<string, { redLines: string[]; mustEscalateWhen: string[]; retreatCondition: string }>([
+  const proposalBoundaryFor = (proposalId: string, plan: NonNullable<typeof worldActionResults[number]["executionPlan"]>): ExecutableProposalBoundary => ({
+    proposalId,
+    redLines: [...plan.authorization.redLines],
+    mustEscalateWhen: [...plan.authorization.mustEscalateWhen],
+    retreatCondition: plan.authorization.retreatCondition,
+    participantRefs: [...plan.participantRefs],
+    targetRefs: [...plan.targetRefs],
+    holderRefs: [...plan.holderRefs],
+    commitments: { ...plan.commitments },
+    causeEventIds: [...plan.causeEventIds],
+  });
+  const executableProposalBoundaries = new Map<string, ExecutableProposalBoundary>([
     ...worldActionResults.flatMap((result) => result.executionPlan?.executable ? [[
       result.executionPlan.proposalId,
-      {
-        redLines: result.executionPlan.authorization.redLines,
-        mustEscalateWhen: result.executionPlan.authorization.mustEscalateWhen,
-        retreatCondition: result.executionPlan.authorization.retreatCondition,
-      },
-    ] as const] : []),
+      proposalBoundaryFor(result.executionPlan.proposalId, result.executionPlan),
+    ] as [string, ExecutableProposalBoundary]] : []),
     ...autonomousAdjudications.flatMap((item) => item.executionPlan.executable ? [[
       item.proposal.id,
-      {
-        redLines: item.executionPlan.authorization.redLines,
-        mustEscalateWhen: item.executionPlan.authorization.mustEscalateWhen,
-        retreatCondition: item.executionPlan.authorization.retreatCondition,
-      },
-    ] as const] : []),
+      proposalBoundaryFor(item.proposal.id, item.executionPlan),
+    ] as [string, ExecutableProposalBoundary]] : []),
   ]);
   const executableProposalIds = [...executableProposalBoundaries.keys()];
   onStage("世界裁决器正在处理同时发生的提案");
@@ -1910,7 +1913,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   const boundedPayload = fitWorldAdjudicatorPayload(attachOrganizationAdjudicationProtocol(payload));
   assertWorldAdjudicatorPayloadBudget(boundedPayload);
   const raw = await requestWorldEnvelope(worldConfig, WORLD_ADJUDICATOR_SYSTEM, buildWorldAdjudicatorPrompt(boundedPayload, `${WORLD_KERNEL_PROTOCOL}\n${WORLD_PROPOSAL_PROVENANCE_PROTOCOL}`), game, worldActionResults.length === 0, worldActionResults.map((result) => result.id), onStage, onToken);
-  const allowedLoreIds = new Set([...LORE_RECORDS.map((record) => record.id), ...(await listRuntimeChunkIds())]);
+  const allowedLoreIds = new Set(lore.receipt.chunkIds);
   const { worldMoves, canonMoves, publicSignals, atmosphere, undercurrents, kernelDelta } = adaptWorldAdjudication(raw, {
     game,
     resolvingWeek: chapter.week,
@@ -1918,6 +1921,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     allowedLoreIds,
     allowedProposalIds: new Set(executableProposalIds),
     proposalBoundaries: executableProposalBoundaries,
+    retrievalReceipt: lore.receipt,
   });
   const committedKernelDelta = {
     ...kernelDelta,
@@ -2139,7 +2143,10 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
       const sequence = Math.max(0, Math.min(9, Math.round(Number(value.sequence))));
       if (!pathwayId || !Number.isFinite(sequence)) continue;
       const reliability = Math.max(0, Math.min(100, Math.round(Number(value.reliability) || 0)));
-      const loreEvidenceIds = Array.isArray(value.loreEvidenceIds) ? value.loreEvidenceIds.map(String).filter((id) => allowedLoreIds.has(id)).slice(0, 8) : [];
+      const requestedLoreEvidenceIds = Array.isArray(value.loreEvidenceIds) ? [...new Set(value.loreEvidenceIds.map(String).map((id) => id.trim()).filter(Boolean))].slice(0, 8) : [];
+      const unretrievedLoreEvidenceIds = requestedLoreEvidenceIds.filter((id) => !allowedLoreIds.has(id));
+      if (unretrievedLoreEvidenceIds.length) throw new Error(`UNRETRIEVED_LORE_REFERENCE_REJECTED: ${unretrievedLoreEvidenceIds.join("、")}`);
+      const loreEvidenceIds = requestedLoreEvidenceIds;
       const requestedStatus = ["lead", "fragment", "verifying", "verified"].includes(String(value.status)) ? String(value.status) as "lead" | "fragment" | "verifying" | "verified" : "lead";
       const status = requestedStatus === "verified" && (reliability < 90 || loreEvidenceIds.length === 0) ? "verifying" : requestedStatus;
       const sourceRefs = Array.isArray(value.sourceRefs) ? value.sourceRefs.map(String).filter((id) => worldActionResults.some((result) => result.id === id) || worldKernel.events.some((event) => event.id === id)).slice(0, 8) : [];
@@ -2264,7 +2271,12 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     payload: { knowledgeId: node.id, statement: node.statement, truth: node.truth, loreRecordIds: node.loreRecordIds },
   })));
   worldLedger = recordWorldLedgerPhase(worldLedger, chapter.week, "autonomous-actors", "独立角色、势力与持续计划已完成世界推演", { eventCount: worldKernel.events.filter((event) => event.week === chapter.week).length, signalCount: publicSignals.length, factionMoveCount: worldMoves.length, autonomousAgentCount: worldAgents.activeAgentRefs.length, coldAgentCount: worldAgents.coldAgentRefs.length, socialTieCount: worldAgents.socialTies.length });
-  worldLedger = recordWorldLedgerPhase(worldLedger, chapter.week, "narrative-ready", "本周权威事实已锁定，可以生成文学叙事", { chapterId: chapter.id });
+  worldLedger = recordWorldLedgerPhase(worldLedger, chapter.week, "narrative-ready", "本周权威事实已锁定，可以生成文学叙事", {
+    chapterId: chapter.id,
+    modelCallId: `world:${chapter.week}`,
+    retrievalReceipt: kernelDelta.retrievalReceipt,
+    mutationClaims: kernelDelta.mutationClaims,
+  });
   let committedMemory = game.memory ?? emptyMemoryState();
   for (const proposal of autonomousAgentProposals) {
     const projection = autonomousPlanningProjections.get(proposal.agentRef);
