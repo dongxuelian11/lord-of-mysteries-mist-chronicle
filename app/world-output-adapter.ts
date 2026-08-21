@@ -135,6 +135,11 @@ function parseWorldKernelDelta(
       .filter((id) => existingEventIds.has(id) || incomingEventIds.has(id))
       .slice(0, 6);
   }
+  const normalizedExplicitClaims = explicitClaims.map((claim) => {
+    if (!claim.sourceEventId) return claim;
+    const sourceEventId = eventIdMap.get(claim.sourceEventId) ?? claim.sourceEventId;
+    return sourceEventId === claim.sourceEventId ? claim : { ...claim, sourceEventId };
+  });
   const fallbackEventId = events.find((event) => event.visibility !== "world")?.id ?? events[0]?.id;
   const observations = list("observations").filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).slice(0, 12).flatMap((value, index) => {
     const text = typeof value.text === "string" ? value.text.trim().slice(0, 420) : "";
@@ -227,9 +232,15 @@ function parseWorldKernelDelta(
       return [{ proposalId, sourceEventId, triggeredBoundary, reason, completedFraction }];
     });
   const evidenceEvents = [...game.worldKernel.events, ...events];
+  const currentTurnEventIds = new Set(events.map((event) => event.id));
+  const createdEntityRefs = new Set([
+    ...newActors.map((actor) => `actor:${actor.id}`),
+    ...newFactions.map((faction) => `faction:${faction.id}`),
+    ...newProjects.map((project) => `project:${project.id}`),
+  ]);
   const mutationClaims: MutationClaim[] = [];
   const claimKeys = new Set<string>();
-  const explicitClaimFor = (proposalId: string, effectKind: MutationEffectKind, subjectRef: string) => explicitClaims.find((claim) => claim.proposalId === proposalId && claim.effectKind === effectKind && claim.subjectRef === subjectRef);
+  const explicitClaimFor = (proposalId: string, effectKind: MutationEffectKind, subjectRef: string) => normalizedExplicitClaims.find((claim) => claim.proposalId === proposalId && claim.effectKind === effectKind && claim.subjectRef === subjectRef);
   const validateAndRecord = (
     effectKind: MutationEffectKind,
     subjectRef: string,
@@ -239,16 +250,24 @@ function parseWorldKernelDelta(
     resourceImpact?: ResourceDelta,
   ) => {
     for (const proposalId of sourceProposalIds) {
-      const explicit = explicitClaimFor(proposalId, effectKind, subjectRef);
-      const claim: MutationClaim = explicit ?? {
-        proposalId,
-        effectKind,
-        subjectRef,
-        targetRefs: [...new Set(targetRefs.filter(Boolean))],
-        ...(resourceImpact ? { resourceImpact } : {}),
-        ...(sourceEventId ? { sourceEventId } : {}),
-      };
       const scope = proposalBoundaries.get(proposalId);
+      const explicit = explicitClaimFor(proposalId, effectKind, subjectRef);
+      const creationSupportRefs = createdEntityRefs.has(subjectRef) && scope
+        ? [...(scope.participantRefs ?? []), ...(scope.targetRefs ?? []), ...(scope.holderRefs ?? [])]
+        : [];
+      const claim: MutationClaim = explicit
+        ? {
+          ...explicit,
+          targetRefs: [...new Set([...explicit.targetRefs, ...creationSupportRefs].filter(Boolean))],
+        }
+        : {
+          proposalId,
+          effectKind,
+          subjectRef,
+          targetRefs: [...new Set([...targetRefs, ...creationSupportRefs].filter(Boolean))],
+          ...(resourceImpact ? { resourceImpact } : {}),
+          ...(sourceEventId ? { sourceEventId } : {}),
+        };
       if (scope) {
         const checked = validateMutationClaim(claim, {
           ...scope,
@@ -257,6 +276,7 @@ function parseWorldKernelDelta(
           events: evidenceEvents,
           observations,
           allowedLoreIds,
+          currentTurnEventIds,
         });
         if (!checked.ok) throw new Error(`${checked.code ?? "MUTATION_REJECTED"}: ${proposalId}:${effectKind}:${subjectRef}: ${checked.reasons.join("；")}`);
       }
@@ -306,7 +326,7 @@ function parseWorldKernelDelta(
       ...(sourceEvent?.factionIds ?? []).map((id) => `faction:${id}`),
     ], sourceProposalIds, node.sourceEventId);
   }
-  for (const claim of explicitClaims) {
+  for (const claim of normalizedExplicitClaims) {
     if (!allowedProposalIds.has(claim.proposalId)) throw new Error(`UNRELATED_PROPOSAL_MUTATION_REJECTED: mutation claim 引用了不可执行提案 ${claim.proposalId}`);
     if (!mutationClaims.some((candidate) => candidate.proposalId === claim.proposalId && candidate.effectKind === claim.effectKind && candidate.subjectRef === claim.subjectRef)) {
       throw new Error(`UNRELATED_PROPOSAL_MUTATION_REJECTED: mutation claim 没有对应的实际变化 ${claim.subjectRef}`);

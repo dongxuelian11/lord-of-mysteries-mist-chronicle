@@ -89,6 +89,32 @@ test("location mutation requires a same-turn sourced event", async () => {
   assert.match(result.reasons.join(" "), /sourceEventId|事件/);
 });
 
+test("location mutation rejects a historical event even when the location matches", async () => {
+  const { validateMutationClaim } = await loadRuntimeModule("app/world-authority-closure.ts");
+  const proposalId = "proposal:investigate-dock";
+  const result = validateMutationClaim({
+    proposalId,
+    effectKind: "location-state",
+    subjectRef: "location:dock",
+    targetRefs: ["location:dock"],
+    sourceEventId: "historical-event",
+  }, {
+    proposalId,
+    participantRefs: ["actor:investigator"],
+    targetRefs: ["location:dock"],
+    holderRefs: ["actor:investigator"],
+    commitments: { money: 20, manpower: 1, extraordinaryMaterials: 0, spirituality: 0 },
+    causeEventIds: [],
+  }, {
+    events: [{ id: "historical-event", locationId: "dock", sourceProposalIds: [proposalId] }],
+    observations: [],
+    currentTurnEventIds: new Set(["current-event"]),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "MUTATION_EVIDENCE_REJECTED");
+  assert.match(result.reasons.join(" "), /历史事件|本轮/);
+});
+
 test("adapter rejects an unrelated mutation even when the proposal ID is executable", async () => {
   const { createInitialGame } = await loadRuntimeModule("app/game-model.ts");
   const { adaptWorldAdjudication } = await loadRuntimeModule("app/world-output-adapter.ts");
@@ -124,7 +150,85 @@ test("adapter rejects an unrelated mutation even when the proposal ID is executa
       causeEventIds: [], redLines: [], mustEscalateWhen: [], retreatCondition: "身份暴露时撤退",
     }]]),
     retrievalReceipt: { requestId: "rag:test", indexVersion: "index-test-v2", audienceRef: "world", queryHash: "aaaaaaaa", filterHash: "bbbbbbbb", chunkIds: ["lore-a"], contextHash: "cccccccc" },
-  }), /UNRELATED_PROPOSAL_MUTATION_REJECTED/);
+}), /UNRELATED_PROPOSAL_MUTATION_REJECTED/);
+});
+
+test("adapter binds new faction creation to an existing proposal scope", async () => {
+  const { createInitialGame } = await loadRuntimeModule("app/game-model.ts");
+  const { adaptWorldAdjudication } = await loadRuntimeModule("app/world-output-adapter.ts");
+  const game = createInitialGame("seer");
+  const proposalId = "proposal:investigate-dock";
+  const actor = game.worldKernel.actors[0];
+  const result = adaptWorldAdjudication({
+    publicSignals: [
+      { channel: "报纸", headline: "新势力出现", body: "码头出现了一个新的组织。", reliability: "公开事实", districtId: "dock" },
+      { channel: "街谈", headline: "东区照常", body: "东区的商铺仍按日常时间营业。", reliability: "单一消息", districtId: "east" },
+    ],
+    worldSummary: { atmosphere: "一个新的组织进入了码头局势。" },
+    kernelDelta: {
+      newFactions: [{ id: "new-faction", name: "新势力", posture: "试探码头秩序", sourceProposalIds: [proposalId] }],
+      events: [], observations: [], knowledge: [], actorUpdates: [], factionUpdates: [], projectUpdates: [], locationUpdates: [],
+    },
+  }, {
+    game,
+    resolvingWeek: 1,
+    playerIssuedNoOrders: false,
+    allowedLoreIds: new Set(),
+    allowedProposalIds: new Set([proposalId]),
+    proposalBoundaries: new Map([[proposalId, {
+      proposalId,
+      participantRefs: [`actor:${actor.id}`],
+      targetRefs: ["location:dock"],
+      holderRefs: [`actor:${actor.id}`],
+      commitments: { money: 0, manpower: 0, extraordinaryMaterials: 0, spirituality: 0 },
+      causeEventIds: [], redLines: [], mustEscalateWhen: [], retreatCondition: "撤退",
+    }]]),
+  });
+  assert.equal(result.kernelDelta.newFactions.length, 1);
+  const claim = result.kernelDelta.mutationClaims.find((item) => item.subjectRef === "faction:new-faction");
+  assert.ok(claim);
+  assert.equal(claim.proposalId, proposalId);
+  assert.ok(claim.targetRefs.includes("location:dock"));
+});
+
+test("adapter normalizes temporary event ids in explicit mutation claims", async () => {
+  const { createInitialGame } = await loadRuntimeModule("app/game-model.ts");
+  const { adaptWorldAdjudication } = await loadRuntimeModule("app/world-output-adapter.ts");
+  const game = createInitialGame("seer");
+  const proposalId = "proposal:investigate-dock";
+  const actor = game.worldKernel.actors[0];
+  const result = adaptWorldAdjudication({
+    publicSignals: [
+      { channel: "报纸", headline: "码头核验", body: "码头的核验已经完成。", reliability: "公开事实", districtId: "dock" },
+      { channel: "街谈", headline: "东区照常", body: "东区的商铺仍按日常时间营业。", reliability: "单一消息", districtId: "east" },
+    ],
+    worldSummary: { atmosphere: "码头的风险有了可核对的变化。" },
+    kernelDelta: {
+      mutationClaims: [{ proposalId, effectKind: "location-state", subjectRef: "location:dock", targetRefs: ["location:dock"], sourceEventId: "temporary-event" }],
+      events: [{ id: "temporary-event", title: "码头核验", detail: "调查者完成了码头核验。", locationId: "dock", actorIds: [actor.id], factionIds: [], causeIds: [], visibility: "world", sourceProposalIds: [proposalId] }],
+      locationUpdates: [{ locationId: "dock", riskDelta: 1, sourceProposalIds: [proposalId] }],
+      observations: [], knowledge: [], actorUpdates: [], factionUpdates: [], projectUpdates: [],
+    },
+  }, {
+    game,
+    resolvingWeek: 1,
+    playerIssuedNoOrders: false,
+    allowedLoreIds: new Set(),
+    allowedProposalIds: new Set([proposalId]),
+    proposalBoundaries: new Map([[proposalId, {
+      proposalId,
+      participantRefs: [`actor:${actor.id}`],
+      targetRefs: ["location:dock"],
+      holderRefs: [`actor:${actor.id}`],
+      commitments: { money: 0, manpower: 0, extraordinaryMaterials: 0, spirituality: 0 },
+      causeEventIds: [], redLines: [], mustEscalateWhen: [], retreatCondition: "撤退",
+    }]]),
+  });
+  assert.equal(result.kernelDelta.events.length, 1);
+  assert.notEqual(result.kernelDelta.events[0].id, "temporary-event");
+  const claim = result.kernelDelta.mutationClaims.find((item) => item.effectKind === "location-state");
+  assert.ok(claim);
+  assert.equal(claim.sourceEventId, result.kernelDelta.events[0].id);
 });
 
 test("adapter rejects a lore ID that exists in the corpus but is absent from this turn receipt", async () => {

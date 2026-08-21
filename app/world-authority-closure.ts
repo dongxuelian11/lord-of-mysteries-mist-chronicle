@@ -71,6 +71,8 @@ export type MutationValidationContext = {
   events: readonly MutationEventEvidence[];
   observations: readonly MutationObservationEvidence[];
   allowedLoreIds?: ReadonlySet<string>;
+  /** Event ids normalized from the current world-adjudication response. */
+  currentTurnEventIds?: ReadonlySet<string>;
 };
 
 export type MutationValidationResult = {
@@ -175,6 +177,14 @@ export function validateMutationClaim(
   const events = context.events;
   const observations = context.observations;
   const sourceEvent = claim.sourceEventId ? events.find((event) => event.id === claim.sourceEventId) : undefined;
+  if (claim.sourceEventId && context.currentTurnEventIds) {
+    if (!context.currentTurnEventIds.has(claim.sourceEventId)) {
+      return result("MUTATION_EVIDENCE_REJECTED", ["mutation claim 不能复用历史事件作为本轮证据"]);
+    }
+    if (sourceEvent && !sourceEvent.sourceProposalIds?.includes(claim.proposalId)) {
+      return result("MUTATION_EVIDENCE_REJECTED", ["mutation claim 的来源事件未绑定当前提案"]);
+    }
+  }
   if (claim.effectKind === "location-state") {
     if (!claim.sourceEventId || !sourceEvent) {
       if (hasReference(allowed, "world:world", true)) return { ok: true, reasons: [], escalation: false };

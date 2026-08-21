@@ -74,6 +74,10 @@ test("角色地点投影只暴露受众已知的边界字段", () => {
   const firstProjection = projectWorldForAudience(next, { kind: "actor", holderId: "owner" });
   const replayProjection = projectWorldForAudience(next, { kind: "actor", holderId: "owner" });
   assert.equal(typeof firstProjection.projectionHash, "string");
+  assert.equal("revision" in firstProjection, false);
+  assert.equal("committedTransactions" in firstProjection, false);
+  assert.equal("retrievalReceipts" in firstProjection, false);
+  assert.equal("mutationClaims" in firstProjection, false);
   assert.equal(firstProjection.projectionHash, replayProjection.projectionHash);
   const hiddenOnlyChange = structuredClone(next);
   hiddenOnlyChange.locations[0].actorIds.push("hidden-2");

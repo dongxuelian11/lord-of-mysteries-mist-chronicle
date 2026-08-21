@@ -75,6 +75,7 @@ export default function CompleteGame() {
   const [situationBrief, setSituationBrief] = useState<SituationBrief | null>(null);
   const [situationLoading, setSituationLoading] = useState(false);
   const situationDismissed = useRef(false);
+  const worldTurnInFlight = useRef(false);
   const [view, setView] = useState<ViewId>("intent");
   const [intentText, setIntentText] = useState("");
   const [selectedDistrictId, setSelectedDistrictId] = useState("cherwood");
@@ -263,7 +264,7 @@ export default function CompleteGame() {
   }
 
   async function endWeek() {
-    if (generationStage) return;
+    if (generationStage || worldTurnInFlight.current) return;
     if (game.fatalSituation || game.ending.phase === "major-event" || game.ending.phase === "finale" || game.ending.phase === "ended") return;
     if (!aiReady) {
       setGenerationError("请先连接人物与叙事模型；世界必须完成自己的回应后，这一周才能结束。");
@@ -271,25 +272,30 @@ export default function CompleteGame() {
       setShowSettings(true);
       return;
     }
-    createRecoveryCheckpoint(game, "week");
-    const resolved = resolveWeek(game);
-    const councilState: GameState = {
-      ...resolved.state,
-      councilRecords: [
-        ...resolved.state.councilRecords.map((record) => record.week === game.week ? { ...record, status: "adjourned" as const, decisions: record.decisions.map((decision) => ({ ...decision, status: "resolved" as const })) } : record),
-        ...(resolved.state.councilRecords.some((record) => record.week === resolved.state.week) ? [] : [{ week: resolved.state.week, status: "convened" as const, decisions: [] }]),
-      ],
-    };
-    const playerResult = resolved.chapter.results.find((result) => ["executed", "limited", "partially-completed", "interrupted"].includes(result.executionStatus ?? "") && (result.contract.leaderId === "player" || result.contract.executionMode === "player-led"));
-    if (playerResult) {
-      setGenerationError("");
-      setTurnChapter(null);
-      setView("intent");
-      setGame({ ...councilState, activeParticipationScene: createParticipationScene(resolved.chapter.id, game.week, playerResult) });
-      setToast("局面的结局已经定下，不会因重试改变；亲历场景结束前，你还不知道最终结果");
-      return;
+    worldTurnInFlight.current = true;
+    try {
+      createRecoveryCheckpoint(game, "week");
+      const resolved = resolveWeek(game);
+      const councilState: GameState = {
+        ...resolved.state,
+        councilRecords: [
+          ...resolved.state.councilRecords.map((record) => record.week === game.week ? { ...record, status: "adjourned" as const, decisions: record.decisions.map((decision) => ({ ...decision, status: "resolved" as const })) } : record),
+          ...(resolved.state.councilRecords.some((record) => record.week === resolved.state.week) ? [] : [{ week: resolved.state.week, status: "convened" as const, decisions: [] }]),
+        ],
+      };
+      const playerResult = resolved.chapter.results.find((result) => ["executed", "limited", "partially-completed", "interrupted"].includes(result.executionStatus ?? "") && (result.contract.leaderId === "player" || result.contract.executionMode === "player-led"));
+      if (playerResult) {
+        setGenerationError("");
+        setTurnChapter(null);
+        setView("intent");
+        setGame({ ...councilState, activeParticipationScene: createParticipationScene(resolved.chapter.id, game.week, playerResult) });
+        setToast("局面的结局已经定下，不会因重试改变；亲历场景结束前，你还不知道最终结果");
+        return;
+      }
+      await finishWeekGeneration(councilState, resolved.chapter);
+    } finally {
+      worldTurnInFlight.current = false;
     }
-    await finishWeekGeneration(councilState, resolved.chapter);
   }
 
   async function continueParticipationScene(intent: string) {
@@ -307,11 +313,16 @@ export default function CompleteGame() {
 
   async function resumeAfterParticipation() {
     const scene = game.activeParticipationScene;
-    if (!scene || scene.status !== "complete" || generationStage) return;
+    if (!scene || scene.status !== "complete" || generationStage || worldTurnInFlight.current) return;
     const chapter = game.chronicle.find((item) => item.id === scene.chapterId);
     if (!chapter) { setParticipationError("已锁定章节不存在，无法继续世界推演"); return; }
     const resumed = { ...game, activeParticipationScene: null };
-    await finishWeekGeneration(resumed, chapter);
+    worldTurnInFlight.current = true;
+    try {
+      await finishWeekGeneration(resumed, chapter);
+    } finally {
+      worldTurnInFlight.current = false;
+    }
   }
 
   async function retryLiteraryChapter(chapter: ChronicleChapter) {
@@ -352,19 +363,20 @@ export default function CompleteGame() {
   }
 
   async function resolveFinaleStage() {
-    if (generationStage) return;
-    if (game.ending.campaign?.stage === 1 && !game.ending.campaign.reports.length) createRecoveryCheckpoint(game, "finale");
+    if (generationStage || worldTurnInFlight.current) return;
     const next = resolveFinalePhase(game);
     if (next === game) { setToast("三项并发危机都必须指派执行者"); return; }
-    const localChapter = next.chronicle[0];
-    setStreamPreview("");
-    setGame(next); setTurnChapter(localChapter); setGenerationError("");
-    if (next.ending.phase === "ended") setView("ending");
-    if (!aiReady || !localChapter || localChapter.id === game.chronicle[0]?.id) return;
+    worldTurnInFlight.current = true;
     let finaleWorldFailed = true;
     let finaleLiteraryStartedAt = 0;
     const finaleWorldStartedAt = performance.now();
     try {
+      if (game.ending.campaign?.stage === 1 && !game.ending.campaign.reports.length) createRecoveryCheckpoint(game, "finale");
+      const localChapter = next.chronicle[0];
+      setStreamPreview("");
+      setGame(next); setTurnChapter(localChapter); setGenerationError("");
+      if (next.ending.phase === "ended") setView("ending");
+      if (!aiReady || !localChapter || localChapter.id === game.chronicle[0]?.id) return;
       const worldSimulated = await generateAiWorldDelta(aiConfig, next, localChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
       finaleWorldFailed = false;
       setTurnStages([{ name: "重大事件世界推演", ms: Math.round(performance.now() - finaleWorldStartedAt), status: "ok" }]);
@@ -380,7 +392,11 @@ export default function CompleteGame() {
       const stageMs = Math.round(performance.now() - (finaleWorldFailed ? finaleWorldStartedAt : finaleLiteraryStartedAt));
       setTurnStages((prev) => [...prev, { name: finaleWorldFailed ? "重大事件世界推演" : "重大事件文学章节", ms: stageMs, status: "error" }]);
       setGenerationError(`${error instanceof Error ? error.message : "重大事件世界推演或文学模式失败"}；规则战报已经保留，失败阶段不会伪造本地替代世界。`);
-    } finally { setGenerationStage(""); setStreamPreview(""); }
+    } finally {
+      worldTurnInFlight.current = false;
+      setGenerationStage("");
+      setStreamPreview("");
+    }
   }
 
   function applyManagementChange(management: OrganizationManagementState, message: string) {

@@ -533,7 +533,7 @@ export type AudienceLocationProjection = {
   updatedWeek: number;
 };
 
-export type AudienceWorldProjection = Omit<WorldKernel, "locations"> & {
+export type AudienceWorldProjection = Pick<WorldKernel, "events" | "observations" | "knowledge" | "knowledgeGrants"> & {
   locations: AudienceLocationProjection[];
   projectionHash: string;
 };
@@ -597,8 +597,6 @@ export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudi
     audience: reference,
     currentWeek: kernel.currentWeek,
     currentDate: kernel.currentDate,
-    lastResolvedWeek: kernel.lastResolvedWeek,
-    canon: kernel.canon,
     locations,
     events: visibleEvents,
     observations: visibleObservations,
@@ -606,17 +604,11 @@ export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudi
     knowledgeGrants: visibleKnowledgeGrants,
   }));
   return {
-    ...kernel,
-    actors: [],
-    factions: [],
-    projects: [],
     locations,
     events: visibleEvents,
     observations: visibleObservations,
     knowledge: visibleKnowledge,
     knowledgeGrants: visibleKnowledgeGrants,
-    retrievalReceipts: [],
-    mutationClaims: [],
     projectionHash,
   };
 }
