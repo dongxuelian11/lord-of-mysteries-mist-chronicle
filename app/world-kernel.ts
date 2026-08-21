@@ -159,7 +159,7 @@ export type WorldTurnDelta = {
   week: number;
   transaction?: WorldTurnTransaction;
   /** Proposal ids already admitted by the executable world-turn boundary. */
-  executableProposalIds?: string[];
+  executableProposalIds: string[];
   retrievalReceipt?: RetrievalReceipt;
   mutationClaims?: MutationClaim[];
   playerIssuedNoOrders: boolean;
@@ -450,18 +450,15 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
       throw new Error(`Knowledge mutation must reference a current-turn event: ${node.id}`);
     }
     const sourceProposalIds = sourceEvent.sourceProposalIds ?? [];
-    const requiresExecutableBoundary = Boolean(delta.retrievalReceipt) || sourceProposalIds.length > 0 || executableProposalIds.size > 0;
-    if (requiresExecutableBoundary) {
-      if (!executableProposalIds.size || !sourceProposalIds.some((proposalId) => executableProposalIds.has(proposalId))) {
-        throw new Error(`Knowledge mutation source event is not tied to an executable proposal: ${node.id}`);
-      }
-      const claim = knowledgeClaims.find((candidate) => candidate.effectKind === "knowledge"
-        && candidate.subjectRef === `knowledge:${node.id}`
-        && candidate.sourceEventId === node.sourceEventId
-        && executableProposalIds.has(candidate.proposalId)
-        && sourceProposalIds.includes(candidate.proposalId));
-      if (!claim) throw new Error(`Knowledge mutation is missing an executable authority claim: ${node.id}`);
+    if (!executableProposalIds.size || !sourceProposalIds.some((proposalId) => executableProposalIds.has(proposalId))) {
+      throw new Error(`Knowledge mutation source event is not tied to an executable proposal: ${node.id}`);
     }
+    const claim = knowledgeClaims.find((candidate) => candidate.effectKind === "knowledge"
+      && candidate.subjectRef === `knowledge:${node.id}`
+      && candidate.sourceEventId === node.sourceEventId
+      && executableProposalIds.has(candidate.proposalId)
+      && sourceProposalIds.includes(candidate.proposalId));
+    if (!claim) throw new Error(`Knowledge mutation is missing an executable authority claim: ${node.id}`);
   }
   const incomingKnowledge = (delta.knowledge ?? [])
     .map((node) => ({ ...node, loreRecordIds: node.loreRecordIds ?? [], acquiredWeek: delta.week }));

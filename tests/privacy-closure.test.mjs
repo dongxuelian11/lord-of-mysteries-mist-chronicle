@@ -14,10 +14,29 @@ import {
 
 after(() => closeRuntimeServer());
 
+function withKnowledgeAuthority(delta) {
+  if (!Array.isArray(delta.knowledge) || delta.knowledge.length === 0) return delta;
+  const fallbackProposalId = "test:knowledge";
+  const executableProposalIds = Array.isArray(delta.executableProposalIds) ? delta.executableProposalIds : [fallbackProposalId];
+  const events = (delta.events ?? []).map((event) => ({
+    ...event,
+    sourceProposalIds: Array.isArray(event.sourceProposalIds) ? event.sourceProposalIds : [fallbackProposalId],
+  }));
+  const mutationClaims = [...(delta.mutationClaims ?? [])];
+  for (const node of delta.knowledge) {
+    if (mutationClaims.some((claim) => claim.effectKind === "knowledge" && claim.subjectRef === `knowledge:${node.id}`)) continue;
+    const sourceEvent = events.find((event) => event.id === node.sourceEventId);
+    const proposalId = sourceEvent?.sourceProposalIds?.find((id) => executableProposalIds.includes(id));
+    if (proposalId) mutationClaims.push({ proposalId, effectKind: "knowledge", subjectRef: `knowledge:${node.id}`, targetRefs: [], sourceEventId: node.sourceEventId });
+  }
+  return { ...delta, executableProposalIds, events, mutationClaims };
+}
+
 function commit(kernel, delta, turnId = `privacy:${delta.week}`) {
+  const prepared = withKnowledgeAuthority(delta);
   return applyWorldTurn(kernel, {
-    ...delta,
-    transaction: createWorldTurnTransaction(kernel, delta, turnId),
+    ...prepared,
+    transaction: createWorldTurnTransaction(kernel, prepared, turnId),
   });
 }
 
