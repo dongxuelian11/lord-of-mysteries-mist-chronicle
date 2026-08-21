@@ -521,20 +521,103 @@ function canSee(visibility: WorldVisibility, holderIds: string[], holderRefs: st
   return false;
 }
 
-export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudience) {
+export type AudienceLocationProjection = {
+  id: string;
+  name: string;
+  knownConditions: string[];
+  knownActorIds: string[];
+  knownFactionIds: string[];
+  perceivedRisk: number;
+  publicMood: string;
+  stability: number;
+  updatedWeek: number;
+};
+
+export type AudienceWorldProjection = Omit<WorldKernel, "locations"> & {
+  locations: AudienceLocationProjection[];
+  projectionHash: string;
+};
+
+function projectLocationForAudience(
+  location: PersistentWorldLocation,
+  audience: WorldAudience,
+  visibleEvents: PersistentWorldEvent[],
+  visibleObservations: WorldObservation[],
+): AudienceLocationProjection {
+  const locationEvents = visibleEvents.filter((event) => event.locationId === location.id);
+  const eventIds = new Set(locationEvents.map((event) => event.id));
+  const locationObservations = visibleObservations.filter((observation) => eventIds.has(observation.eventId));
+  const knownActorIds = new Set<string>();
+  const knownFactionIds = new Set<string>();
+  for (const event of locationEvents) {
+    for (const actorId of event.actorIds) knownActorIds.add(actorId);
+    for (const factionId of event.factionIds) knownFactionIds.add(factionId);
+  }
+  for (const observation of locationObservations) {
+    for (const perceivedRef of observation.perceivedRefs ?? []) {
+      const actor = perceivedRef.match(/^actor:(.+)$/)?.[1];
+      const faction = perceivedRef.match(/^faction:(.+)$/)?.[1];
+      if (actor) knownActorIds.add(actor);
+      if (faction) knownFactionIds.add(faction);
+    }
+  }
+  if (audience.kind === "actor" && location.actorIds.includes(audience.holderId)) knownActorIds.add(audience.holderId);
+  if (audience.kind === "faction" && location.factionIds.includes(audience.holderId)) knownFactionIds.add(audience.holderId);
+  const visibleText = [
+    ...locationEvents.flatMap((event) => [event.title, event.detail]),
+    ...locationObservations.map((observation) => observation.text),
+  ].join("\n");
+  const knownConditions = location.conditions.filter((condition) => condition.trim() && visibleText.includes(condition));
+  return {
+    id: location.id,
+    name: location.name,
+    knownConditions: [...new Set(knownConditions)].slice(-8),
+    knownActorIds: [...knownActorIds].sort(),
+    knownFactionIds: [...knownFactionIds].sort(),
+    perceivedRisk: clamp(location.risk),
+    publicMood: location.publicMood,
+    stability: clamp(location.stability),
+    updatedWeek: location.updatedWeek,
+  };
+}
+
+export function projectWorldForAudience(kernel: WorldKernel, audience: Extract<WorldAudience, { kind: "world" }>): WorldKernel;
+export function projectWorldForAudience(kernel: WorldKernel, audience: Exclude<WorldAudience, { kind: "world" }>): AudienceWorldProjection;
+export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudience): WorldKernel | AudienceWorldProjection;
+export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudience): WorldKernel | AudienceWorldProjection {
   if (audience.kind === "world") return kernel;
   const visibleObservations = kernel.observations.filter((observation) => canSee(observation.visibility, observation.holderIds, observation.holderRefs, audience));
   const observableEventIds = new Set(visibleObservations.map((observation) => observation.eventId));
   const reference = audienceRef(audience);
+  const visibleEvents = kernel.events.filter((event) => event.visibility !== "world" && (event.visibility === "public" || observableEventIds.has(event.id) || event.witnessRefs?.includes(reference)));
+  const visibleKnowledge = kernel.knowledge.filter((node) => canSee(node.visibility, node.holderIds, node.holderRefs, audience));
+  const visibleKnowledgeGrants = (kernel.knowledgeGrants ?? []).filter((grant) => grant.holderRef === reference);
+  const locations = kernel.locations.map((location) => projectLocationForAudience(location, audience, visibleEvents, visibleObservations));
+  const projectionHash = hashText(stableSerialize({
+    audience: reference,
+    currentWeek: kernel.currentWeek,
+    currentDate: kernel.currentDate,
+    lastResolvedWeek: kernel.lastResolvedWeek,
+    canon: kernel.canon,
+    locations,
+    events: visibleEvents,
+    observations: visibleObservations,
+    knowledge: visibleKnowledge,
+    knowledgeGrants: visibleKnowledgeGrants,
+  }));
   return {
     ...kernel,
     actors: [],
     factions: [],
     projects: [],
-    events: kernel.events.filter((event) => event.visibility !== "world" && (event.visibility === "public" || observableEventIds.has(event.id) || event.witnessRefs?.includes(reference))),
+    locations,
+    events: visibleEvents,
     observations: visibleObservations,
-    knowledge: kernel.knowledge.filter((node) => canSee(node.visibility, node.holderIds, node.holderRefs, audience)),
-    knowledgeGrants: (kernel.knowledgeGrants ?? []).filter((grant) => grant.holderRef === reference),
+    knowledge: visibleKnowledge,
+    knowledgeGrants: visibleKnowledgeGrants,
+    retrievalReceipts: [],
+    mutationClaims: [],
+    projectionHash,
   };
 }
 

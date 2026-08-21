@@ -299,6 +299,29 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 3. 下一项按原审查顺序进入 exactly-once 与角色隐私闭环；SQLite 仍不在本批范围内。
 4. 继续工作时保留两个未知 QA 日志，不扩大玩家表面，不引入新的剧情或 Agent 能力。
 
+## 自动压缩恢复断点（2026-08-21 · P0-4 角色隐私闭环）
+
+当前任务目标：**关闭角色知识隔离的两条硬泄漏路径；不新增 UI、剧情、SQLite、本地模型或 Agent 数量。**
+
+当前分支仍为：`codex/gate0-pr1-turn-guard`。`main` 仍停在 `f519128`，本地工作提交尚未推送、尚未开 PR、尚未合并。两个未知来源的 QA 日志 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log` 仍保持未跟踪，禁止清理或覆盖。
+
+### P0-4 已完成的本地闭环
+
+- `projectWorldForAudience()` 不再把权威地点对象原样放进角色投影；非 `world` 受众收到 `AudienceLocationProjection`，只包含地点标识/名称、`knownConditions`、`knownActorIds`、`knownFactionIds`、`perceivedRisk`、`publicMood`、稳定性和更新时间。隐藏的 `actorIds`、`factionIds`、原始 `conditions` 不再透传；已知实体只从受众可见事件、观察和受众自身持有关系中派生。投影还带确定性的 `projectionHash`，并清空不属于角色视角的检索收据与 mutation claims。
+- Agent 规划的 `currentLocation` 改为读取同一份受众地点投影；自治规划的相关地点签名和势力归属也只消费 `knownFactionIds`、`knownConditions` 与 `perceivedRisk`。
+- `generateCouncilReplies()` 改为每位成员独立调用模型，可并行但不合并 Prompt。每次请求只包含一个 `speaker`、该成员的 `authorizedLore`、`dynamicMemory` 和 `authorizedKnowledge`；模型只能返回该成员的公开发言。跨成员私有上下文不再通过“不要串读”的提示词隔离，后续书记员只消费已经公开的发言。
+- 新增 `tests/privacy-closure.test.mjs`：地点投影隐藏字段回归、跨成员私有令牌 canary、每成员调用次数和公开回复数量回归。
+
+### 当前证据与继续规则
+
+- 本地红绿循环已通过：地点投影、Agent 规划投影、议会独立调用与跨成员秘密 canary。
+- `npm.cmd test`：构建成功；329 项测试中 324 通过、5 项按既有公共空壳知识库或可选 Playwright 条件跳过、0 失败。
+- `npm.cmd run typecheck`：通过；`npm.cmd run lint`：通过；`npm.cmd run bundle:budget`：通过，最大 bundle 198.8 KiB / 450 KiB。
+- `npm.cmd audit --audit-level=high`：退出码 0；仍报告 4 个 moderate 的 esbuild/drizzle-kit 依赖问题，修复会触发 breaking change，未执行 `--force`。
+- `git diff --check`：通过；本轮隐私闭环已形成本地提交。本地通过不替代 GitHub CI，远端仍为 `PENDING`，不得自动推送、开 PR 或合并。
+- 继续时先读本节、`git status --short` 和最新提交；保留两个 QA 日志，不重复 Gate 0、PR1、MIST-AUTH-01 或本 P0-4 闭环。
+- 下一步是独立审阅本地差异并决定是否推送；SQLite、完整存档恢复和更大范围模型实跑仍不在本批范围内。
+
 ### 2026-08-20 · 注意力驱动模拟 H
 
 - 状态：CG-09 已完成；剩余 1 个工作包：CG-10。

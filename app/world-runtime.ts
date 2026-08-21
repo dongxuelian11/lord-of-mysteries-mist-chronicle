@@ -1,6 +1,6 @@
 import type { AutonomousDecisionFrame } from "./autonomous-agents.ts";
 import { buildAutonomousMemoryProjection, type AutonomousMemoryAudience, type DynamicMemoryState } from "./memory/index.ts";
-import { projectWorldForAudience, type WorldKernel } from "./world-kernel.ts";
+import { projectWorldForAudience, type AudienceLocationProjection, type WorldKernel } from "./world-kernel.ts";
 
 export const ACTIVE_AGENT_LIMIT = 24;
 export const WORLD_ADJUDICATOR_PAYLOAD_CHAR_LIMIT = 72_000;
@@ -38,7 +38,7 @@ export type AgentProposal = {
 export type AgentPlanningProjection = {
   week: number;
   agent: AutonomousDecisionFrame;
-  currentLocation: WorldKernel["locations"][number] | null;
+  currentLocation: AudienceLocationProjection | null;
   ownedProjects: WorldKernel["projects"];
   visibleEvents: WorldKernel["events"];
   visibleObservations: WorldKernel["observations"];
@@ -172,7 +172,7 @@ export function buildAgentPlanningProjection(frame: AutonomousDecisionFrame, ker
   return {
     week: frame.planningWeek,
     agent: frame,
-    currentLocation: frame.locationId ? kernel.locations.find((location) => location.id === frame.locationId) ?? null : null,
+    currentLocation: frame.locationId ? visible.locations.find((location) => location.id === frame.locationId) ?? null : null,
     ownedProjects: kernel.projects
       .filter((project) => project.ownerId === entityId && project.status === "active")
       .sort((left, right) => right.updatedWeek - left.updatedWeek || right.progress - left.progress)

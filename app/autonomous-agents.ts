@@ -418,7 +418,7 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
     });
     const relevantLocations = profile.kind === "actor"
       ? view.locations.filter((location) => location.id === (entity as WorldKernel["actors"][number] | undefined)?.locationId)
-      : view.locations.filter((location) => location.factionIds.includes(profile.entityId));
+      : view.locations.filter((location) => location.knownFactionIds.includes(profile.entityId));
     const planningSignature = stableNumber(JSON.stringify({
       ref: profile.ref,
       objective: profile.currentObjective,
@@ -428,7 +428,7 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
       resources: profile.kind === "faction" ? (entity as WorldKernel["factions"][number] | undefined)?.resources : undefined,
       suspicion: profile.kind === "faction" ? (entity as WorldKernel["factions"][number] | undefined)?.suspicion : undefined,
       riskTolerance: profile.riskTolerance,
-      locations: relevantLocations.map((location) => [location.id, location.risk, location.stability, location.publicMood, location.conditions, location.updatedWeek]),
+      locations: relevantLocations.map((location) => [location.id, location.perceivedRisk, location.stability, location.publicMood, location.knownConditions, location.updatedWeek]),
       reflection: {
         summary: profile.reflection.summary,
         conclusions: profile.reflection.conclusions,
