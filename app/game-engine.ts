@@ -1925,9 +1925,10 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   });
   const committedKernelDelta = {
     ...kernelDelta,
-    transaction: createWorldTurnTransaction(game.worldKernel, kernelDelta, `world:${chapter.week}`),
+    executableProposalIds,
   };
-  const worldKernel = { ...applyWorldTurn(game.worldKernel, committedKernelDelta), currentWeek: game.week, currentDate: game.date };
+  const committedTransaction = createWorldTurnTransaction(game.worldKernel, committedKernelDelta, `world:${chapter.week}`);
+  const worldKernel = { ...applyWorldTurn(game.worldKernel, { ...committedKernelDelta, transaction: committedTransaction }), currentWeek: game.week, currentDate: game.date };
   const interruptionApplication = applyDirectiveInterruptions(chapter, kernelDelta);
   const postWorldResults = interruptionApplication.results;
   const interruptionContinuations = interruptionApplication.continuations;

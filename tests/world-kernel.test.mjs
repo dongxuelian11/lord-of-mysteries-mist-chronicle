@@ -152,4 +152,15 @@ test("world kernel rejects knowledge that references only a historical event", (
     observations: [],
     knowledge: [{ id: "historical-knowledge", subject: "旧事实", statement: "不能在本周重新获得。", truth: "likely", visibility: "public", holderIds: [], loreRecordIds: [], sourceEventId: "historical-event" }],
   }), /current-turn event/);
+  assert.throws(() => applyWorldTurn(initial, {
+    week: 1,
+    playerIssuedNoOrders: true,
+    actorUpdates: [],
+    factionUpdates: [],
+    projectUpdates: [],
+    locationUpdates: [],
+    events: [{ id: "rejected-event", title: "拒绝提案事件", detail: "不应成为本周知识来源。", actorIds: [], factionIds: [], causeIds: [], visibility: "world", sourceProposalIds: ["proposal:rejected"] }],
+    observations: [{ id: "rejected-observation", eventId: "rejected-event", channel: "调查", text: "不应被接受。", visibility: "public", holderIds: [] }],
+    knowledge: [{ id: "rejected-knowledge", subject: "拒绝事实", statement: "不能被未授权提案写入。", truth: "likely", visibility: "public", holderIds: [], loreRecordIds: [], sourceEventId: "rejected-event" }],
+  }), /executable proposal/);
 });
