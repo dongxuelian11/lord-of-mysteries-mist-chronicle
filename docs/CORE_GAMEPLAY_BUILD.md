@@ -344,7 +344,8 @@ PR2 不再拆分后续实现包。下一阶段若继续，应另立 PR3 目标�
 - 当前证据：`node --test tests/release-persistence-smoke.test.mjs` 为 3/3；全量 `npm.cmd test` 为 372 项中 367 通过、5 条既有条件跳过、0 失败；`typecheck`、`lint`、`bundle:budget`、Node syntax check、PowerShell parse 和 `git diff --check` 均通过；独立 Codex 只读复审结论为 `CLEAN`。
 - 安装包边界：本轮 `npm.cmd run dist:win` 在 `release:verify:seed` 阶段因 `seed-manifest-missing` 停止，未生成可运行 installer，因此 `release:smoke` 为 `NOT_RUN`。这不影响本机真实 SQLite probe 的通过，但不能写成 packaged E2E、clean-machine、跨设备、升级或生产证据。
 - 恢复断点：PR3 只验证启动时 SQLite 结构存在，不宣称 renderer 保存—退出—重启恢复；后者作为独立 PR4 目标另行定义。两个 `.qa-prodserver3.*.log` 仍必须保留、不得清理、覆盖、提交或推送。
-- 本地提交：`68f0598 feat: qualify packaged persistence startup`，并已随当前分支推送到 `origin/codex/gate0-pr1-turn-guard`；远端 HEAD 为 `6bd66ac`，未开 PR、未合并。
+- 本地提交：`68f0598 feat: qualify packaged persistence startup`，并已随当前分支推送到 `origin/codex/gate0-pr1-turn-guard`；本轮继续复核起点远端 HEAD 为 `cd18fb5`，未开 PR、未合并。
+- 本轮阻塞复核：`KNOWLEDGE_SEED_URL`、`KNOWLEDGE_SEED_SHA256` 未设置，`private/rag/index` 不存在，受限 D 盘未发现 `seed-manifest.json`；因此没有合法输入可以让 `dist:win` 越过 `release:verify:seed`，不得伪造 installer 证据。
 
 ## 自动压缩恢复断点（2026-08-21 · Gate 0 + PR1）
 

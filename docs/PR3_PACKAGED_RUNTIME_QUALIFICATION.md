@@ -17,6 +17,7 @@ PR2 已经把持久化边界落到 Electron Main 进程的 SQLite/WAL store，�
 | 本机 verifier 对真实 PR2 SQLite 数据库的 read-only 检查 | `PASS`（新增测试 1/1） |
 | installer smoke 脚本包含启动后 SQLite 资格检查 | `PASS`（静态契约 + PowerShell parse） |
 | 本轮实际 Windows 安装包构建/安装运行 | `NOT_RUN`：`dist:win` 在 seed-manifest 校验处阻塞 |
+| 本机授权 seed 输入 | `BLOCKED`：`KNOWLEDGE_SEED_URL`、`KNOWLEDGE_SEED_SHA256` 未设置，`private/rag/index` 不存在，受限 D 盘查找未发现 seed manifest |
 | clean-machine、跨设备、升级迁移、生产可用性 | `NOT_AVAILABLE` |
 | renderer 真实保存后再重启恢复 | 不由本 PR3 启动 probe 宣称；仍属于 PR2 本机测试边界 |
 | 真人 5–20 小时证据 | 外部依赖，`NOT_AVAILABLE` |
@@ -29,6 +30,10 @@ PR2 已经把持久化边界落到 Electron Main 进程的 SQLite/WAL store，�
 2. `npm.cmd run typecheck`、`npm.cmd run lint`、`npm.cmd test`（372 中 367 通过、5 跳过、0 失败）、`npm.cmd run bundle:budget` 和 `git diff --check` 通过。
 3. `node --check scripts/release/verify-persistence-db.mjs` 与 PowerShell parse 均通过。
 4. `npm.cmd run dist:win` 未进入 electron-builder：`release:verify:seed` 报 `seed-manifest-missing`；因此 installer `release:smoke` 保持 `NOT_RUN`，不能写成 packaged runtime pass。
+
+## 当前阻塞
+
+PR3 的实现和本机门禁已经完成；继续取得真实 installer 证据只需要一个合法授权的 seed ZIP 及其 SHA-256。仓库发布流程由 `KNOWLEDGE_SEED_URL` / `KNOWLEDGE_SEED_SHA256` 注入该输入，随后才可执行 `release:verify:seed`、`dist:win` 和 `release:smoke`。不得从 `app/generated-lore-compendium.ts`、空壳知识库或未核验目录重建 seed 来绕过发布门禁。
 
 ## 后续
 

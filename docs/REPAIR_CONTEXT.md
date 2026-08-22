@@ -558,3 +558,10 @@
 - 当前变更文件：`scripts/release/smoke-installer.ps1`、`scripts/release/verify-persistence-db.mjs`、`tests/release-persistence-smoke.test.mjs`、`docs/PR3_PACKAGED_RUNTIME_QUALIFICATION.md` 和本账本/核心账本更新；不触碰两个 `.qa-prodserver3.*.log`。
 - 证据边界：probe 只验证启动 schema，不写业务记录，不宣称 renderer 保存—退出—重启恢复；clean-machine、跨设备、升级迁移、生产可用性和真人 5–20 小时仍为 `NOT_AVAILABLE`。若本轮没有实际构建并运行安装包，installer `release:smoke` 仍记为 `NOT_RUN`。
 - 当前进度：PR3 定向测试 3/3、全量 `npm.cmd test` 372 中 367 通过/5 跳过/0 失败、typecheck、lint、bundle budget、Node syntax check、PowerShell parse 和 diff check 均通过；既有 Codex 独立只读复审为 `CLEAN`。`npm.cmd run dist:win` 在 `release:verify:seed` 因 `seed-manifest-missing` 未生成 installer，故 `release:smoke` 记为 `NOT_RUN`。实现与证据整理已提交为 `68f0598`，并已推送当前分支到 `origin/codex/gate0-pr1-turn-guard`；远端 HEAD 与本地为 `6bd66ac`，未建 PR、未合并，工作树只保留两个既有未跟踪 QA 日志。
+
+### 15.7. 2026-08-22 PR3 授权 seed 阻塞复核
+
+- PR3 代码与本机门禁仍保持完成：只读 verifier/installer 接线 3/3、全量 372 中 367 通过/5 跳过/0 失败，typecheck、lint、bundle budget、Node/PowerShell syntax 和 diff check 通过；没有新的代码缺口。
+- 为取得真实 installer 证据，本轮检查了 `KNOWLEDGE_SEED_URL`、`KNOWLEDGE_SEED_SHA256`、`private/rag/index`、`.runtime/release-seed`、`release` 以及受限 D 盘 `seed-manifest.json`；均未提供合法 seed。`release:verify:seed` 因 `seed-manifest-missing` 阻断，`dist:win` 未进入 electron-builder，`release:smoke` 继续为 `NOT_RUN`。
+- 下一次继续的最小输入：合法授权 seed ZIP 及 SHA-256（发布流程的 `KNOWLEDGE_SEED_URL` / `KNOWLEDGE_SEED_SHA256`），或用户明确提供等价的受控本地 seed 目录。不得由空壳知识库或生成的 compendium 冒充授权 seed。
+- 复核起点远端分支为 `origin/codex/gate0-pr1-turn-guard` 的 `cd18fb5`；本记录更新仍不创建 PR、不合并，两个 `.qa-prodserver3.*.log` 继续保留且不触碰。
