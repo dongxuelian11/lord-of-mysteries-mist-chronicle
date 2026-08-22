@@ -505,7 +505,7 @@
 - 最新本地证据：`npm.cmd test` 347 项中 342 通过、5 跳过、0 失败；typecheck、lint、bundle budget、diff check 均通过；Gate 0 的 high-severity audit 退出码 0，保留 4 个 moderate 依赖告警，未执行 breaking `--force` 修复。
 - 当前工作树只保留两个既有未跟踪 QA 日志 `.qa-prodserver3.err.log`、`.qa-prodserver3.out.log`；不得删除、覆盖、提交或推送。
 - 当前没有 push、开 PR、合并授权；远端 CI 仍为 `PENDING`。旧章节的 GitHub 推送授权不适用于本分支。
-- Wave 3/PR2-A/PR2-B 已完成两条本地切片：active-save 读写通过 `app/persistence-authority.ts` storage-neutral adapter；SaveEnvelope checksum 通过 `app/persistence-integrity.ts` 纯边界；权威存档仍实际落在 renderer `localStorage`，恢复点仍在 `app/save-system.ts` 的 `localStorage`。Electron Main 当前已有凭据 safeStorage 与 RAG IPC，但 package 中没有直接安装的 SQLite runtime driver（`better-sqlite3`/`sqlite3` 仅作为 Drizzle 可选 peer 记录）。不得因“继续”自动引入 SQLite、改变产品定位或伪造真人长线证据。
+- Wave 3/PR2-A/PR2-B/PR2-C 已完成三条本地切片：active-save 读写通过 `app/persistence-authority.ts` storage-neutral adapter；SaveEnvelope checksum 通过 `app/persistence-integrity.ts` 纯边界；recovery checkpoint 的上限、旧键回退和损坏 fail-closed 语义已有公开测试；权威存档仍实际落在 renderer `localStorage`，恢复点仍在 `app/save-system.ts` 的 `localStorage`。Electron Main 当前已有凭据 safeStorage 与 RAG IPC，但 package 中没有直接安装的 SQLite runtime driver（`better-sqlite3`/`sqlite3` 仅作为 Drizzle 可选 peer 记录）。不得因“继续”自动引入 SQLite、改变产品定位或伪造真人长线证据。
 
 ### 当前下一步
 
@@ -519,7 +519,7 @@
 - 适配器行为已由 4 项公开端口测试锁定：当前键优先、旧键有序回退、空值按旧逻辑视为缺失、写入/清理只作用于当前键。
 - 定向回归 38/38、全量 341 中 336 通过/5 跳过/0 失败；typecheck、lint、bundle budget、diff check 均通过。
 - 同一项目既有 Codex 独立审阅线程已复核当前工作树的 PR2-A 三文件：`CLEAN`，未发现 `[P1]`/`[P2]`；审阅只读，无文件修改。
-- 未推送、未开 PR、未合并；远端 CI 仍为 `PENDING`。下一步只允许继续本地 PR2-C 失败测试/driver contract 设计，不能把 adapter 证据升级为 SQLite、跨机器或生产可用证据。
+- 该阶段后续的 PR2-C recovery contract 已在 `7f31b40` 完成；当前恢复点见 15.3，不能把 adapter 证据升级为 SQLite、跨机器或生产可用证据。
 
 ### 15.2. 2026-08-22 PR2-B 恢复覆盖
 
@@ -527,7 +527,7 @@
 - integrity 边界已由 3 项测试锁定：确定性 checksum、SaveEnvelope 共享校验与篡改拒绝、非 JSON 输入 fail-closed；原 SaveEnvelope 格式与错误语义保持不变。
 - PR2-B 定向回归 41/41、全量 344 中 339 通过/5 跳过/0 失败；typecheck、lint、bundle budget、diff check 均通过。
 - 同一项目既有 Codex 独立审阅线程复核 PR2-B 变更：`CLEAN`，未发现 `[P1]`/`[P2]`；设计文档把 SQLite/WAL/Main gateway/生产迁移明确列为未实现未来契约。
-- 未推送、未开 PR、未合并；远端 CI 仍为 `PENDING`。下一步只允许继续本地 PR2-C 失败测试/driver contract 设计，不能把纯 integrity 证据升级为 SQLite、跨机器或生产可用证据。
+- 该阶段后续的 PR2-C recovery contract 已在 `7f31b40` 完成；当前恢复点见 15.3，不能把纯 integrity 证据升级为 SQLite、跨机器或生产可用证据。
 
 ### 15.3. 2026-08-22 PR2-C 恢复覆盖
 
