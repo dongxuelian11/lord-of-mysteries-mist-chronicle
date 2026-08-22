@@ -494,3 +494,21 @@
 - 用户已明确授权：将 `0b56b1b`、`6c02799`（包含仓库源码和测试），以及仅用于记录本次进度/推送结果的提交，推送到 `https://github.com/dongxuelian11/lord-of-mysteries-mist-chronicle.git` 的 `main` 分支。
 - 当前动作：提交本进度记录；执行 `git push origin main`；读取本地跟踪状态与远端 `main` 引用进行核验。
 - 两份 `.qa-prodserver3.*.log` 继续排除，不提交、不推送。
+
+## 15. 2026-08-22 当前任务恢复覆盖（Gate 0 + PR1）
+
+本节覆盖本文件中更早的 `main`/旧推送任务记录；当前任务以 `docs/CORE_GAMEPLAY_BUILD.md` 最新 Gate 0/PR1 节和实际 Git 状态为准。不要把旧的 `main` 推送授权迁移到当前分支。
+
+- 当前工作区：`D:\gmzz`；当前分支：`codex/gate0-pr1-turn-guard`。
+- 当前 HEAD：`21e661a`；代码修复提交为 `5e34789`，之后只有恢复账本/复审记录文档提交。
+- Gate 0 + PR1/MIST-TURN-01 已完成；独立 Codex 只读复审为 `CLEAN`，当前代码未再变化。
+- 最终本地证据：`npm.cmd test` 337 项中 332 通过、5 跳过、0 失败；typecheck、lint、bundle budget、diff check 均通过；high-severity audit 退出码 0，保留 4 个 moderate 依赖告警，未执行 breaking `--force` 修复。
+- 当前工作树只保留两个既有未跟踪 QA 日志 `.qa-prodserver3.err.log`、`.qa-prodserver3.out.log`；不得删除、覆盖、提交或推送。
+- 当前没有 push、开 PR、合并授权；远端 CI 仍为 `PENDING`。旧章节的 GitHub 推送授权不适用于本分支。
+- Wave 3 只完成只读预审，尚未开始实现：当前权威游戏存档仍经 `app/game-session-controller.ts` 使用 renderer `localStorage`；恢复点在 `app/save-system.ts` 的 `localStorage`；Electron Main 当前已有凭据 safeStorage 与 RAG IPC，但 package 中没有直接安装的 SQLite runtime driver（`better-sqlite3`/`sqlite3` 仅作为 Drizzle 可选 peer 记录）。不得因“继续”自动引入 SQLite、改变产品定位或伪造真人长线证据。
+
+### 当前下一步
+
+1. Gate 0/PR1 不重做；若用户授权远端交付，再单独执行 push/开 PR 前的 exact-head 复核。
+2. 若继续本地开发，先把 Wave 3 拆成独立 PR2 设计与失败测试：存档 authority adapter、SQLite WAL driver、完整性/迁移/恢复边界，再逐项实现；未明确授权前只做设计和只读预审。
+3. 保持 Great Smog 产品选择和真人 5–20 小时证据为外部依赖，不能自动决定或伪造。
