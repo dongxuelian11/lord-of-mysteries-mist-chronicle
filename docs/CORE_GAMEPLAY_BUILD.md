@@ -273,6 +273,25 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 
 下一步只在本地继续：为 SQLite driver port contract、未知 schema/截断 payload、raw v20/v21 迁移幂等、checkpoint 上限与 WAL 中断故障分别写 RED→GREEN 切片；保持当前 localStorage authority 直到 driver 有独立证据。两个 `.qa-prodserver3.*.log` 继续保留且不得触碰。
 
+## 2026-08-22 · PR2-C Recovery Checkpoint Contract
+
+- 状态：PR2-C 第一条 recovery contract slice 完成；只新增公开行为测试，未改变 `save-system.ts`、未安装 SQLite、未接入 WAL。
+- 已锁定：
+  - 当前 recovery key 的有效 checkpoint 过滤与最多保留 3 条。
+  - 当前 key 缺失时按 `LEGACY_RECOVERY_KEYS` 声明顺序回退到第一个可用旧 key。
+  - 当前 key 存在但 JSON 损坏时返回空列表并 fail-closed，不静默回退旧 key。
+  - 测试使用内存 storage，结束后恢复全局 `window`，不污染其他测试。
+- 验证证据：
+  - `node --test tests/recovery-checkpoint.test.mjs`：3/3 通过。
+  - `npm.cmd test`：构建成功；347 项测试中 342 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
+  - `npm.cmd run lint`、`npm.cmd run bundle:budget`、`git diff --check`：通过。
+  - Codex 独立只读复审：`CLEAN`；未发现 `[P1]`/`[P2]`。
+- 当前边界：该切片只冻结现有 renderer recovery 语义，不证明 SQLite checkpoint 表、WAL 中断原子性、跨设备恢复或生产可用性。
+
+### PR2-C 后续恢复断点
+
+下一步只在本地继续：设计并测试 SQLite driver port contract 与迁移/故障注入边界；在 driver 证据形成前保持 localStorage authority 和现有 fail-closed 语义不变。两个 `.qa-prodserver3.*.log` 继续保留且不得触碰。
+
 ## 自动压缩恢复断点（2026-08-21 · Gate 0 + PR1）
 
 当前任务目标：**先完成 Gate 0 与 PR1（MIST-TURN-01），建立可恢复、不可重复结算的世界周事务边界；不要在此任务中扩展玩家表面或引入 SQLite。**
