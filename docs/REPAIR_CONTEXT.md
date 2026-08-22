@@ -500,17 +500,17 @@
 本节覆盖本文件中更早的 `main`/旧推送任务记录；当前任务以 `docs/CORE_GAMEPLAY_BUILD.md` 最新 Gate 0/PR1 节和实际 Git 状态为准。不要把旧的 `main` 推送授权迁移到当前分支。
 
 - 当前工作区：`D:\gmzz`；当前分支：`codex/gate0-pr1-turn-guard`。
-- 当前 HEAD：以本节所在工作树的 `git log -1 --oneline` 为准（不在恢复文档中硬编码自引用提交，避免后续账本提交造成滞后）；Gate 0/PR1 代码修复提交为 `5e34789`，本轮新增 PR2-A 提交为 `2aeee12`。
-- Gate 0 + PR1/MIST-TURN-01 仍保持完成；PR2-A、PR2-B 与 PR2-C 的独立 Codex 只读复审均为 `CLEAN`，未发现新的 P1/P2。
-- 最新本地证据：`npm.cmd test` 347 项中 342 通过、5 跳过、0 失败；typecheck、lint、bundle budget、diff check 均通过；Gate 0 的 high-severity audit 退出码 0，保留 4 个 moderate 依赖告警，未执行 breaking `--force` 修复。
-- 当前工作树只保留两个既有未跟踪 QA 日志 `.qa-prodserver3.err.log`、`.qa-prodserver3.out.log`；不得删除、覆盖、提交或推送。
+- 当前 HEAD：以本节所在工作树的 `git log -1 --oneline` 为准（不在恢复文档中硬编码自引用提交，避免后续账本提交造成滞后）；Gate 0/PR1 代码修复提交为 `5e34789`，本轮新增 PR2-A 提交为 `2aeee12`，PR2-D 实现/测试/CORE 账本提交为 `78de1ee`。
+- Gate 0 + PR1/MIST-TURN-01 仍保持完成；PR2-A、PR2-B、PR2-C 的独立 Codex 只读复审为 `CLEAN`，PR2-D 首次复审发现的 checksum round-trip `[P2]` 已修复，第二次复审为 `CLEAN`。
+- 最新本地证据：`npm.cmd test` 350 项中 345 通过、5 跳过、0 失败；typecheck、lint、bundle budget、diff check 均通过；Gate 0 的 high-severity audit 退出码 0，保留 4 个 moderate 依赖告警，未执行 breaking `--force` 修复。
+- 当前工作树除 PR2-D 代码、测试和账本文档外，仍只保留两个既有未跟踪 QA 日志 `.qa-prodserver3.err.log`、`.qa-prodserver3.out.log`；日志不得删除、覆盖、提交或推送。
 - 当前没有 push、开 PR、合并授权；远端 CI 仍为 `PENDING`。旧章节的 GitHub 推送授权不适用于本分支。
-- Wave 3/PR2-A/PR2-B/PR2-C 已完成三条本地切片：active-save 读写通过 `app/persistence-authority.ts` storage-neutral adapter；SaveEnvelope checksum 通过 `app/persistence-integrity.ts` 纯边界；recovery checkpoint 的上限、旧键回退和损坏 fail-closed 语义已有公开测试；权威存档仍实际落在 renderer `localStorage`，恢复点仍在 `app/save-system.ts` 的 `localStorage`。Electron Main 当前已有凭据 safeStorage 与 RAG IPC，但 package 中没有直接安装的 SQLite runtime driver（`better-sqlite3`/`sqlite3` 仅作为 Drizzle 可选 peer 记录）。不得因“继续”自动引入 SQLite、改变产品定位或伪造真人长线证据。
+- Wave 3/PR2-A/PR2-B/PR2-C/PR2-D 已完成四条本地切片：active-save 读写通过 `app/persistence-authority.ts` storage-neutral adapter；SaveEnvelope checksum 通过 `app/persistence-integrity.ts` 纯边界；recovery checkpoint 的上限、旧键回退和损坏 fail-closed 语义已有公开测试；schema/截断输入拒绝、v20→v21 迁移确定性、source 不变和 checksum round-trip 已锁定；权威存档仍实际落在 renderer `localStorage`，恢复点仍在 `app/save-system.ts` 的 `localStorage`。Electron Main 当前已有凭据 safeStorage 与 RAG IPC，但 package 中没有直接安装的 SQLite runtime driver（`better-sqlite3`/`sqlite3` 仅作为 Drizzle 可选 peer 记录）。不得因“继续”自动引入 SQLite、改变产品定位或伪造真人长线证据。
 
 ### 当前下一步
 
 1. Gate 0/PR1 不重做；若用户授权远端交付，再单独执行 push/开 PR 前的 exact-head 复核。
-2. 若继续本地开发，从 PR2-C 恢复断点开始：先为 SQLite driver port contract、未知 schema/截断 payload、raw v20/v21 迁移幂等与 WAL 中断故障分别写失败测试，再逐项实现；未明确授权前不安装 SQLite runtime、不改变当前 authority 介质。
+2. 若继续本地开发，从 PR2-D 完成后的恢复断点开始：下一项只为 SQLite driver port contract 与 WAL 中断故障写 RED→GREEN 测试，再逐项实现；未明确授权前不安装 SQLite runtime、不改变当前 authority 介质。
 3. 保持 Great Smog 产品选择和真人 5–20 小时证据为外部依赖，不能自动决定或伪造。
 
 ### 15.1. 2026-08-22 PR2-A 恢复覆盖
@@ -535,4 +535,11 @@
 - recovery contract 已由 3 项公开行为测试锁定：当前键最多三条有效记录、旧键声明顺序回退、当前键 malformed 时 fail-closed 且不静默回退；全局 `window` 在测试后恢复。
 - 全量回归 347 中 342 通过/5 跳过/0 失败；lint、bundle budget、diff check 均通过。
 - 同一项目既有 Codex 独立审阅线程复核 PR2-C 测试：`CLEAN`，未发现 `[P1]`/`[P2]`；审阅只读，无文件修改。
-- 未推送、未开 PR、未合并；远端 CI 仍为 `PENDING`。下一步只允许继续本地 PR2-D driver contract/迁移失败测试，不能把 recovery 测试夹具证据升级为 SQLite、跨机器或生产可用证据。
+- 未推送、未开 PR、未合并；远端 CI 仍为 `PENDING`。PR2-D 已完成，下一步只允许继续本地 PR2-E driver contract/WAL 故障测试，不能把 migration/recovery 测试证据升级为 SQLite、跨机器或生产可用证据。
+
+### 15.4. 2026-08-22 PR2-D 恢复覆盖
+
+- PR2-D 代码与测试本地完成：`app/save-system.ts` 在 `normalizeStoredGame` 后重算 envelope checksum；`tests/persistence-migration-boundary.test.mjs` 锁定 unknown schema、截断 JSON、v20→v21 确定性迁移、round-trip 再导入和 source 不变。对应实现/测试/CORE 账本提交为 `78de1ee`。
+- PR2-D 定向测试 3/3，联合 PR2-A/B/C/D 定向回归 47/47；全量 `npm.cmd test` 350 中 345 通过/5 跳过/0 失败；typecheck、lint、bundle budget、diff check 均通过。
+- 同一项目既有 Codex 独立审阅线程首次发现 `[P2]`：迁移后保留旧 checksum 导致 round-trip 失败；最小修复后第二次复审为 `CLEAN`，未发现 `[P1]`/`[P2]`/`[P3]`，且确认测试未宣称 SQLite/WAL/生产迁移已实现。
+- 未推送、未开 PR、未合并；两个 `.qa-prodserver3.*.log` 仍未跟踪、未修改、未提交。下一步为 PR2-E：先写 SQLite driver port contract 与 WAL 中断故障的 RED→GREEN 测试；SQLite runtime 和 authority 介质变更仍需单独授权。
