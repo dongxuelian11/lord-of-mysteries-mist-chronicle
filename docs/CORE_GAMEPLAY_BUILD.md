@@ -231,6 +231,17 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 
 当前阻塞：无。保留未知来源的 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log`，不得清理或覆盖。
 
+## 2026-08-22 · PR4/PR5 桌面持久化与证据契约
+
+- 状态：PR4 本机 Electron 生命周期回归已完成；PR5 发布证据契约与 fail-closed 校验已完成。PR3 的授权 seed/installer 证据仍为 `BLOCKED`/`NOT_RUN`，不因 PR4/PR5 升级。
+- PR4 实现：`scripts/release/persistence-lifecycle.mjs` 启动两个独立 Electron 进程；`electron-persistence-lifecycle-runner.cjs` 使用正式 `electron/preload.cjs`、`electron/persistence-ipc.cjs` 和 `electron/persistence-sqlite.cjs`，在隔离 user-data 中完成 renderer bridge 写入、进程退出、重启读回 active save 与 recovery checkpoint，再调用 PR3 read-only verifier。
+- PR4 测试：`tests/release-persistence-lifecycle.test.mjs` 锁定 runner/bridge/双阶段接线，并实际运行本机 Electron 回归；结果 2/2 通过，读回 marker 与 recovery 均匹配，WAL probe 通过。
+- PR5 实现：`scripts/release/verify-evidence.mjs` 校验 schema、应用名、生成时间、来源 commit/branch/worktree 状态、claim 唯一性、状态与证据等级；`PASS` 必须有证据，其他状态必须有 reason；artifact 必须是仓库相对安全路径并重新计算 SHA-256。`--match-head` 可阻断过期 commit 证据。
+- PR5 测试与文档：`tests/release-evidence.test.mjs` 4/4 通过；`docs/PR4_DESKTOP_PERSISTENCE_LIFECYCLE.md` 与 `docs/PR5_RELEASE_EVIDENCE_CONTRACT.md` 记录运行方法、状态字面量和证据边界；新增脚本 `release:persistence:lifecycle` 与 `release:evidence:verify`。
+- 明确边界：PR4 只到 `local-electron`；它不证明安装包、clean-machine、跨设备、升级、生产或真人长线体验。PR5 只提高发布记录的可核验性，不生成 seed、不把缺失输入写成 PASS。
+- 最终本地门禁：全量 `npm.cmd test` 为 378 项中 373 通过、5 条既有条件跳过、0 失败；PR4/PR5 定向回归 9/9，typecheck、lint、bundle budget、Node/PowerShell syntax 与 `git diff --check` 通过。对应本地提交为 `feat: complete PR4 and PR5 evidence boundaries`；远端未推送，两个 QA 日志仍排除。
+- 自动压缩恢复断点：若继续，先读取本节、`docs/REPAIR_CONTEXT.md` 的 15.8/15.9 和实际 `git status --short`；保留两个 `.qa-prodserver3.*.log`，不要重复 PR1/PR2/PR3 已完成代码。
+
 ## 2026-08-22 · PR2-A Active Save Authority Adapter
 
 - 状态：PR2-A 本地切片完成；未引入 SQLite、未改变 UI/产品定位、未推送、未开 PR、未合并。

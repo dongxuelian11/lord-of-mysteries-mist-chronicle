@@ -565,3 +565,21 @@
 - 为取得真实 installer 证据，本轮检查了 `KNOWLEDGE_SEED_URL`、`KNOWLEDGE_SEED_SHA256`、`private/rag/index`、`.runtime/release-seed`、`release` 以及受限 D 盘 `seed-manifest.json`；均未提供合法 seed。`release:verify:seed` 因 `seed-manifest-missing` 阻断，`dist:win` 未进入 electron-builder，`release:smoke` 继续为 `NOT_RUN`。
 - 下一次继续的最小输入：合法授权 seed ZIP 及 SHA-256（发布流程的 `KNOWLEDGE_SEED_URL` / `KNOWLEDGE_SEED_SHA256`），或用户明确提供等价的受控本地 seed 目录。不得由空壳知识库或生成的 compendium 冒充授权 seed。
 - 复核起点远端分支为 `origin/codex/gate0-pr1-turn-guard` 的 `cd18fb5`；本记录更新仍不创建 PR、不合并，两个 `.qa-prodserver3.*.log` 继续保留且不触碰。
+
+### 15.8. 2026-08-22 PR4 Electron 持久化生命周期完成
+
+- PR4 范围已锁定为本机真实 Electron renderer → preload → Main IPC → SQLite 的退出/重启恢复，不依赖授权 knowledge seed，不把 PR3 的 installer 资格扩大解释。
+- 新增 `scripts/release/persistence-lifecycle.mjs` 与 `scripts/release/electron-persistence-lifecycle-runner.cjs`：同一个隔离 user-data 目录先由第一进程通过正式 `electron/preload.cjs` 写入 `mist-chronicle-complete-v21`、`mist-chronicle-recovery-v21`，进程退出关闭 store；第二进程通过同一 bridge 读回 marker 与 recovery，再用 `verify-persistence-db.mjs` 只读确认 WAL/schema。
+- `tests/release-persistence-lifecycle.test.mjs` 2/2 通过；实际本机运行报告 `status=PASS`、`evidenceLevel=local-electron`、active/recovery marker 均匹配、`journalMode=wal`、`readOnlyProbe=true`。运行时使用 Electron hidden renderer；为当前 Windows runner 加入 `disableHardwareAcceleration` 与 `no-sandbox`，不改变产品主进程的安全 bridge/IPC 门禁。
+- `npm.cmd run release:persistence:lifecycle` 已接入 package scripts；`--keep`、`--user-data`、`--output` 可保留诊断目录/报告。默认临时目录在成功后清理，失败时报告目录位置。
+- 证据边界：本机 Electron 生命周期是 `local-electron`，不是 packaged/clean-machine/production/human 证据；两个 `.qa-prodserver3.*.log` 仍未跟踪、未修改、未提交。
+
+### 15.9. 2026-08-22 PR5 发布证据契约完成
+
+- 新增 `scripts/release/verify-evidence.mjs` 与 `tests/release-evidence.test.mjs`。校验器只接受 schema v1、真实应用名、ISO 时间、Git commit、branch/worktree 状态、唯一 claims；`PASS` 必须至少一条 command/artifact/provenance/observation 证据，`NOT_RUN`/`NOT_AVAILABLE`/`PENDING`/`BLOCKED`/`DEFERRED` 必须有非空 reason。
+- artifact 证据必须为仓库相对安全路径，拒绝绝对路径、`..` 路径、缺失文件和错误 SHA-256；`--match-head` 会比较当前 HEAD，防止把历史提交证据贴到新源码上。`npm.cmd run release:evidence:verify <manifest>` 为公开入口。
+- PR5 定向测试 4/4 通过，覆盖合法 hash、缺 reason/缺 PASS 证据/未知状态、路径穿越/摘要错配以及 stale HEAD；文档为 `docs/PR5_RELEASE_EVIDENCE_CONTRACT.md`。
+- 当前仍不生成或伪造 release evidence manifest：PR3 的 `KNOWLEDGE_SEED_URL`/`KNOWLEDGE_SEED_SHA256` 未设置，`release:verify:seed` 仍因 `seed-manifest-missing` 阻断，installer `release:smoke` 保持 `NOT_RUN`。PR5 只提供校验器与明确状态，不提升证据等级。
+- 最终门禁：`npm.cmd test` 构建成功，378 项中 373 通过、5 条既有条件跳过、0 失败；PR4/PR5 定向回归 9/9；typecheck、lint、bundle budget、Node/PowerShell syntax 和 `git diff --check` 均通过。
+- 精确提交已完成：`feat: complete PR4 and PR5 evidence boundaries`，包含 10 个任务文件；两个 `.qa-prodserver3.*.log` 仍未跟踪、未修改、未提交。当前远端分支仍停在 `602e89d`，本地仅领先本地 PR4/PR5 提交；本轮未推送、未建 PR、未合并，等待明确的远端写入授权。
+- 自动压缩恢复点：PR4/PR5 代码、测试、文档、账本和本地提交均完成；若继续，先读取本节与实际 `git status --short`，只处理远端推送授权或 PR3 的合法 seed 输入，不重复 PR1/PR2/PR4/PR5。
