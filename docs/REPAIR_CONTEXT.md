@@ -500,15 +500,23 @@
 本节覆盖本文件中更早的 `main`/旧推送任务记录；当前任务以 `docs/CORE_GAMEPLAY_BUILD.md` 最新 Gate 0/PR1 节和实际 Git 状态为准。不要把旧的 `main` 推送授权迁移到当前分支。
 
 - 当前工作区：`D:\gmzz`；当前分支：`codex/gate0-pr1-turn-guard`。
-- 当前 HEAD：`21e661a`；代码修复提交为 `5e34789`，之后只有恢复账本/复审记录文档提交。
-- Gate 0 + PR1/MIST-TURN-01 已完成；独立 Codex 只读复审为 `CLEAN`，当前代码未再变化。
-- 最终本地证据：`npm.cmd test` 337 项中 332 通过、5 跳过、0 失败；typecheck、lint、bundle budget、diff check 均通过；high-severity audit 退出码 0，保留 4 个 moderate 依赖告警，未执行 breaking `--force` 修复。
+- 当前 HEAD：`2aeee12`；Gate 0/PR1 代码修复提交为 `5e34789`，本轮新增 PR2-A 提交为 `2aeee12`。
+- Gate 0 + PR1/MIST-TURN-01 仍保持完成；本轮 PR2-A 独立 Codex 只读复审为 `CLEAN`，未发现新的 P1/P2。
+- 最新本地证据：`npm.cmd test` 341 项中 336 通过、5 跳过、0 失败；typecheck、lint、bundle budget、diff check 均通过；Gate 0 的 high-severity audit 退出码 0，保留 4 个 moderate 依赖告警，未执行 breaking `--force` 修复。
 - 当前工作树只保留两个既有未跟踪 QA 日志 `.qa-prodserver3.err.log`、`.qa-prodserver3.out.log`；不得删除、覆盖、提交或推送。
 - 当前没有 push、开 PR、合并授权；远端 CI 仍为 `PENDING`。旧章节的 GitHub 推送授权不适用于本分支。
-- Wave 3 只完成只读预审，尚未开始实现：当前权威游戏存档仍经 `app/game-session-controller.ts` 使用 renderer `localStorage`；恢复点在 `app/save-system.ts` 的 `localStorage`；Electron Main 当前已有凭据 safeStorage 与 RAG IPC，但 package 中没有直接安装的 SQLite runtime driver（`better-sqlite3`/`sqlite3` 仅作为 Drizzle 可选 peer 记录）。不得因“继续”自动引入 SQLite、改变产品定位或伪造真人长线证据。
+- Wave 3/PR2-A 已完成第一条本地切片：`app/game-session-controller.ts` 的 active-save 读写已通过 `app/persistence-authority.ts` 的 storage-neutral adapter；权威存档仍实际落在 renderer `localStorage`，恢复点仍在 `app/save-system.ts` 的 `localStorage`。Electron Main 当前已有凭据 safeStorage 与 RAG IPC，但 package 中没有直接安装的 SQLite runtime driver（`better-sqlite3`/`sqlite3` 仅作为 Drizzle 可选 peer 记录）。不得因“继续”自动引入 SQLite、改变产品定位或伪造真人长线证据。
 
 ### 当前下一步
 
 1. Gate 0/PR1 不重做；若用户授权远端交付，再单独执行 push/开 PR 前的 exact-head 复核。
-2. 若继续本地开发，先把 Wave 3 拆成独立 PR2 设计与失败测试：存档 authority adapter、SQLite WAL driver、完整性/迁移/恢复边界，再逐项实现；未明确授权前只做设计和只读预审。
+2. 若继续本地开发，从 PR2-A 恢复断点开始：先为 SQLite WAL driver、完整性/迁移/恢复边界分别写失败测试和设计记录，再逐项实现；未明确授权前不安装 SQLite runtime、不改变当前 authority 介质。
 3. 保持 Great Smog 产品选择和真人 5–20 小时证据为外部依赖，不能自动决定或伪造。
+
+### 15.1. 2026-08-22 PR2-A 恢复覆盖
+
+- PR2-A 提交 `2aeee12` 包含 `app/persistence-authority.ts`、`app/game-session-controller.ts`、`tests/persistence-authority.test.mjs` 与 `docs/CORE_GAMEPLAY_BUILD.md`；两个 `.qa-prodserver3.*.log` 仍未跟踪、未修改、未提交。
+- 适配器行为已由 4 项公开端口测试锁定：当前键优先、旧键有序回退、空值按旧逻辑视为缺失、写入/清理只作用于当前键。
+- 定向回归 38/38、全量 341 中 336 通过/5 跳过/0 失败；typecheck、lint、bundle budget、diff check 均通过。
+- 同一项目既有 Codex 独立审阅线程已复核当前工作树的 PR2-A 三文件：`CLEAN`，未发现 `[P1]`/`[P2]`；审阅只读，无文件修改。
+- 未推送、未开 PR、未合并；远端 CI 仍为 `PENDING`。下一步只允许继续本地 PR2-B 设计/失败测试，不能把 adapter 证据升级为 SQLite、跨机器或生产可用证据。
