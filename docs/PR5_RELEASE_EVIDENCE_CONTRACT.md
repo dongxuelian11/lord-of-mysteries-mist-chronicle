@@ -32,6 +32,7 @@ PR5 把“完成”“未运行”“不可用”和“被阻塞”保持为可�
       "status": "BLOCKED",
       "evidenceLevel": "packaged",
       "summary": "安装包启动证据尚未取得。",
+      "observedAt": "2026-08-22T00:00:00.000Z",
       "reason": "authorized knowledge seed is unavailable"
     }
   ]

@@ -56,4 +56,6 @@ test("installer smoke owns the packaged persistence startup qualification", () =
   assert.match(source, /mist-chronicle\.sqlite/);
   assert.match(source, /verify-persistence-db\.mjs/);
   assert.match(source, /SQLite persistence database was not created/);
+  assert.match(source, /\[Guid\]::NewGuid\(\)/);
+  assert.doesNotMatch(source, /\$smokeRoot = Join-Path \$temporaryRoot "mist-chronicle-installer-smoke"/);
 });

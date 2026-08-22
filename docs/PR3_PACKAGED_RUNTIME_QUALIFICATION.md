@@ -6,9 +6,9 @@ PR2 已经把持久化边界落到 Electron Main 进程的 SQLite/WAL store，�
 
 ## 变更
 
-- `scripts/release/smoke-installer.ps1` 在 `GMZZ_READY` 后使用隔离的 `GMZZ_USER_DATA` 检查 `mist-chronicle.sqlite` 是否创建。
+- `scripts/release/smoke-installer.ps1` 每次使用唯一的临时安装根和 `GMZZ_USER_DATA`，在 `GMZZ_READY` 后检查 `mist-chronicle.sqlite` 是否创建，避免复用旧运行的 seed 或数据库。
 - 新增 `scripts/release/verify-persistence-db.mjs`。它以 read-only 方式打开数据库，确认 `journal_mode=wal`、`persistence_records` 表及 PR2 的六个必要列；该 probe 不写入业务记录。
-- 新增 `tests/release-persistence-smoke.test.mjs`，覆盖有效 WAL 数据库、缺失数据库 fail-closed，以及 installer smoke 的接线契约。
+- 新增 `tests/release-persistence-smoke.test.mjs`，覆盖有效 WAL 数据库、缺失数据库 fail-closed，以及 installer smoke 的接线契约和唯一临时目录约束。
 
 ## 证据等级与边界
 

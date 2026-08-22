@@ -23,6 +23,7 @@ test("AI API Key is bridged through Electron safeStorage, not persisted in local
 
 test("persistence uses a Main-process SQLite bridge instead of renderer filesystem access", () => {
   const main = source("electron/main.cjs");
+  const serverPort = source("electron/server-port.cjs");
   const preload = source("electron/preload.cjs");
   const sqlite = source("electron/persistence-sqlite.cjs");
   const ipc = source("electron/persistence-ipc.cjs");
@@ -34,7 +35,8 @@ test("persistence uses a Main-process SQLite bridge instead of renderer filesyst
   assert.match(ipc, /untrusted-renderer/);
   assert.match(main, /event\?\.sender !== mainWindow\.webContents/);
   assert.match(main, /serverPort/);
-  assert.match(main, /GMZZ_PORT \|\| 43121/);
+  assert.match(main, /resolveServerPort/);
+  assert.match(serverPort, /EADDRINUSE/);
   assert.doesNotMatch(preload, /require\("node:fs"\)|readFile|writeFile/);
 });
 

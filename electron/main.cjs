@@ -11,6 +11,7 @@ const fs = require("node:fs");
 const { createRagIpc } = require("./rag-ipc.cjs");
 const { deploySeed } = require("./knowledge-seed.cjs");
 const { registerPersistenceIpc } = require("./persistence-ipc.cjs");
+const { resolveServerPort } = require("./server-port.cjs");
 
 const isWindows = process.platform === "win32";
 const appRoot = path.join(__dirname, "..");
@@ -302,8 +303,8 @@ function openLogStream() {
 }
 
 async function startServer() {
-  const envPort = Number(process.env.GMZZ_PORT || 43121);
-  serverPort = envPort > 0 ? envPort : 43121;
+  const envPort = Number(process.env.GMZZ_PORT || 0);
+  serverPort = await resolveServerPort(envPort);
   const out = openLogStream();
 
   log(`启动生产服务器（端口 ${serverPort}）…`);
