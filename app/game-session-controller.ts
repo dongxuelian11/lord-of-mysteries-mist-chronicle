@@ -7,6 +7,7 @@ import {
   serializeAiSettings,
 } from "./ai-settings-storage.ts";
 import { type GameState } from "./game-model.ts";
+import { createActiveSaveAuthority } from "./persistence-authority.ts";
 import { ACTIVE_SAVE_KEY, LEGACY_ACTIVE_SAVE_KEYS, migrateStoredGame } from "./save-system.ts";
 
 export type LoadedGameSession = {
@@ -23,29 +24,23 @@ async function loadSecureCredentials() {
   catch { return { available: false, apiKey: "", error: "secure-storage-unavailable" }; }
 }
 
+function getActiveSaveAuthority() {
+  return createActiveSaveAuthority(window.localStorage, ACTIVE_SAVE_KEY, LEGACY_ACTIVE_SAVE_KEYS);
+}
+
 export async function loadGameSession(): Promise<LoadedGameSession> {
   let game: GameState | undefined;
   let hasSave = false;
-  const saved = window.localStorage.getItem(ACTIVE_SAVE_KEY);
-  const legacySaved = LEGACY_ACTIVE_SAVE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
-  if (saved) {
+  const activeSaveAuthority = getActiveSaveAuthority();
+  const stored = activeSaveAuthority.read();
+  if (stored) {
     try {
-      const migrated = migrateStoredGame(JSON.parse(saved));
+      const migrated = migrateStoredGame(JSON.parse(stored.raw));
       if (!migrated) throw new Error("unsupported-save-version");
       game = migrated.game;
       hasSave = migrated.hasSave;
     } catch {
-      window.localStorage.removeItem(ACTIVE_SAVE_KEY);
-    }
-  } else if (legacySaved) {
-    try {
-      const migrated = migrateStoredGame(JSON.parse(legacySaved));
-      if (migrated) {
-        game = migrated.game;
-        hasSave = migrated.hasSave;
-      }
-    } catch {
-      // 旧存档只用于迁移；损坏时不影响新游戏。
+      if (!stored.legacy) activeSaveAuthority.clear();
     }
   }
 
@@ -83,7 +78,7 @@ export async function loadGameSession(): Promise<LoadedGameSession> {
 }
 
 export function persistActiveGame(game: GameState) {
-  window.localStorage.setItem(ACTIVE_SAVE_KEY, JSON.stringify(game));
+  getActiveSaveAuthority().write(JSON.stringify(game));
 }
 
 export async function saveAiSessionSettings(config: AiConfig, rememberRequested: boolean, secureStorageAvailable: boolean) {

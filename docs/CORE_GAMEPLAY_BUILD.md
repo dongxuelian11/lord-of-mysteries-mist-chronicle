@@ -231,6 +231,28 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 
 当前阻塞：无。保留未知来源的 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log`，不得清理或覆盖。
 
+## 2026-08-22 · PR2-A Active Save Authority Adapter
+
+- 状态：PR2-A 本地切片完成；未引入 SQLite、未改变 UI/产品定位、未推送、未开 PR、未合并。
+- 已实现：
+  - 新增 `app/persistence-authority.ts`，以 storage-neutral `KeyValueStore`/`ActiveSaveAuthority` 端口封装当前存档键、旧键有序回退、当前键写入和当前键清理。
+  - `app/game-session-controller.ts` 的 active-save 读取与写入改走该端口；AI 设置与 session key 的既有 local/session storage 路径保持不变。
+  - 保留旧行为：当前键优先；当前键缺失或空值时按旧键顺序回退；当前存档损坏/迁移失败只清理当前键；旧存档损坏不清理、不影响新游戏；写入与清理不扩大到旧键。
+  - `tests/persistence-authority.test.mjs` 以公开端口覆盖上述四条行为，并锁定空值语义。
+- 验证证据：
+  - 定向回归：38/38 通过（包含新增 4 项持久化测试及管理、存档、第三优先级、渲染回归）。
+  - `npm.cmd test`：构建成功；341 项测试中 336 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
+  - `npm.cmd run typecheck`：通过。
+  - `npm.cmd run lint`：通过，0 warning。
+  - `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+  - `git diff --check`：通过。
+  - Codex 独立只读复审：`CLEAN`；未发现 `[P1]`/`[P2]`，确认当前/旧键优先级、损坏处理、清理范围和 SSR 边界保持原语义。
+- 当前边界：该切片只建立后续 SQLite WAL driver 可实现的替换端口；没有安装 SQLite runtime、没有迁移恢复点、没有引入 Main Process gateway，也没有真人长线可用性证据。
+
+### PR2-A 后续恢复断点
+
+下一步只在本地继续：先为 SQLite WAL driver、完整性/迁移/恢复边界分别写失败测试和设计记录，再逐项实现；不得把本地 adapter 证据提升为 SQLite、跨机器或生产可用证据。继续保留两个未知来源的 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log`，不得清理、覆盖、提交或推送。
+
 ## 自动压缩恢复断点（2026-08-21 · Gate 0 + PR1）
 
 当前任务目标：**先完成 Gate 0 与 PR1（MIST-TURN-01），建立可恢复、不可重复结算的世界周事务边界；不要在此任务中扩展玩家表面或引入 SQLite。**
