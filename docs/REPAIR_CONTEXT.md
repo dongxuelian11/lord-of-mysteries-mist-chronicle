@@ -584,11 +584,12 @@
 - 精确提交已完成：`feat: complete PR4 and PR5 evidence boundaries`，包含 10 个任务文件；两个 `.qa-prodserver3.*.log` 仍未跟踪、未修改、未提交。当前远端分支仍停在 `602e89d`，本地仅领先本地 PR4/PR5 提交；本轮未推送、未建 PR、未合并，等待明确的远端写入授权。
 - 自动压缩恢复点：PR4/PR5 代码、测试、文档、账本和本地提交均完成；若继续，先读取本节与实际 `git status --short`，只处理远端推送授权或 PR3 的合法 seed 输入，不重复 PR1/PR2/PR4/PR5。
 
-### 15.10. 2026-08-22 PR6 Wave 4 运行时追踪契约（开发中）
+### 15.10. 2026-08-22 PR6 Wave 4 运行时追踪契约（已完成，待推送）
 
 - PR6 范围收敛为不新增玩法的可观测性边界：新增 `app/runtime-trace.ts`，提供 schema v1、统一 `traceId/requestId/turnId/retrievalId/modelTraceId`、模型/Prompt/响应 schema 元数据、延迟/修复/拒绝/提交状态字段和 128 条有界环；只保存 ID、计数和状态，不保存 prompt、模型 payload、RAG 正文、存档或密钥。
 - 三条真实路径已接线：`app/ai-client.ts` 对既有模型传输包一条 trace；`app/rag/client.ts` 记录 bridge/legacy 检索模式、选中/过滤计数并绑定 `RetrievalReceipt`；`app/world-kernel.ts` 对新提交、幂等重放和拒绝分别记录 `COMMITTED/REPLAYED/REJECTED`。追踪写入失败会被吞掉，不能改变模型、检索或权威事务语义。
 - 世界裁决请求现在把周事务、RAG 收据、Prompt 版本和响应 schema 版本带入模型 trace；模型供应商尚未提供 tokenizer usage/首 token usage 时，`inputTokens/outputTokens/firstTokenLatencyMs` 明确保持 `null`，不以字符估算冒充 tokenizer 证据。
 - 新增 `tests/runtime-trace.test.mjs`：契约脱敏与有界性、模型成功 trace、检索—事务 ID 关联以及事务拒绝状态共 3 项测试；当前定向回归 3/3，通过 typecheck。
 - 证据边界：PR6 只证明本机内存 trace 契约与接线，不证明真实供应商 token 计量、跨进程持久化、clean-machine、生产或真人可用性；PR3 的授权 seed 缺失/installer `NOT_RUN` 继续保持原状。
-- 当前恢复点：PR4/PR5 已提交但仍未推送；PR6 尚未提交。下一步先运行 PR6 + PR4/PR5 相关专项、全量构建测试、lint、bundle、语法和 diff 门禁，再逐提交检查远端分支差异；只有全部通过才按本轮用户授权推送，绝不创建 PR 或自动合并。两个 `.qa-prodserver3.*.log` 继续未跟踪且不得触碰。
+- 关闭证据：PR4/PR5 提交 `539e214`、PR6 提交 `1b42e34` 均已在本地完成；PR4/PR5/PR6 定向回归 9/9、全量测试 381 项中 376 通过、5 条既有条件跳过、0 失败，typecheck、lint、bundle budget、Node/PowerShell syntax 和远端差异 `git diff --check` 均通过。Codex CLI 只读审阅受 WindowsApps 执行权限阻断，未将其结果升级为通过证据；本地人工差异审阅未发现 P1/P2 问题。
+- 当前恢复点：相对 `origin/codex/gate0-pr1-turn-guard` 仅包含本轮 PR4/PR5、PR6 及本关闭记录的待推送提交；无 PR 创建、无自动合并。PR3 授权 seed 仍缺失，`release:verify:seed` 继续 `BLOCKED`，installer `release:smoke` 继续 `NOT_RUN`。两个 `.qa-prodserver3.*.log` 继续未跟踪且不得触碰。
