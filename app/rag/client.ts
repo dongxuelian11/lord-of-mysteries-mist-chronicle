@@ -10,6 +10,8 @@ import type {
   Visibility,
 } from "./types";
 import type { LegacyLoreRecord } from "./index";
+import type { RetrievalReceipt } from "../world-authority-closure";
+import { tryRecordRuntimeTrace, type RuntimeTraceContext } from "../runtime-trace.ts";
 
 export type RagBridgeAudience = {
   kind: "world-simulation-internal" | "player-facing-narrator" | "player-known" | "actor-private" | "faction-private" | "world" | "player" | "actor" | "faction";
@@ -35,6 +37,7 @@ export type RagBridgeSearchRequest = {
   horizon?: CanonKnowledgeHorizon;
   limit?: number;
   maxChars?: number;
+  trace?: Pick<RuntimeTraceContext, "traceId" | "requestId" | "turnId" | "modelTraceId">;
 };
 
 export type RagBridgeChunk = {
@@ -59,13 +62,14 @@ export type RagBridgeResponse = {
   available: boolean;
   records: RagBridgeChunk[];
   context: string;
+  indexVersion?: string;
   error?: string;
 };
 
 export type RagBridge = {
   search(request: RagBridgeSearchRequest): Promise<RagBridgeResponse>;
   listChunkIds(): Promise<string[]>;
-  status(): Promise<{ available: boolean; chunks: number }>;
+  status(): Promise<{ available: boolean; chunks: number; indexVersion?: string }>;
 };
 
 declare global {
@@ -163,6 +167,102 @@ export function reFilter(
   );
 }
 
+function stableSerialize(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "null";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(String(value));
+}
+
+function hashText(value: string): string {
+  let output = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    output ^= value.charCodeAt(index);
+    output = Math.imul(output, 16777619);
+  }
+  return (output >>> 0).toString(16).padStart(8, "0");
+}
+
+function retrievalReceipt(
+  request: {
+    query: string;
+    audience: RagBridgeAudience;
+    week?: number;
+    gameDate?: string;
+    maxSpoilerScope?: RagBridgeSearchRequest["maxSpoilerScope"];
+    allowedVolumes?: number[];
+    horizon?: CanonKnowledgeHorizon;
+    limit?: number;
+    maxChars?: number;
+  },
+  records: LegacyLoreRecord[],
+  context: string,
+  indexVersion: string,
+): RetrievalReceipt {
+  const queryHash = hashText(request.query.trim());
+  const effectiveSpoilerScope = request.maxSpoilerScope
+    ?? (request.audience.kind === "player-facing-narrator" ? "volume1" : undefined);
+  const filterHash = hashText(stableSerialize({
+    audience: {
+      kind: normalizeRagAudienceKind(request.audience.kind),
+      knownLoreIds: [...request.audience.knownLoreIds].sort(),
+      topicGrants: [...request.audience.topicGrants].sort(),
+    },
+    week: request.week,
+    gameDate: request.gameDate,
+    maxSpoilerScope: effectiveSpoilerScope,
+    allowedVolumes: request.allowedVolumes ? [...request.allowedVolumes].sort((left, right) => left - right) : undefined,
+    horizon: request.horizon,
+    limit: request.limit,
+    maxChars: request.maxChars,
+  }));
+  const contextHash = hashText(context);
+  const chunkIds = [...new Set(records.map((record) => record.id).filter(Boolean))];
+  return {
+    requestId: `rag:${queryHash}:${filterHash}:${contextHash}`,
+    indexVersion: indexVersion.trim() || "legacy-v1",
+    audienceRef: normalizeRagAudienceKind(request.audience.kind),
+    queryHash,
+    filterHash,
+    chunkIds,
+    contextHash,
+  };
+}
+
+function recordRetrievalRuntimeTrace(
+  receipt: RetrievalReceipt,
+  request: { trace?: Pick<RuntimeTraceContext, "traceId" | "requestId" | "turnId" | "modelTraceId"> },
+  startedAt: number,
+  mode: "bridge" | "legacy",
+  rejectedCount: number,
+) {
+  tryRecordRuntimeTrace({
+    traceId: request.trace?.traceId ?? `retrieval:${receipt.requestId}`,
+    operation: "retrieval",
+    requestId: request.trace?.requestId ?? receipt.requestId,
+    turnId: request.trace?.turnId,
+    retrievalId: receipt.requestId,
+    modelTraceId: request.trace?.modelTraceId,
+    retrievalMode: mode,
+    retrievalSelectedCount: receipt.chunkIds.length,
+    retrievalRejectedCount: rejectedCount,
+    latencyMs: Date.now() - startedAt,
+    inputTokens: null,
+    outputTokens: null,
+    firstTokenLatencyMs: null,
+    repairCount: 0,
+    rejectionReasons: [],
+    outcome: "PASS",
+    commitStatus: "NOT_APPLICABLE",
+  });
+}
+
 export async function retrieveLoreContextAsync(
   records: LegacyLoreRecord[],
   request: {
@@ -175,8 +275,10 @@ export async function retrieveLoreContextAsync(
     horizon?: CanonKnowledgeHorizon;
     limit?: number;
     maxChars?: number;
+    trace?: Pick<RuntimeTraceContext, "traceId" | "requestId" | "turnId" | "modelTraceId">;
   }
-): Promise<{ records: LegacyLoreRecord[]; context: string }> {
+): Promise<{ records: LegacyLoreRecord[]; context: string; receipt: RetrievalReceipt }> {
+  const startedAt = Date.now();
   const rag = bridge();
   if (rag) {
     try {
@@ -214,9 +316,20 @@ export async function retrieveLoreContextAsync(
         // records 与 context 一致性：始终基于最终授权记录重建上下文，
         // 绝不沿用 Worker 生成的旧 context（其中可能含二次过滤剔除的切片）。
         const context = buildEvidenceContext(filtered, request.maxChars ?? 12_000);
+        let indexVersion = response.indexVersion;
+        if (!indexVersion) {
+          try {
+            indexVersion = (await rag.status()).indexVersion;
+          } catch {
+            indexVersion = undefined;
+          }
+        }
+        const receipt = retrievalReceipt(request, toLegacy(filtered), context, indexVersion ?? "bridge-unknown");
+        recordRetrievalRuntimeTrace(receipt, request, startedAt, "bridge", Math.max(0, response.records.length - filtered.length));
         return {
           records: toLegacy(filtered),
           context,
+          receipt,
         };
       }
     } catch {
@@ -228,7 +341,7 @@ export async function retrieveLoreContextAsync(
         legacyHorizonOk(record, request.horizon as CanonKnowledgeHorizon)
       )
     : (records as Parameters<typeof legacyRetrieve>[0]);
-  return legacyRetrieve(
+  const legacyResult = legacyRetrieve(
     safeRecords,
     {
       query: request.query,
@@ -241,6 +354,12 @@ export async function retrieveLoreContextAsync(
       maxChars: request.maxChars,
     }
   );
+  const receipt = retrievalReceipt(request, legacyResult.records, legacyResult.context, "legacy-v1");
+  recordRetrievalRuntimeTrace(receipt, request, startedAt, "legacy", 0);
+  return {
+    ...legacyResult,
+    receipt,
+  };
 }
 
 export async function listRuntimeChunkIds(): Promise<string[]> {

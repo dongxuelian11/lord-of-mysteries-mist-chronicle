@@ -1,6 +1,6 @@
 import type { AutonomousDecisionFrame } from "./autonomous-agents.ts";
 import { buildAutonomousMemoryProjection, type AutonomousMemoryAudience, type DynamicMemoryState } from "./memory/index.ts";
-import { projectWorldForAudience, type WorldKernel } from "./world-kernel.ts";
+import { projectWorldForAudience, type AudienceLocationProjection, type AudienceWorldEvent, type AudienceWorldKnowledge, type AudienceWorldObservation, type WorldKernel } from "./world-kernel.ts";
 
 export const ACTIVE_AGENT_LIMIT = 24;
 export const WORLD_ADJUDICATOR_PAYLOAD_CHAR_LIMIT = 72_000;
@@ -38,11 +38,15 @@ export type AgentProposal = {
 export type AgentPlanningProjection = {
   week: number;
   agent: AutonomousDecisionFrame;
-  currentLocation: WorldKernel["locations"][number] | null;
+  currentLocation: AudienceLocationProjection | null;
   ownedProjects: WorldKernel["projects"];
-  visibleEvents: WorldKernel["events"];
-  visibleObservations: WorldKernel["observations"];
-  visibleKnowledge: WorldKernel["knowledge"];
+  visibleEvents: AudienceWorldEvent[];
+  visibleObservations: AudienceWorldObservation[];
+  visibleKnowledge: AudienceWorldKnowledge[];
+  /** Backend-only lore authorization; omitted from model-facing projection serialization. */
+  authorizedLoreIds: string[];
+  /** Backend-only causal lookup for accepted knowledge references. */
+  knowledgeSourceEventIds: Record<string, string>;
   memoryAudience: AutonomousMemoryAudience;
   dynamicMemory: string;
   memoryReferenceIds: string[];
@@ -169,17 +173,27 @@ export function buildAgentPlanningProjection(frame: AutonomousDecisionFrame, ker
     nextAction: frame.nextAction,
     relationshipRefs: frame.relationships.map((relationship) => relationship.targetRef),
   });
+  const visibleKnowledge = visible.knowledge.slice(-WORLD_RUNTIME_LIMITS.visibleKnowledgePerAgent);
+  const visibleKnowledgeIds = new Set(visibleKnowledge.map((node) => node.id));
+  const authorizedLoreIds = [...new Set(kernel.knowledge
+    .filter((node) => visibleKnowledgeIds.has(node.id))
+    .flatMap((node) => node.loreRecordIds ?? []))].slice(0, 24);
+  const knowledgeSourceEventIds = Object.fromEntries(kernel.knowledge
+    .filter((node) => visibleKnowledgeIds.has(node.id) && node.sourceEventId)
+    .map((node) => [node.id, node.sourceEventId!]));
   return {
     week: frame.planningWeek,
     agent: frame,
-    currentLocation: frame.locationId ? kernel.locations.find((location) => location.id === frame.locationId) ?? null : null,
+    currentLocation: frame.locationId ? visible.locations.find((location) => location.id === frame.locationId) ?? null : null,
     ownedProjects: kernel.projects
       .filter((project) => project.ownerId === entityId && project.status === "active")
       .sort((left, right) => right.updatedWeek - left.updatedWeek || right.progress - left.progress)
       .slice(0, WORLD_RUNTIME_LIMITS.ownedProjectsPerAgent),
     visibleEvents: visible.events.slice(-WORLD_RUNTIME_LIMITS.visibleEventsPerAgent),
     visibleObservations: visible.observations.slice(-WORLD_RUNTIME_LIMITS.visibleObservationsPerAgent),
-    visibleKnowledge: visible.knowledge.slice(-WORLD_RUNTIME_LIMITS.visibleKnowledgePerAgent),
+    visibleKnowledge,
+    authorizedLoreIds,
+    knowledgeSourceEventIds,
     memoryAudience,
     dynamicMemory: dynamicMemory.text,
     memoryReferenceIds: dynamicMemory.referenceIds,

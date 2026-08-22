@@ -1,3 +1,6 @@
+import type { MutationClaim, RetrievalReceipt } from "./world-authority-closure.ts";
+import { tryRecordRuntimeTrace } from "./runtime-trace.ts";
+
 export type WorldVisibility = "world" | "public" | "player" | "actors";
 
 export type PersistentWorldActor = {
@@ -105,11 +108,22 @@ export type WorldAudience =
   | { kind: "actor"; holderId: string }
   | { kind: "faction"; holderId: string };
 
+export type WorldTurnTransaction = {
+  turnId: string;
+  resolvingWeek: number;
+  baseRevision: number;
+  inputHash: string;
+};
+
 export type WorldKernel = {
   schemaVersion: 1;
   currentWeek: number;
   currentDate: string;
   lastResolvedWeek: number;
+  revision: number;
+  committedTransactions: WorldTurnTransaction[];
+  retrievalReceipts: RetrievalReceipt[];
+  mutationClaims: MutationClaim[];
   actors: PersistentWorldActor[];
   factions: PersistentWorldFaction[];
   projects: PersistentWorldProject[];
@@ -144,6 +158,11 @@ export type WorldKernelSeed = {
 
 export type WorldTurnDelta = {
   week: number;
+  transaction?: WorldTurnTransaction;
+  /** Proposal ids already admitted by the executable world-turn boundary. */
+  executableProposalIds: string[];
+  retrievalReceipt?: RetrievalReceipt;
+  mutationClaims?: MutationClaim[];
   playerIssuedNoOrders: boolean;
   newActors?: (Omit<PersistentWorldActor, "lastAction" | "knowledgeIds"> & { lastAction?: string; knowledgeIds?: string[]; sourceProposalIds: string[] })[];
   newFactions?: (Omit<PersistentWorldFaction, "lastAction"> & { lastAction?: string; sourceProposalIds: string[] })[];
@@ -161,6 +180,113 @@ export type WorldTurnDelta = {
 };
 
 const clamp = (value: number, minimum = 0, maximum = 100) => Math.max(minimum, Math.min(maximum, value));
+
+const MAX_COMMITTED_WORLD_TRANSACTIONS = 256;
+const MAX_AUTHORITY_RECEIPTS = 256;
+
+function stableSerialize(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "null";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(String(value));
+}
+
+function hashText(value: string): string {
+  let output = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    output ^= value.charCodeAt(index);
+    output = Math.imul(output, 16777619);
+  }
+  return (output >>> 0).toString(16).padStart(8, "0");
+}
+
+export function worldTurnInputHash(delta: WorldTurnDelta): string {
+  const payload = { ...delta };
+  delete payload.transaction;
+  return hashText(stableSerialize(payload));
+}
+
+function kernelRevision(kernel: Pick<WorldKernel, "revision">): number {
+  return Number.isInteger(kernel.revision) && kernel.revision >= 0 ? kernel.revision : 0;
+}
+
+export function createWorldTurnTransaction(kernel: Pick<WorldKernel, "revision">, delta: WorldTurnDelta, turnId?: string): WorldTurnTransaction {
+  const inputHash = worldTurnInputHash(delta);
+  return {
+    turnId: turnId?.trim() || `world-turn:${delta.week}:${inputHash}`,
+    resolvingWeek: delta.week,
+    baseRevision: kernelRevision(kernel),
+    inputHash,
+  };
+}
+
+function isWorldTurnTransaction(value: unknown): value is WorldTurnTransaction {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const transaction = value as Partial<WorldTurnTransaction>;
+  const baseRevision = transaction.baseRevision;
+  return typeof transaction.turnId === "string"
+    && transaction.turnId.trim().length > 0
+    && Number.isInteger(transaction.resolvingWeek)
+    && typeof baseRevision === "number"
+    && Number.isInteger(baseRevision)
+    && baseRevision >= 0
+    && typeof transaction.inputHash === "string"
+    && /^[0-9a-f]{8}$/.test(transaction.inputHash);
+}
+
+function isRetrievalReceipt(value: unknown): value is RetrievalReceipt {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const receipt = value as Partial<RetrievalReceipt>;
+  return typeof receipt.requestId === "string"
+    && typeof receipt.indexVersion === "string"
+    && typeof receipt.audienceRef === "string"
+    && typeof receipt.queryHash === "string"
+    && typeof receipt.filterHash === "string"
+    && Array.isArray(receipt.chunkIds)
+    && receipt.chunkIds.every((id) => typeof id === "string")
+    && typeof receipt.contextHash === "string";
+}
+
+function isMutationClaim(value: unknown): value is MutationClaim {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const claim = value as Partial<MutationClaim>;
+  return typeof claim.proposalId === "string"
+    && typeof claim.effectKind === "string"
+    && typeof claim.subjectRef === "string"
+    && Array.isArray(claim.targetRefs)
+    && claim.targetRefs.every((ref) => typeof ref === "string")
+    && (claim.resourceImpact === undefined || (typeof claim.resourceImpact === "object" && claim.resourceImpact !== null))
+    && (claim.sourceEventId === undefined || typeof claim.sourceEventId === "string");
+}
+
+export function ensureWorldKernelTransactionState(value: unknown): WorldKernel {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Partial<WorldKernel>
+    : {};
+  const committedTransactions = Array.isArray(source.committedTransactions)
+    ? source.committedTransactions.filter(isWorldTurnTransaction).slice(-MAX_COMMITTED_WORLD_TRANSACTIONS)
+    : [];
+  const retrievalReceipts = Array.isArray(source.retrievalReceipts)
+    ? source.retrievalReceipts.filter(isRetrievalReceipt).slice(-MAX_AUTHORITY_RECEIPTS)
+    : [];
+  const mutationClaims = Array.isArray(source.mutationClaims)
+    ? source.mutationClaims.filter(isMutationClaim).slice(-MAX_AUTHORITY_RECEIPTS * 4)
+    : [];
+  const sourceRevision = Number.isInteger(source.revision) && (source.revision as number) >= 0 ? source.revision as number : 0;
+  return {
+    ...(source as WorldKernel),
+    revision: Math.max(sourceRevision, committedTransactions.length),
+    committedTransactions,
+    retrievalReceipts,
+    mutationClaims,
+  };
+}
 
 function withoutMutationProvenance<T extends { sourceProposalIds: string[] }>(value: T): Omit<T, "sourceProposalIds"> {
   const copy: Partial<T> = { ...value };
@@ -182,6 +308,10 @@ export function createWorldKernel(seed: WorldKernelSeed): WorldKernel {
     currentWeek: seed.week,
     currentDate: seed.date,
     lastResolvedWeek: Math.max(0, seed.week - 1),
+    revision: 0,
+    committedTransactions: [],
+    retrievalReceipts: [],
+    mutationClaims: [],
     actors: seed.actors.map((actor) => ({ id: actor.id, name: actor.name, locationId: actor.locationId, agenda: actor.agenda, shortTermGoal: actor.agenda, lastAction: actor.lastAction ?? "尚未产生新的可记录行动", condition: actor.state ?? "正常活动", knowledgeIds: [] })),
     factions: seed.factions.map((faction) => ({ id: faction.id, name: faction.name, posture: faction.plan, resources: 50, suspicion: faction.suspicion ?? 0, lastAction: "正在推进既定计划" })),
     projects: [
@@ -202,8 +332,118 @@ export function createWorldKernel(seed: WorldKernelSeed): WorldKernel {
   };
 }
 
+function assertUniqueEntityIds<T>(items: readonly T[], getId: (item: T) => string, label: string) {
+  const seen = new Set<string>();
+  for (const item of items) {
+    const id = getId(item);
+    if (seen.has(id)) throw new Error(`世界${label}更新标识重复：${id}`);
+    seen.add(id);
+  }
+}
+
+function assertUniqueTurnEntityIds(kernel: WorldKernel, delta: WorldTurnDelta) {
+  assertUniqueEntityIds(delta.actorUpdates, (item) => item.actorId, "角色");
+  assertUniqueEntityIds(delta.factionUpdates ?? [], (item) => item.factionId, "势力");
+  assertUniqueEntityIds(delta.projectUpdates, (item) => item.projectId, "项目");
+  assertUniqueEntityIds(delta.locationUpdates, (item) => item.locationId, "地点");
+  const actorIds = new Set(kernel.actors.map((item) => item.id));
+  const factionIds = new Set(kernel.factions.map((item) => item.id));
+  const projectIds = new Set(kernel.projects.map((item) => item.id));
+  assertUniqueEntityIds(delta.newActors ?? [], (item) => item.id, "新角色");
+  assertUniqueEntityIds(delta.newFactions ?? [], (item) => item.id, "新势力");
+  assertUniqueEntityIds(delta.newProjects ?? [], (item) => item.id, "新项目");
+  for (const actor of delta.newActors ?? []) if (actorIds.has(actor.id)) throw new Error(`新角色标识已存在：${actor.id}`);
+  for (const faction of delta.newFactions ?? []) if (factionIds.has(faction.id)) throw new Error(`新势力标识已存在：${faction.id}`);
+  for (const project of delta.newProjects ?? []) if (projectIds.has(project.id)) throw new Error(`新项目标识已存在：${project.id}`);
+}
+
+function validateWorldTurnTransaction(kernel: WorldKernel, delta: WorldTurnDelta): { transaction: WorldTurnTransaction; replay: boolean } {
+  const transaction = delta.transaction;
+  if (!isWorldTurnTransaction(transaction)) throw new Error("世界事务缺少完整事务身份");
+  const expectedInputHash = worldTurnInputHash(delta);
+  if (transaction.inputHash !== expectedInputHash) throw new Error("世界事务输入哈希不匹配");
+  const committedTransactions = Array.isArray(kernel.committedTransactions) ? kernel.committedTransactions : [];
+  const existing = committedTransactions.find((item) => item.turnId === transaction.turnId);
+  if (existing) {
+    if (existing.resolvingWeek !== transaction.resolvingWeek || existing.baseRevision !== transaction.baseRevision || existing.inputHash !== transaction.inputHash) {
+      throw new Error(`世界事务标识已用于不同输入：${transaction.turnId}`);
+    }
+    return { transaction, replay: true };
+  }
+  if (transaction.resolvingWeek !== delta.week || delta.week !== kernel.lastResolvedWeek + 1 || delta.week > kernel.currentWeek) throw new Error("世界推演事务周次必须严格连续");
+  if (transaction.baseRevision !== kernelRevision(kernel)) throw new Error("世界推演事务基准修订号已过期");
+  return { transaction, replay: false };
+}
+
+function turnFailureCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (/事务|周次|修订号|输入哈希/.test(message)) return "TURN_TRANSACTION_REJECTED";
+  if (/Knowledge|知识|lore|LORE/.test(message)) return "TURN_KNOWLEDGE_REJECTED";
+  if (/事件|角色|势力|项目|地点|实体|引用/.test(message)) return "TURN_ENTITY_REJECTED";
+  return "TURN_COMMIT_REJECTED";
+}
+
+/**
+ * Exactly-once world commit with a redacted runtime trace. The trace records
+ * only transaction/retrieval identifiers and outcome codes; world payloads
+ * remain in the authoritative kernel and are never copied into diagnostics.
+ */
 export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): WorldKernel {
-  if (delta.week < kernel.lastResolvedWeek || delta.week > kernel.currentWeek) throw new Error("世界推演周次与持续状态不一致");
+  const startedAt = Date.now();
+  const transaction = delta.transaction;
+  const turnId = transaction && typeof transaction.turnId === "string" && transaction.turnId.trim()
+    ? transaction.turnId
+    : null;
+  const traceId = turnId ? `turn:${turnId}` : `turn:invalid:${worldTurnInputHash(delta)}`;
+  try {
+    const next = applyWorldTurnUnchecked(kernel, delta);
+    const replay = next === kernel;
+    tryRecordRuntimeTrace({
+      traceId,
+      operation: "turn",
+      requestId: delta.retrievalReceipt?.requestId,
+      turnId,
+      retrievalId: delta.retrievalReceipt?.requestId,
+      retrievalMode: null,
+      retrievalSelectedCount: null,
+      retrievalRejectedCount: null,
+      latencyMs: Date.now() - startedAt,
+      inputTokens: null,
+      outputTokens: null,
+      firstTokenLatencyMs: null,
+      repairCount: 0,
+      rejectionReasons: [],
+      outcome: "PASS",
+      commitStatus: replay ? "REPLAYED" : "COMMITTED",
+    });
+    return next;
+  } catch (error) {
+    tryRecordRuntimeTrace({
+      traceId,
+      operation: "turn",
+      requestId: delta.retrievalReceipt?.requestId,
+      turnId,
+      retrievalId: delta.retrievalReceipt?.requestId,
+      retrievalMode: null,
+      retrievalSelectedCount: null,
+      retrievalRejectedCount: null,
+      latencyMs: Date.now() - startedAt,
+      inputTokens: null,
+      outputTokens: null,
+      firstTokenLatencyMs: null,
+      repairCount: 0,
+      rejectionReasons: [turnFailureCode(error)],
+      outcome: "FAILED",
+      commitStatus: "REJECTED",
+    });
+    throw error;
+  }
+}
+
+function applyWorldTurnUnchecked(kernel: WorldKernel, delta: WorldTurnDelta): WorldKernel {
+  const transactionState = validateWorldTurnTransaction(kernel, delta);
+  if (transactionState.replay) return kernel;
+  assertUniqueTurnEntityIds(kernel, delta);
   const existingEventIds = new Set(kernel.events.map((event) => event.id));
   const incomingEventIds = new Set(delta.events.map((event) => event.id));
   if (incomingEventIds.size !== delta.events.length || [...incomingEventIds].some((id) => existingEventIds.has(id))) throw new Error("世界事件标识重复");
@@ -267,8 +507,26 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
   }))].slice(-240);
   const eventIds = new Set(events.map((event) => event.id));
   const observations = [...kernel.observations, ...delta.observations.filter((observation) => eventIds.has(observation.eventId)).map((observation) => ({ ...observation, week: delta.week }))].slice(-320);
+  const currentTurnEventIds = new Set((delta.events ?? []).map((event) => event.id));
+  const executableProposalIds = new Set((delta.executableProposalIds ?? []).filter(Boolean));
+  const knowledgeClaims = delta.mutationClaims ?? [];
+  for (const node of delta.knowledge ?? []) {
+    const sourceEvent = node.sourceEventId ? delta.events.find((event) => event.id === node.sourceEventId) : undefined;
+    if (!node.sourceEventId || !currentTurnEventIds.has(node.sourceEventId) || !sourceEvent) {
+      throw new Error(`Knowledge mutation must reference a current-turn event: ${node.id}`);
+    }
+    const sourceProposalIds = sourceEvent.sourceProposalIds ?? [];
+    if (!executableProposalIds.size || !sourceProposalIds.some((proposalId) => executableProposalIds.has(proposalId))) {
+      throw new Error(`Knowledge mutation source event is not tied to an executable proposal: ${node.id}`);
+    }
+    const claim = knowledgeClaims.find((candidate) => candidate.effectKind === "knowledge"
+      && candidate.subjectRef === `knowledge:${node.id}`
+      && candidate.sourceEventId === node.sourceEventId
+      && executableProposalIds.has(candidate.proposalId)
+      && sourceProposalIds.includes(candidate.proposalId));
+    if (!claim) throw new Error(`Knowledge mutation is missing an executable authority claim: ${node.id}`);
+  }
   const incomingKnowledge = (delta.knowledge ?? [])
-    .filter((node) => !node.sourceEventId || eventIds.has(node.sourceEventId))
     .map((node) => ({ ...node, loreRecordIds: node.loreRecordIds ?? [], acquiredWeek: delta.week }));
   const incomingKnowledgeIds = new Set(incomingKnowledge.map((node) => node.id));
   const incomingKnowledgeGrants = (delta.knowledgeGrants ?? []).map((grant) => ({ ...grant, week: delta.week }));
@@ -306,7 +564,18 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
   return {
     ...kernel,
     currentWeek: Math.max(kernel.currentWeek, delta.week + 1),
-    lastResolvedWeek: Math.max(kernel.lastResolvedWeek, delta.week),
+    lastResolvedWeek: delta.week,
+    revision: kernelRevision(kernel) + 1,
+    committedTransactions: [
+      ...(Array.isArray(kernel.committedTransactions) ? kernel.committedTransactions : []),
+      transactionState.transaction,
+    ].slice(-MAX_COMMITTED_WORLD_TRANSACTIONS),
+    retrievalReceipts: delta.retrievalReceipt
+      ? [...(kernel.retrievalReceipts ?? []), delta.retrievalReceipt].slice(-MAX_AUTHORITY_RECEIPTS)
+      : [...(kernel.retrievalReceipts ?? [])],
+    mutationClaims: delta.mutationClaims?.length
+      ? [...(kernel.mutationClaims ?? []), ...delta.mutationClaims].slice(-MAX_AUTHORITY_RECEIPTS * 4)
+      : [...(kernel.mutationClaims ?? [])],
     actors,
     factions,
     projects,
@@ -338,20 +607,115 @@ function canSee(visibility: WorldVisibility, holderIds: string[], holderRefs: st
   return false;
 }
 
-export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudience) {
+export type AudienceLocationProjection = {
+  id: string;
+  name: string;
+  knownConditions: string[];
+  knownActorIds: string[];
+  knownFactionIds: string[];
+  perceivedRisk: number;
+  publicMood: string;
+  stability: number;
+  updatedWeek: number;
+};
+
+export type AudienceWorldEvent = Pick<PersistentWorldEvent, "id" | "week" | "title" | "detail" | "locationId" | "actorIds" | "factionIds" | "visibility">;
+
+export type AudienceWorldObservation = Pick<WorldObservation, "id" | "week" | "eventId" | "channel" | "text" | "visibility" | "perceivedRefs" | "acquisitionKind">;
+
+export type AudienceWorldKnowledge = Pick<WorldKnowledgeNode, "id" | "subject" | "statement" | "truth" | "visibility" | "acquiredWeek">;
+
+export type AudienceKnowledgeGrant = Pick<WorldKnowledgeGrant, "knowledgeId" | "kind">;
+
+export type AudienceWorldProjection = {
+  currentWeek: number;
+  currentDate: string;
+  locations: AudienceLocationProjection[];
+  events: AudienceWorldEvent[];
+  observations: AudienceWorldObservation[];
+  knowledge: AudienceWorldKnowledge[];
+  knowledgeGrants: AudienceKnowledgeGrant[];
+  projectionHash: string;
+};
+
+function projectLocationForAudience(
+  location: PersistentWorldLocation,
+  audience: WorldAudience,
+  visibleEvents: PersistentWorldEvent[],
+  visibleObservations: WorldObservation[],
+): AudienceLocationProjection {
+  const locationEvents = visibleEvents.filter((event) => event.locationId === location.id);
+  const eventIds = new Set(locationEvents.map((event) => event.id));
+  const locationObservations = visibleObservations.filter((observation) => eventIds.has(observation.eventId));
+  const knownActorIds = new Set<string>();
+  const knownFactionIds = new Set<string>();
+  for (const event of locationEvents) {
+    for (const actorId of event.actorIds) knownActorIds.add(actorId);
+    for (const factionId of event.factionIds) knownFactionIds.add(factionId);
+  }
+  for (const observation of locationObservations) {
+    for (const perceivedRef of observation.perceivedRefs ?? []) {
+      const actor = perceivedRef.match(/^actor:(.+)$/)?.[1];
+      const faction = perceivedRef.match(/^faction:(.+)$/)?.[1];
+      if (actor) knownActorIds.add(actor);
+      if (faction) knownFactionIds.add(faction);
+    }
+  }
+  if (audience.kind === "actor" && location.actorIds.includes(audience.holderId)) knownActorIds.add(audience.holderId);
+  if (audience.kind === "faction" && location.factionIds.includes(audience.holderId)) knownFactionIds.add(audience.holderId);
+  const visibleText = [
+    ...locationEvents.flatMap((event) => [event.title, event.detail]),
+    ...locationObservations.map((observation) => observation.text),
+  ].join("\n");
+  const knownConditions = location.conditions.filter((condition) => condition.trim() && visibleText.includes(condition));
+  return {
+    id: location.id,
+    name: location.name,
+    knownConditions: [...new Set(knownConditions)].slice(-8),
+    knownActorIds: [...knownActorIds].sort(),
+    knownFactionIds: [...knownFactionIds].sort(),
+    perceivedRisk: clamp(location.risk),
+    publicMood: location.publicMood,
+    stability: clamp(location.stability),
+    updatedWeek: location.updatedWeek,
+  };
+}
+
+export function projectWorldForAudience(kernel: WorldKernel, audience: Extract<WorldAudience, { kind: "world" }>): WorldKernel;
+export function projectWorldForAudience(kernel: WorldKernel, audience: Exclude<WorldAudience, { kind: "world" }>): AudienceWorldProjection;
+export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudience): WorldKernel | AudienceWorldProjection;
+export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudience): WorldKernel | AudienceWorldProjection {
   if (audience.kind === "world") return kernel;
   const visibleObservations = kernel.observations.filter((observation) => canSee(observation.visibility, observation.holderIds, observation.holderRefs, audience));
   const observableEventIds = new Set(visibleObservations.map((observation) => observation.eventId));
   const reference = audienceRef(audience);
+  const visibleEvents = kernel.events.filter((event) => event.visibility !== "world" && (event.visibility === "public" || observableEventIds.has(event.id) || event.witnessRefs?.includes(reference)));
+  const visibleKnowledge = kernel.knowledge.filter((node) => canSee(node.visibility, node.holderIds, node.holderRefs, audience));
+  const visibleKnowledgeGrants = (kernel.knowledgeGrants ?? []).filter((grant) => grant.holderRef === reference);
+  const locations = kernel.locations.map((location) => projectLocationForAudience(location, audience, visibleEvents, visibleObservations));
+  const audienceEvents: AudienceWorldEvent[] = visibleEvents.map(({ id, week, title, detail, locationId, actorIds, factionIds, visibility }) => ({ id, week, title, detail, locationId, actorIds, factionIds, visibility }));
+  const audienceObservations: AudienceWorldObservation[] = visibleObservations.map(({ id, week, eventId, channel, text, visibility, perceivedRefs, acquisitionKind }) => ({ id, week, eventId, channel, text, visibility, perceivedRefs, acquisitionKind }));
+  const audienceKnowledge: AudienceWorldKnowledge[] = visibleKnowledge.map(({ id, subject, statement, truth, visibility, acquiredWeek }) => ({ id, subject, statement, truth, visibility, acquiredWeek }));
+  const audienceKnowledgeGrants: AudienceKnowledgeGrant[] = visibleKnowledgeGrants.map(({ knowledgeId, kind }) => ({ knowledgeId, kind }));
+  const projectionHash = hashText(stableSerialize({
+    audience: reference,
+    currentWeek: kernel.currentWeek,
+    currentDate: kernel.currentDate,
+    locations,
+    events: audienceEvents,
+    observations: audienceObservations,
+    knowledge: audienceKnowledge,
+    knowledgeGrants: audienceKnowledgeGrants,
+  }));
   return {
-    ...kernel,
-    actors: [],
-    factions: [],
-    projects: [],
-    events: kernel.events.filter((event) => event.visibility !== "world" && (event.visibility === "public" || observableEventIds.has(event.id) || event.witnessRefs?.includes(reference))),
-    observations: visibleObservations,
-    knowledge: kernel.knowledge.filter((node) => canSee(node.visibility, node.holderIds, node.holderRefs, audience)),
-    knowledgeGrants: (kernel.knowledgeGrants ?? []).filter((grant) => grant.holderRef === reference),
+    currentWeek: kernel.currentWeek,
+    currentDate: kernel.currentDate,
+    locations,
+    events: audienceEvents,
+    observations: audienceObservations,
+    knowledge: audienceKnowledge,
+    knowledgeGrants: audienceKnowledgeGrants,
+    projectionHash,
   };
 }
 

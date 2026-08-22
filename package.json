@@ -95,6 +95,8 @@
     "release:verify:seed": "node scripts/release/verify-release.mjs seed",
     "release:provenance": "node scripts/release/verify-release.mjs artifact",
     "release:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release/smoke-installer.ps1",
+    "release:persistence:lifecycle": "node scripts/release/persistence-lifecycle.mjs",
+    "release:evidence:verify": "node scripts/release/verify-evidence.mjs",
     "bundle:budget": "node scripts/release/check-bundle-budget.mjs",
     "preelectron:build": "npm run release:verify:seed",
     "electron:build": "electron-builder --win nsis --publish never",

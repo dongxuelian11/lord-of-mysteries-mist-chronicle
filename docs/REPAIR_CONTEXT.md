@@ -494,3 +494,102 @@
 - 用户已明确授权：将 `0b56b1b`、`6c02799`（包含仓库源码和测试），以及仅用于记录本次进度/推送结果的提交，推送到 `https://github.com/dongxuelian11/lord-of-mysteries-mist-chronicle.git` 的 `main` 分支。
 - 当前动作：提交本进度记录；执行 `git push origin main`；读取本地跟踪状态与远端 `main` 引用进行核验。
 - 两份 `.qa-prodserver3.*.log` 继续排除，不提交、不推送。
+
+## 15. 2026-08-22 当前任务恢复覆盖（Gate 0 + PR1）
+
+本节覆盖本文件中更早的 `main`/旧推送任务记录；当前任务以 `docs/CORE_GAMEPLAY_BUILD.md` 最新 Gate 0/PR1 节和实际 Git 状态为准。不要把旧的 `main` 推送授权迁移到当前分支。
+
+- 当前工作区：`D:\gmzz`；当前分支：`codex/gate0-pr1-turn-guard`。
+- 当前 HEAD：PR2 一次性实现提交为 `90b6407`（后续恢复文档提交不在此处硬编码）；Gate 0/PR1 代码修复提交为 `5e34789`，PR2-A 提交为 `2aeee12`，PR2-D 实现/测试/CORE 账本提交为 `78de1ee`。
+- Gate 0 + PR1/MIST-TURN-01 仍保持完成；PR2-A、PR2-B、PR2-C、PR2-D 与本次整套 PR2 的独立 Codex 只读复审均为 `CLEAN`；本次最终复审覆盖 SQLite driver、IPC sender/key/payload、renderer authority、读写/传输 fail-closed、异步状态一致性和新增测试。
+- 最新本地证据：`npm.cmd test` 369 项中 364 通过、5 跳过、0 失败；PR2 定向回归 34/34；typecheck、build、lint、bundle budget、diff check 和 Electron CJS syntax check 均通过；Gate 0 的 high-severity audit 退出码 0，保留 4 个 moderate 依赖告警，未执行 breaking `--force` 修复。
+- 当前工作树除 PR2 持久化闭环代码、测试和账本文档外，仍只保留两个既有未跟踪 QA 日志 `.qa-prodserver3.err.log`、`.qa-prodserver3.out.log`；日志不得删除、覆盖、提交或推送。
+- 当前没有 push、开 PR、合并授权；远端 CI 仍为 `PENDING`。旧章节的 GitHub 推送授权不适用于本分支。
+- Wave 3/PR2 持久化闭环已完成：active-save 先经 `app/persistence-authority.ts` 端口；SaveEnvelope checksum 与迁移边界经 `app/persistence-integrity.ts`/`app/save-system.ts` 锁定；recovery checkpoint 具备上限、旧键回退和损坏 fail-closed；桌面端通过 `electron/persistence-sqlite.cjs` 的内置 `node:sqlite` WAL store 与 Main IPC gateway 持久化，renderer 不获得文件系统能力；空数据库首次启动仍可从 localStorage/v20 兼容键迁移。当前证据仍只到本机闭环，不提升为跨设备、clean-machine 或生产可用证据，不改变产品定位或伪造真人长线证据。
+
+### 当前下一步
+
+1. Gate 0/PR1 不重做；若用户授权远端交付，再单独执行 push/开 PR 前的 exact-head 复核。
+2. PR2 已一次完成；若继续开发，应另立 PR3 目标。当前不再拆分 PR2，不安装额外 native runtime，不改变已验证的 authority 介质边界。
+3. 保持 Great Smog 产品选择和真人 5–20 小时证据为外部依赖，不能自动决定或伪造。
+
+### 15.1. 2026-08-22 PR2-A 恢复覆盖
+
+- PR2-A 提交 `2aeee12` 包含 `app/persistence-authority.ts`、`app/game-session-controller.ts`、`tests/persistence-authority.test.mjs` 与 `docs/CORE_GAMEPLAY_BUILD.md`；两个 `.qa-prodserver3.*.log` 仍未跟踪、未修改、未提交。
+- 适配器行为已由 4 项公开端口测试锁定：当前键优先、旧键有序回退、空值按旧逻辑视为缺失、写入/清理只作用于当前键。
+- 定向回归 38/38、全量 341 中 336 通过/5 跳过/0 失败；typecheck、lint、bundle budget、diff check 均通过。
+- 同一项目既有 Codex 独立审阅线程已复核当前工作树的 PR2-A 三文件：`CLEAN`，未发现 `[P1]`/`[P2]`；审阅只读，无文件修改。
+- 该阶段后续的 PR2-C recovery contract 已在 `7f31b40` 完成；当前恢复点见 15.3，不能把 adapter 证据升级为 SQLite、跨机器或生产可用证据。
+
+### 15.2. 2026-08-22 PR2-B 恢复覆盖
+
+- PR2-B 提交 `02e5dba` 包含 `app/persistence-integrity.ts`、`app/save-system.ts`、`tests/persistence-integrity.test.mjs`、`docs/PR2_PERSISTENCE_DESIGN.md` 和 `docs/CORE_GAMEPLAY_BUILD.md`；两个 `.qa-prodserver3.*.log` 仍未跟踪、未修改、未提交。
+- integrity 边界已由 3 项测试锁定：确定性 checksum、SaveEnvelope 共享校验与篡改拒绝、非 JSON 输入 fail-closed；原 SaveEnvelope 格式与错误语义保持不变。
+- PR2-B 定向回归 41/41、全量 344 中 339 通过/5 跳过/0 失败；typecheck、lint、bundle budget、diff check 均通过。
+- 同一项目既有 Codex 独立审阅线程复核 PR2-B 变更：`CLEAN`，未发现 `[P1]`/`[P2]`；设计文档把 SQLite/WAL/Main gateway/生产迁移明确列为未实现未来契约。
+- 该阶段后续的 PR2-C recovery contract 已在 `7f31b40` 完成；当前恢复点见 15.3，不能把纯 integrity 证据升级为 SQLite、跨机器或生产可用证据。
+
+### 15.3. 2026-08-22 PR2-C 恢复覆盖
+
+- PR2-C 提交 `7f31b40` 仅包含 `tests/recovery-checkpoint.test.mjs` 与 `docs/CORE_GAMEPLAY_BUILD.md`；两个 `.qa-prodserver3.*.log` 仍未跟踪、未修改、未提交。
+- recovery contract 已由 3 项公开行为测试锁定：当前键最多三条有效记录、旧键声明顺序回退、当前键 malformed 时 fail-closed 且不静默回退；全局 `window` 在测试后恢复。
+- 全量回归 347 中 342 通过/5 跳过/0 失败；lint、bundle budget、diff check 均通过。
+- 同一项目既有 Codex 独立审阅线程复核 PR2-C 测试：`CLEAN`，未发现 `[P1]`/`[P2]`；审阅只读，无文件修改。
+- 未推送、未开 PR、未合并；远端 CI 仍为 `PENDING`。PR2 已完成，下一步若继续只建立独立 PR3 目标，不能把 migration/recovery/SQLite 本机证据升级为跨机器或生产可用证据。
+
+### 15.4. 2026-08-22 PR2-D 恢复覆盖
+
+- PR2-D 代码与测试本地完成：`app/save-system.ts` 在 `normalizeStoredGame` 后重算 envelope checksum；`tests/persistence-migration-boundary.test.mjs` 锁定 unknown schema、截断 JSON、v20→v21 确定性迁移、round-trip 再导入和 source 不变。对应实现/测试/CORE 账本提交为 `78de1ee`。
+- PR2-D 定向测试 3/3，联合 PR2-A/B/C/D 定向回归 47/47；全量 `npm.cmd test` 350 中 345 通过/5 跳过/0 失败；typecheck、lint、bundle budget、diff check 均通过。
+- 同一项目既有 Codex 独立审阅线程首次发现 `[P2]`：迁移后保留旧 checksum 导致 round-trip 失败；最小修复后第二次复审为 `CLEAN`，未发现 `[P1]`/`[P2]`/`[P3]`，且确认测试未宣称 SQLite/WAL/生产迁移已实现。
+- 未推送、未开 PR、未合并；两个 `.qa-prodserver3.*.log` 仍未跟踪、未修改、未提交。PR2 后续不再拆分；若继续，应另立 PR3，并重新定义范围与证据门禁。
+
+### 15.5. 2026-08-22 PR2 持久化闭环恢复覆盖
+
+- PR2 一次性闭环已实现，代码提交为 `90b6407`：`electron/persistence-sqlite.cjs`（WAL/FULL、记录 schema/checksum、atomic batch、recovery append）、`electron/persistence-ipc.cjs`（key/payload/sender 门禁）、`electron/main.cjs`/`electron/preload.cjs`（Main 生命周期与受限 bridge）、renderer active-save/recovery 接线、异步状态防陈旧覆盖和首次 localStorage 迁移回退。
+- 新增 `tests/persistence-sqlite.test.mjs`、`tests/persistence-ipc.test.mjs`、`tests/persistence-bridge.test.mjs`；SQLite/IPC/bridge/迁移/recovery 定向 34/34；全量 369 中 364 通过/5 跳过/0 失败；typecheck、build、lint、bundle budget、diff check、Electron CJS syntax check 均通过。
+- `docs/PR2_PERSISTENCE_DESIGN.md` 与 `docs/CORE_GAMEPLAY_BUILD.md` 已更新为 PR2 完成状态；本机 SQLite/WAL 与 renderer authority 已有测试证据，但跨设备、clean-machine、长期生产和真人 5–20 小时仍未证明。
+- 本次整套 diff 的 Codex 独立只读审阅最终结论为 `CLEAN`；覆盖 driver、IPC、renderer 接线、迁移、异步状态一致性、读写/传输 fail-closed 和新增测试。审阅未修改文件；不声称 clean-machine、Electron 实机或生产证据。
+- 未推送、未开 PR、未合并；两个 `.qa-prodserver3.*.log` 继续未跟踪、未修改、未提交。PR2 已收口，下一阶段只允许另立 PR3。
+
+### 15.6. 2026-08-22 PR3 打包桌面持久化启动资格恢复覆盖
+
+- PR3 目标已收敛为一个有界增量：把 PR2 的 SQLite/WAL 本机边界接入现有 installer smoke，确认隔离 `GMZZ_USER_DATA` 首次启动确实创建 `mist-chronicle.sqlite`，并以 read-only probe 验证 `journal_mode=wal`、`persistence_records` 及六个必要列。
+- 当前变更文件：`scripts/release/smoke-installer.ps1`、`scripts/release/verify-persistence-db.mjs`、`tests/release-persistence-smoke.test.mjs`、`docs/PR3_PACKAGED_RUNTIME_QUALIFICATION.md` 和本账本/核心账本更新；不触碰两个 `.qa-prodserver3.*.log`。
+- 证据边界：probe 只验证启动 schema，不写业务记录，不宣称 renderer 保存—退出—重启恢复；clean-machine、跨设备、升级迁移、生产可用性和真人 5–20 小时仍为 `NOT_AVAILABLE`。若本轮没有实际构建并运行安装包，installer `release:smoke` 仍记为 `NOT_RUN`。
+- 当前进度：PR3 定向测试 3/3、全量 `npm.cmd test` 372 中 367 通过/5 跳过/0 失败、typecheck、lint、bundle budget、Node syntax check、PowerShell parse 和 diff check 均通过；既有 Codex 独立只读复审为 `CLEAN`。`npm.cmd run dist:win` 在 `release:verify:seed` 因 `seed-manifest-missing` 未生成 installer，故 `release:smoke` 记为 `NOT_RUN`。实现与证据整理已提交为 `68f0598`，并已推送当前分支到 `origin/codex/gate0-pr1-turn-guard`；远端 HEAD 与本地为 `6bd66ac`，未建 PR、未合并，工作树只保留两个既有未跟踪 QA 日志。
+
+### 15.7. 2026-08-22 PR3 授权 seed 阻塞复核
+
+- PR3 代码与本机门禁仍保持完成：只读 verifier/installer 接线 3/3、全量 372 中 367 通过/5 跳过/0 失败，typecheck、lint、bundle budget、Node/PowerShell syntax 和 diff check 通过；没有新的代码缺口。
+- 为取得真实 installer 证据，本轮检查了 `KNOWLEDGE_SEED_URL`、`KNOWLEDGE_SEED_SHA256`、`private/rag/index`、`.runtime/release-seed`、`release` 以及受限 D 盘 `seed-manifest.json`；均未提供合法 seed。`release:verify:seed` 因 `seed-manifest-missing` 阻断，`dist:win` 未进入 electron-builder，`release:smoke` 继续为 `NOT_RUN`。
+- 下一次继续的最小输入：合法授权 seed ZIP 及 SHA-256（发布流程的 `KNOWLEDGE_SEED_URL` / `KNOWLEDGE_SEED_SHA256`），或用户明确提供等价的受控本地 seed 目录。不得由空壳知识库或生成的 compendium 冒充授权 seed。
+- 复核起点远端分支为 `origin/codex/gate0-pr1-turn-guard` 的 `cd18fb5`；本记录更新仍不创建 PR、不合并，两个 `.qa-prodserver3.*.log` 继续保留且不触碰。
+
+### 15.8. 2026-08-22 PR4 Electron 持久化生命周期完成
+
+- PR4 范围已锁定为本机真实 Electron renderer → preload → Main IPC → SQLite 的退出/重启恢复，不依赖授权 knowledge seed，不把 PR3 的 installer 资格扩大解释。
+- 新增 `scripts/release/persistence-lifecycle.mjs` 与 `scripts/release/electron-persistence-lifecycle-runner.cjs`：同一个隔离 user-data 目录先由第一进程通过正式 `electron/preload.cjs` 写入 `mist-chronicle-complete-v21`、`mist-chronicle-recovery-v21`，进程退出关闭 store；第二进程通过同一 bridge 读回 marker 与 recovery，再用 `verify-persistence-db.mjs` 只读确认 WAL/schema。
+- `tests/release-persistence-lifecycle.test.mjs` 2/2 通过；实际本机运行报告 `status=PASS`、`evidenceLevel=local-electron`、active/recovery marker 均匹配、`journalMode=wal`、`readOnlyProbe=true`。运行时使用 Electron hidden renderer；为当前 Windows runner 加入 `disableHardwareAcceleration` 与 `no-sandbox`，不改变产品主进程的安全 bridge/IPC 门禁。
+- `npm.cmd run release:persistence:lifecycle` 已接入 package scripts；`--keep`、`--user-data`、`--output` 可保留诊断目录/报告。默认临时目录在成功后清理，失败时报告目录位置。
+- 证据边界：本机 Electron 生命周期是 `local-electron`，不是 packaged/clean-machine/production/human 证据；两个 `.qa-prodserver3.*.log` 仍未跟踪、未修改、未提交。
+
+### 15.9. 2026-08-22 PR5 发布证据契约完成
+
+- 新增 `scripts/release/verify-evidence.mjs` 与 `tests/release-evidence.test.mjs`。校验器只接受 schema v1、真实应用名、ISO 时间、Git commit、branch/worktree 状态、唯一 claims；`PASS` 必须至少一条 command/artifact/provenance/observation 证据，`NOT_RUN`/`NOT_AVAILABLE`/`PENDING`/`BLOCKED`/`DEFERRED` 必须有非空 reason。
+- artifact 证据必须为仓库相对安全路径，拒绝绝对路径、`..` 路径、缺失文件和错误 SHA-256；`--match-head` 会比较当前 HEAD，防止把历史提交证据贴到新源码上。`npm.cmd run release:evidence:verify <manifest>` 为公开入口。
+- PR5 定向测试 4/4 通过，覆盖合法 hash、缺 reason/缺 PASS 证据/未知状态、路径穿越/摘要错配以及 stale HEAD；文档为 `docs/PR5_RELEASE_EVIDENCE_CONTRACT.md`。
+- 当前仍不生成或伪造 release evidence manifest：PR3 的 `KNOWLEDGE_SEED_URL`/`KNOWLEDGE_SEED_SHA256` 未设置，`release:verify:seed` 仍因 `seed-manifest-missing` 阻断，installer `release:smoke` 保持 `NOT_RUN`。PR5 只提供校验器与明确状态，不提升证据等级。
+- 最终门禁：`npm.cmd test` 构建成功，378 项中 373 通过、5 条既有条件跳过、0 失败；PR4/PR5 定向回归 9/9；typecheck、lint、bundle budget、Node/PowerShell syntax 和 `git diff --check` 均通过。
+- 精确提交已完成：`feat: complete PR4 and PR5 evidence boundaries`，包含 10 个任务文件；两个 `.qa-prodserver3.*.log` 仍未跟踪、未修改、未提交。当前远端分支仍停在 `602e89d`，本地仅领先本地 PR4/PR5 提交；本轮未推送、未建 PR、未合并，等待明确的远端写入授权。
+- 自动压缩恢复点：PR4/PR5 代码、测试、文档、账本和本地提交均完成；若继续，先读取本节与实际 `git status --short`，只处理远端推送授权或 PR3 的合法 seed 输入，不重复 PR1/PR2/PR4/PR5。
+
+### 15.10. 2026-08-22 PR6 Wave 4 运行时追踪契约（已完成，已纳入当前分支）
+
+- PR6 范围收敛为不新增玩法的可观测性边界：新增 `app/runtime-trace.ts`，提供 schema v1、统一 `traceId/requestId/turnId/retrievalId/modelTraceId`、模型/Prompt/响应 schema 元数据、延迟/修复/拒绝/提交状态字段和 128 条有界环；只保存 ID、计数和状态，不保存 prompt、模型 payload、RAG 正文、存档或密钥。
+- 三条真实路径已接线：`app/ai-client.ts` 对既有模型传输包一条 trace；`app/rag/client.ts` 记录 bridge/legacy 检索模式、选中/过滤计数并绑定 `RetrievalReceipt`；`app/world-kernel.ts` 对新提交、幂等重放和拒绝分别记录 `COMMITTED/REPLAYED/REJECTED`。追踪写入失败会被吞掉，不能改变模型、检索或权威事务语义。
+- 世界裁决请求现在把周事务、RAG 收据、Prompt 版本和响应 schema 版本带入模型 trace；模型供应商尚未提供 tokenizer usage/首 token usage 时，`inputTokens/outputTokens/firstTokenLatencyMs` 明确保持 `null`，不以字符估算冒充 tokenizer 证据。
+- 新增 `tests/runtime-trace.test.mjs`：契约脱敏与有界性、模型成功 trace、检索—事务 ID 关联以及事务拒绝状态共 3 项测试；当前定向回归 3/3，通过 typecheck。
+- 证据边界：PR6 只证明本机内存 trace 契约与接线，不证明真实供应商 token 计量、跨进程持久化、clean-machine、生产或真人可用性；PR3 的授权 seed 缺失/installer `NOT_RUN` 继续保持原状。
+- 关闭证据：PR4/PR5/PR6 实现与本记录已纳入当前分支；PR4/PR5/PR6 定向回归 9/9、全量测试 383 项中 378 通过、5 条既有条件跳过、0 失败，typecheck、lint、bundle budget、Node/PowerShell syntax 和远端差异 `git diff --check` 均通过。Codex CLI 只读审阅受 WindowsApps 执行权限阻断，未将其结果升级为通过证据；本地人工差异审阅未发现 P1/P2 问题。
+- 当前恢复点：当前分支包含 PR4/PR5/PR6 及本关闭记录；GitHub PR、CI 与审批状态以远端实时查询为准，不把本地记录升级为远端通过。PR3 授权 seed 仍缺失，`release:verify:seed` 继续 `BLOCKED`，installer `release:smoke` 继续 `NOT_RUN`。两个 `.qa-prodserver3.*.log` 继续未跟踪且不得触碰。

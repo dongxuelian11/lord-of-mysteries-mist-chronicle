@@ -32,7 +32,7 @@ export function TitleScreen({ hydrated, hasSave, save, onContinue, onNewGame, on
         <button onClick={onSettings}><Settings size={17} /><span><strong>模型与世界资料</strong><small>配置人物对话、专用世界推演模型和设定资料</small></span></button>
       </div>
       <div className="title-save-tools"><button disabled={!hasSave} onClick={onExport}><Download size={14} />导出唯一存档</button><button onClick={() => importRef.current?.click()}><Upload size={14} />导入并预览</button><input ref={importRef} hidden type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImport(file); event.currentTarget.value = ""; }} /></div>
-      <footer><Database size={13} /><span>存档保存在当前浏览器；每次打开都从标题页进入。</span></footer>
+      <footer><Database size={13} /><span>桌面版存档保存在本机持久化数据库；浏览器模式使用当前浏览器。每次打开都从标题页进入。</span></footer>
     </section>
   </main>;
 }

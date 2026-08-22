@@ -1,3 +1,9 @@
+import {
+  deriveRuntimeTraceId,
+  tryRecordRuntimeTrace,
+  type RuntimeTraceContext,
+} from "./runtime-trace.ts";
+
 export type AiProviderId = "deepseek" | "compatible";
 export type AiQuality = "balanced" | "literary";
 
@@ -18,6 +24,7 @@ export type ModelCallOptions = {
   temperature?: number;
   stream?: boolean;
   onToken?: (text: string) => void;
+  trace?: RuntimeTraceContext;
 };
 
 export const DEEPSEEK_FLASH_PRESET: AiConfig = {
@@ -101,7 +108,7 @@ async function readStreamedContent(response: Response, onToken?: (text: string) 
   return content;
 }
 
-export async function callModel(config: AiConfig, system: string, user: string, options: ModelCallOptions = {}) {
+async function requestModel(config: AiConfig, system: string, user: string, options: ModelCallOptions = {}) {
   const provider = config.provider ?? (config.endpoint.includes("api.deepseek.com") ? "deepseek" : "compatible");
   const stream = Boolean(options.stream);
   const userPrompt = options.json && !/json/i.test(`${system} ${user}`) ? `${user}\n\n只返回严格 JSON 对象。` : user;
@@ -171,6 +178,58 @@ export async function callModel(config: AiConfig, system: string, user: string, 
     }
   }
   throw lastError ?? new Error("模型请求失败");
+}
+
+function modelFailureCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (/配置尚未填写完整/.test(message)) return "MODEL_CONFIG_INCOMPLETE";
+  if (/没有回应|超时/.test(message)) return "MODEL_TIMEOUT";
+  if (/API Key|权限/.test(message)) return "MODEL_AUTH_REJECTED";
+  if (/接口地址|模型名称/.test(message)) return "MODEL_ENDPOINT_REJECTED";
+  if (/过于频繁|额度不足/.test(message)) return "MODEL_RATE_LIMITED";
+  if (/空内容/.test(message)) return "MODEL_EMPTY_RESPONSE";
+  return "MODEL_REQUEST_FAILED";
+}
+
+/**
+ * Model calls keep their existing transport semantics while emitting one
+ * bounded trace. Provider usage fields are null until the provider supplies
+ * tokenizer-backed usage; this is deliberate and not an estimate.
+ */
+export async function callModel(config: AiConfig, system: string, user: string, options: ModelCallOptions = {}) {
+  const startedAt = Date.now();
+  const traceId = options.trace?.traceId ?? deriveRuntimeTraceId("model", `${config.model}\n${system}\n${user}`);
+  let outcome: "PASS" | "FAILED" = "FAILED";
+  let rejectionReasons: string[] = [];
+  try {
+    const content = await requestModel(config, system, user, options);
+    outcome = "PASS";
+    return content;
+  } catch (error) {
+    rejectionReasons = [modelFailureCode(error)];
+    throw error;
+  } finally {
+    tryRecordRuntimeTrace({
+      traceId,
+      operation: "model",
+      requestId: options.trace?.requestId,
+      turnId: options.trace?.turnId,
+      retrievalId: options.trace?.retrievalId,
+      modelTraceId: options.trace?.modelTraceId ?? traceId,
+      modelId: config.model,
+      modelQuantization: options.trace?.modelQuantization,
+      promptVersion: options.trace?.promptVersion,
+      responseSchemaVersion: options.trace?.responseSchemaVersion ?? (options.json ? "json-object" : undefined),
+      inputTokens: null,
+      outputTokens: null,
+      firstTokenLatencyMs: null,
+      latencyMs: Date.now() - startedAt,
+      repairCount: options.trace?.repairCount,
+      rejectionReasons,
+      outcome,
+      commitStatus: "NOT_APPLICABLE",
+    });
+  }
 }
 
 export async function testModelConnection(config: AiConfig) {

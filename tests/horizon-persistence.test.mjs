@@ -22,8 +22,12 @@ function turnDelta(week, extra = {}) {
   };
 }
 
+function applyCommittedTurn(applyWorldTurn, createWorldTurnTransaction, kernel, delta, turnId = `test:${delta.week}`) {
+  return applyWorldTurn(kernel, { ...delta, transaction: createWorldTurnTransaction(kernel, delta, turnId) });
+}
+
 test("knowledgeHorizon：新世界推进一周后保留", async () => {
-  const { createWorldKernel, applyWorldTurn } = await loadRuntimeModule("app/world-kernel.ts");
+  const { createWorldKernel, applyWorldTurn, createWorldTurnTransaction } = await loadRuntimeModule("app/world-kernel.ts");
   const kernel = createWorldKernel({
     week: 1,
     date: "1349年6月30日",
@@ -33,13 +37,13 @@ test("knowledgeHorizon：新世界推进一周后保留", async () => {
     timeline: [],
   });
   assert.equal(kernel.canon.knowledgeHorizon.maxVolume, 1);
-  const next = applyWorldTurn(kernel, turnDelta(1));
+  const next = applyCommittedTurn(applyWorldTurn, createWorldTurnTransaction, kernel, turnDelta(1));
   assert.equal(next.canon.knowledgeHorizon.maxVolume, 1);
   assert.deepEqual(next.canon.knowledgeHorizon.revealedIdentityIds, ["周明瑞", "夏洛克·莫里亚蒂"]);
 });
 
 test("knowledgeHorizon：修改卷号/章节/身份/事件/偏转后推进仍保留", async () => {
-  const { createWorldKernel, applyWorldTurn } = await loadRuntimeModule("app/world-kernel.ts");
+  const { createWorldKernel, applyWorldTurn, createWorldTurnTransaction } = await loadRuntimeModule("app/world-kernel.ts");
   let kernel = createWorldKernel({
     week: 1,
     date: "1349年6月30日",
@@ -62,7 +66,9 @@ test("knowledgeHorizon：修改卷号/章节/身份/事件/偏转后推进仍保
       },
     },
   };
-  const next = applyWorldTurn(
+  const next = applyCommittedTurn(
+    applyWorldTurn,
+    createWorldTurnTransaction,
     kernel,
     turnDelta(1, { canon: { mode: "diverging", deviationDelta: 3, pivotEventIds: ["e-1"] } })
   );
@@ -76,7 +82,7 @@ test("knowledgeHorizon：修改卷号/章节/身份/事件/偏转后推进仍保
 });
 
 test("knowledgeHorizon：JSON 存档往返后保留，并连续推进 20 周", async () => {
-  const { createWorldKernel, applyWorldTurn } = await loadRuntimeModule("app/world-kernel.ts");
+  const { createWorldKernel, applyWorldTurn, createWorldTurnTransaction } = await loadRuntimeModule("app/world-kernel.ts");
   let kernel = createWorldKernel({
     week: 1,
     date: "1349年6月30日",
@@ -87,7 +93,7 @@ test("knowledgeHorizon：JSON 存档往返后保留，并连续推进 20 周", a
   });
   kernel = JSON.parse(JSON.stringify(kernel));
   for (let week = 1; week <= 20; week += 1) {
-    kernel = applyWorldTurn(kernel, turnDelta(week));
+    kernel = applyCommittedTurn(applyWorldTurn, createWorldTurnTransaction, kernel, turnDelta(week));
     kernel = JSON.parse(JSON.stringify(kernel));
   }
   assert.equal(kernel.canon.knowledgeHorizon.maxVolume, 1);

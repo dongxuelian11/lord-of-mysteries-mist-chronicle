@@ -18,7 +18,30 @@ import {
   verifyWorldLedger,
 } from "../app/world-ledger.ts";
 import { adjudicateWorldActionProposals } from "../app/world-actions.ts";
-import { applyWorldTurn, createWorldKernel, projectWorldForAudience } from "../app/world-kernel.ts";
+import { applyWorldTurn as commitWorldTurn, createWorldKernel, createWorldTurnTransaction, projectWorldForAudience } from "../app/world-kernel.ts";
+
+function withKnowledgeAuthority(delta) {
+  if (!Array.isArray(delta.knowledge) || delta.knowledge.length === 0) return delta;
+  const fallbackProposalId = "test:knowledge";
+  const executableProposalIds = Array.isArray(delta.executableProposalIds) ? delta.executableProposalIds : [fallbackProposalId];
+  const events = (delta.events ?? []).map((event) => ({
+    ...event,
+    sourceProposalIds: Array.isArray(event.sourceProposalIds) ? event.sourceProposalIds : [fallbackProposalId],
+  }));
+  const mutationClaims = [...(delta.mutationClaims ?? [])];
+  for (const node of delta.knowledge) {
+    if (mutationClaims.some((claim) => claim.effectKind === "knowledge" && claim.subjectRef === `knowledge:${node.id}`)) continue;
+    const sourceEvent = events.find((event) => event.id === node.sourceEventId);
+    const proposalId = sourceEvent?.sourceProposalIds?.find((id) => executableProposalIds.includes(id));
+    if (proposalId) mutationClaims.push({ proposalId, effectKind: "knowledge", subjectRef: `knowledge:${node.id}`, targetRefs: [], sourceEventId: node.sourceEventId });
+  }
+  return { ...delta, executableProposalIds, events, mutationClaims };
+}
+
+function applyWorldTurn(kernel, delta, turnId = `test:${delta.week}`) {
+  const prepared = withKnowledgeAuthority(delta);
+  return commitWorldTurn(kernel, { ...prepared, transaction: createWorldTurnTransaction(kernel, prepared, turnId) });
+}
 
 test("the append-only ledger snapshots and replays authoritative world state", () => {
   const game = createInitialGame("spectator");
