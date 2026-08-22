@@ -21,6 +21,23 @@ test("AI API Key is bridged through Electron safeStorage, not persisted in local
   assert.doesNotMatch(`${renderer}\n${session}`, /apiKey:\s*rememberApiKey\s*\?/);
 });
 
+test("persistence uses a Main-process SQLite bridge instead of renderer filesystem access", () => {
+  const main = source("electron/main.cjs");
+  const preload = source("electron/preload.cjs");
+  const sqlite = source("electron/persistence-sqlite.cjs");
+  const ipc = source("electron/persistence-ipc.cjs");
+
+  assert.match(main, /createSqlitePersistenceStore/);
+  assert.match(preload, /mistPersistence/);
+  assert.match(sqlite, /node:sqlite/);
+  assert.match(sqlite, /journal_mode = WAL/);
+  assert.match(ipc, /untrusted-renderer/);
+  assert.match(main, /event\?\.sender !== mainWindow\.webContents/);
+  assert.match(main, /serverPort/);
+  assert.match(main, /GMZZ_PORT \|\| 43121/);
+  assert.doesNotMatch(preload, /require\("node:fs"\)|readFile|writeFile/);
+});
+
 test("release workflow disables implicit publish and enforces provenance gates", () => {
   const workflow = source(".github/workflows/release.yml");
   const builder = source("electron-builder.yml");

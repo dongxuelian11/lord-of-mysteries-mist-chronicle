@@ -623,12 +623,81 @@ export function createRecoveryCheckpoint(game: GameState, reason: RecoveryCheckp
   window.localStorage.setItem(RECOVERY_KEY, JSON.stringify([checkpoint, ...current].slice(0, 3)));
 }
 
-export function readRecoveryCheckpoints(): RecoveryCheckpoint[] {
+function parseRecoveryCheckpoints(raw: string | null): RecoveryCheckpoint[] {
+  if (!raw) return [];
   try {
-    const raw = window.localStorage.getItem(RECOVERY_KEY) ?? LEGACY_RECOVERY_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean) ?? "[]";
     const parsed = JSON.parse(raw) as RecoveryCheckpoint[];
     return Array.isArray(parsed) ? parsed.filter((item) => item?.game?.worldKernel).slice(0, 3) : [];
   } catch {
     return [];
+  }
+}
+
+function persistenceFatalError(error?: string) {
+  const failure = new Error(error ?? "persistence-initialization-failed");
+  failure.name = "PersistenceFatalError";
+  return failure;
+}
+
+function isPersistenceFatalError(error: unknown): error is Error {
+  return error instanceof Error && error.name === "PersistenceFatalError";
+}
+
+function isNonFatalPersistenceUnavailable(result: { available: boolean; fatal?: boolean; error?: string }) {
+  return !result.available && !result.fatal && (result.error === "persistence-unavailable" || result.error === "sqlite-runtime-unavailable");
+}
+
+export function readRecoveryCheckpoints(): RecoveryCheckpoint[] {
+  const current = window.localStorage.getItem(RECOVERY_KEY);
+  if (current !== null) return parseRecoveryCheckpoints(current);
+  const legacy = LEGACY_RECOVERY_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean) ?? null;
+  return parseRecoveryCheckpoints(legacy);
+}
+
+export async function createRecoveryCheckpointAsync(game: GameState, reason: RecoveryCheckpoint["reason"]) {
+  const checkpoint: RecoveryCheckpoint = { id: `recovery-${Date.now()}`, reason, createdAt: new Date().toISOString(), game };
+  const bridge = window.mistPersistence;
+  if (!bridge) {
+    createRecoveryCheckpoint(game, reason);
+    return;
+  }
+  try {
+    const result = await bridge.appendRecovery(RECOVERY_KEY, checkpoint, 3);
+    if (result.fatal) throw persistenceFatalError(result.error);
+    if (isNonFatalPersistenceUnavailable(result)) {
+      createRecoveryCheckpoint(game, reason);
+      return;
+    }
+    if (!result.available || result.error || !result.saved) throw persistenceFatalError(result.error ?? "persistence-write-failed");
+  } catch (error) {
+    if (isPersistenceFatalError(error)) throw error;
+    throw persistenceFatalError(error instanceof Error ? error.message : "persistence-write-failed");
+  }
+}
+
+export async function readRecoveryCheckpointsAsync(): Promise<RecoveryCheckpoint[]> {
+  const bridge = window.mistPersistence;
+  if (!bridge) return readRecoveryCheckpoints();
+  try {
+    const current = await bridge.get(RECOVERY_KEY);
+    if (!current.available) {
+      if (current.fatal) throw persistenceFatalError(current.error);
+      if (isNonFatalPersistenceUnavailable(current)) return readRecoveryCheckpoints();
+      throw persistenceFatalError(current.error ?? "persistence-read-failed");
+    }
+    if (current.error) return [];
+    if (current.value !== null && current.value !== undefined) return parseRecoveryCheckpoints(current.value);
+    for (const key of LEGACY_RECOVERY_KEYS) {
+      const legacy = await bridge.get(key);
+      if (!legacy.available && legacy.fatal) throw persistenceFatalError(legacy.error);
+      if (!legacy.available && isNonFatalPersistenceUnavailable(legacy)) return readRecoveryCheckpoints();
+      if (!legacy.available) throw persistenceFatalError(legacy.error ?? "persistence-read-failed");
+      if (legacy.error) return [];
+      if (legacy.value !== null && legacy.value !== undefined) return parseRecoveryCheckpoints(legacy.value);
+    }
+    return readRecoveryCheckpoints();
+  } catch (error) {
+    if (isPersistenceFatalError(error)) throw error;
+    throw persistenceFatalError(error instanceof Error ? error.message : "persistence-read-failed");
   }
 }

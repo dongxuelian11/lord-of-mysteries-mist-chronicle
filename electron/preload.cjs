@@ -12,3 +12,10 @@ contextBridge.exposeInMainWorld("mistCredentials", {
   save: (apiKey) => ipcRenderer.invoke("credentials:save", apiKey),
   clear: () => ipcRenderer.invoke("credentials:clear"),
 });
+
+contextBridge.exposeInMainWorld("mistPersistence", {
+  get: (key) => ipcRenderer.invoke("persistence:get", key),
+  set: (key, payload) => ipcRenderer.invoke("persistence:set", key, payload),
+  remove: (key) => ipcRenderer.invoke("persistence:remove", key),
+  appendRecovery: (key, checkpoint, maxEntries) => ipcRenderer.invoke("persistence:append-recovery", key, checkpoint, maxEntries),
+});

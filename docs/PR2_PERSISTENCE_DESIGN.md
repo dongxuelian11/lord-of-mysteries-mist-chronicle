@@ -1,6 +1,6 @@
 # PR2 持久化边界设计记录
 
-状态：2026-08-22，本地设计与第一条 integrity slice 已完成；SQLite runtime、Main Process gateway 和生产迁移尚未开始。
+状态：2026-08-22，PR2 持久化闭环已完成本地实现与验证；SQLite runtime 使用 Node/Electron 内置 `node:sqlite`，Main Process gateway、renderer authority 接线、迁移回退和 WAL 故障测试均已落地。跨设备、clean-machine 和真人长线证据仍未完成。
 
 ## 目标
 
@@ -19,25 +19,25 @@
 
 `app/persistence-integrity.ts` 提供现有 FNV-1a 风格 JSON checksum 的纯实现。它只负责稳定序列化校验，不宣称密码学防篡改；`save-system.ts` 的 `SaveEnvelope` 已通过该边界生成和验证 checksum，格式与错误语义保持不变。
 
-## 下一条 SQLite WAL driver 的契约（尚未实现）
+## SQLite WAL driver 与 Main gateway（PR2 已实现）
 
-1. driver 只实现现有 authority port，不把 SQL 类型泄漏到 `game-session-controller` 或 UI。
-2. active save 与 recovery checkpoint 使用明确的记录类型、schema version、payload、checksum 和写入时间；单次保存必须在一个 SQLite 事务内完成，WAL 只解决本地崩溃恢复与读写隔离，不改变世界事务语义。
-3. 读取先验证记录格式、checksum 和迁移版本，再交给现有 `migrateStoredGame`；任何不通过的记录都 fail closed，不能把半解析对象送进游戏状态。
-4. 从当前 localStorage/raw v21 与 v20 旧键迁移必须是一次性、可重试、可审计的 additive migration；迁移失败不得删除唯一可恢复源。
-5. 恢复优先级必须显式记录：当前存档缺失时才允许使用兼容旧键或有效 checkpoint；当前存档存在但损坏时，保持现有语义，不静默跳过损坏源改用旧档。
+1. `electron/persistence-sqlite.cjs` 只实现现有 key-value authority port，不把 SQL 类型泄漏到 `game-session-controller` 或 UI。
+2. active save 与 recovery checkpoint 使用明确的记录类型、schema version、payload、SHA-256 checksum 和写入时间；写入通过 SQLite transaction，数据库启用 WAL 与 `synchronous = FULL`。
+3. `electron/persistence-ipc.cjs` 只接受 active/recovery 白名单键、有界 payload，并要求当前主窗口 WebContents 与当前动态 serverPort；preload 不暴露文件系统；SQLite 已打开后读写/传输错误不伪装成正常浏览器回退。
+4. 读取先验证记录格式和 checksum，再交给现有 `migrateStoredGame`；损坏当前记录只清理当前记录，不静默改用旧键。
+5. 空 SQLite 首次启动会读取兼容 localStorage/raw v21 或 v20 键，成功后由正常 active-save 写队列迁入 SQLite；迁移失败不删除唯一可恢复源；只有明确 runtime 不可用状态允许兼容回退，未知状态和 bridge 传输异常 fail-closed。
 6. driver 不提供回档、重掷、历史重写或跨机器同步 API；这些都超出本 PR2 范围。
 
 ## 失败测试顺序
 
-后续按单一垂直切片推进，每条先 RED 再 GREEN：
+PR2 已按 RED→GREEN 完成以下边界：
 
-1. SQLite driver 未安装时，纯 port contract 仍可用内存 store 验证读/写/清边界。
-2. checksum 不匹配、未知 schema、截断 payload、重复 active 记录均拒绝且不改变已加载游戏。
-3. v20/v21 raw save 的迁移只执行一次；重试产生相同 normalized game，不删除源记录。
-4. WAL 事务中断前后只出现旧记录或完整新记录，不出现半写 payload；该条需要 driver 与受控故障夹具后才实现。
-5. checkpoint 数量上限、旧 checkpoint 回退和损坏 checkpoint 隔离；不能把 checkpoint 当成新的世界事实来源。
+1. SQLite driver 的内存/文件 store 读写、WAL metadata、payload checksum 和删除边界。
+2. checksum 不匹配、unknown schema、截断 payload、IPC 非法键和不可信 sender 均 fail-closed。
+3. v20/v21 raw save 的迁移确定性、source 不变、round-trip 再导入和空 SQLite 首次 localStorage 回退。
+4. WAL transaction 中断后只出现旧记录或完整新记录，不出现半写 payload。
+5. recovery checkpoint 数量上限、旧键回退和损坏当前记录隔离；checkpoint 不是新的世界事实来源。
 
 ## 证据上限
 
-当前只证明纯 adapter、checksum helper、现有 SaveEnvelope 回归和 localStorage 行为保持不变。它们不证明 SQLite 已接入、不证明 Electron clean-machine 行为、不证明跨设备恢复，也不替代真人 5–20 小时体验证据。
+当前证明纯 adapter、checksum helper、SaveEnvelope 迁移、SQLite WAL driver、Main IPC sender/key 门禁、renderer authority/recovery 接线、异步状态防陈旧覆盖和本地故障夹具均通过；Codex 独立只读复审结论为 `CLEAN`。不证明跨设备恢复、clean-machine 安装矩阵、长时间 Electron 用户数据升级或真人 5–20 小时体验。PR2 也没有把 SQLite 证据提升为“生产可用”结论。

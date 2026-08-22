@@ -312,6 +312,27 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 
 下一步只在本地继续：为 SQLite driver port contract 与 WAL 中断故障分别写 RED→GREEN 测试；在 driver 证据形成前保持 localStorage authority 和现有 fail-closed 语义不变。两个 `.qa-prodserver3.*.log` 继续保留且不得触碰。
 
+## 2026-08-22 · PR2 Persistence Closure
+
+- 状态：PR2 持久化闭环一次完成；SQLite WAL driver、Main Process gateway、renderer active-save/recovery 接线、首次 localStorage 迁移回退和原子故障测试均已落地。未引入额外 native npm 依赖，使用 Node/Electron 内置 `node:sqlite`。
+- 已实现：
+  - `electron/persistence-sqlite.cjs`：WAL、`synchronous=FULL`、记录 schema/version、SHA-256 payload checksum、原子 batch、恢复点 append 和 corruption quarantine。
+  - `electron/persistence-ipc.cjs` + `electron/preload.cjs` + `electron/main.cjs`：白名单 key、有界 payload、当前主窗口 WebContents/动态 serverPort sender 门禁、数据库生命周期；renderer 不获得文件系统能力。
+  - `app/game-session-controller.ts`：Electron persistence bridge 为桌面 active-save authority；写入串行化；空 SQLite 首次启动仍可从 localStorage/v20 兼容键迁移；只有明确的 `persistence-unavailable`/`sqlite-runtime-unavailable` 才允许兼容回退，其他读写/传输异常均 fail-closed。
+  - `app/save-system.ts` / `app/complete-game.tsx`：recovery checkpoint 走原子 append bridge，当前记录损坏仍 fail-closed；浏览器模式继续使用同步 localStorage fallback，桌面 fatal 状态持续告警并阻止需要持久化的推进。
+- 验证证据：
+  - SQLite/IPC/bridge/迁移/recovery 定向回归：34/34 通过；包含 active-save 读写、recovery 读写、bridge 传输失败和 fatal 回退回归。
+  - `npm.cmd test`：构建成功；369 项测试中 364 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
+  - `npm.cmd run typecheck`、`npm.cmd run build`、`npm.cmd run lint`、Electron CJS `node --check`：通过。
+  - `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+  - `git diff --check`：通过。
+  - Codex 独立只读审阅：`CLEAN`；复核 driver、IPC、renderer 接线、迁移、异步状态一致性、fatal fail-closed 与新增测试；审阅未修改、提交或推送。
+- 当前边界：已证明本机 SQLite WAL 与 renderer authority 的本地闭环，不证明跨设备同步、clean-machine 安装升级矩阵、长时间生产运行或真人 5–20 小时体验；不改变 Gate 0/PR1 世界权威边界和产品定位。
+
+### PR2 完成后的恢复断点
+
+PR2 不再拆分后续实现包。下一阶段若继续，应另立 PR3 目标；当前只需保留两个 `.qa-prodserver3.*.log`，不得清理、覆盖、提交或推送。
+
 ## 自动压缩恢复断点（2026-08-21 · Gate 0 + PR1）
 
 当前任务目标：**先完成 Gate 0 与 PR1（MIST-TURN-01），建立可恢复、不可重复结算的世界周事务边界；不要在此任务中扩展玩家表面或引入 SQLite。**

@@ -32,12 +32,12 @@ import { abilityForFreeIntent, continueAbilityScene, generateAbilityDraft, gener
 import { generateCouncilReplies, generateCouncilSummary, generateDecisionDraft } from "./council-ai";
 import { actingPrinciplesFor, advancementStatus } from "./progression-system";
 import { abilitiesFor } from "./pathway-abilities";
-import { createRecoveryCheckpoint, downloadSave, normalizeStoredGame, parseSaveEnvelope, savePreview } from "./save-system";
+import { createRecoveryCheckpointAsync, downloadSave, normalizeStoredGame, parseSaveEnvelope, savePreview } from "./save-system";
 import { continueAsSuccessor } from "./succession-system";
 import ParticipationSceneOverlay from "./participation-scene-overlay";
 import { createParticipationScene, resolveParticipationSceneTurn } from "./participation-scene";
 import { stableEntityId, stableTextHash } from "./stable-id";
-import { clearAiSessionKey, loadGameSession, persistActiveGame, saveAiSessionSettings } from "./game-session-controller";
+import { clearAiSessionKey, loadGameSession, persistActiveGame, persistActiveGameAsync, saveAiSessionSettings } from "./game-session-controller";
 import { appendPlayerDialogue, applyDialogueDecision, applyDialogueModelResult, chooseDialogueScreeningAction, ensureDialogueThread } from "./dialogue-session-controller";
 import type { AttentionSimulationState } from "./attention-simulation.ts";
 
@@ -61,6 +61,8 @@ function authorizationLabel(contract: ActionContract) {
   return `${scope} · ${contract.authorization.mustEscalateWhen.length}类情况必须请示`;
 }
 
+const PERSISTENCE_FATAL_MESSAGE = "本机存档数据库无法打开；为避免覆盖旧状态，已阻止需要持久化的推进。请修复数据库后重试。";
+
 function editableContractField(contract: ActionContract, setContract: (value: ActionContract) => void, key: keyof ActionContract, label: string, wide = false) {
   const value = contract[key];
   if (typeof value !== "string") return null;
@@ -69,6 +71,8 @@ function editableContractField(contract: ActionContract, setContract: (value: Ac
 
 export default function CompleteGame() {
   const [game, setGame] = useState<GameState>(() => createInitialGame());
+  const gameRef = useRef(game);
+  useEffect(() => { gameRef.current = game; }, [game]);
   const [hydrated, setHydrated] = useState(false);
   const [entry, setEntry] = useState<"title" | "game">("title");
   const [hasSave, setHasSave] = useState(false);
@@ -105,6 +109,7 @@ export default function CompleteGame() {
   const [aiConfig, setAiConfig] = useState<AiConfig>({ ...DEEPSEEK_FLASH_PRESET });
   const [rememberApiKey, setRememberApiKey] = useState(false);
   const [secureStorageAvailable, setSecureStorageAvailable] = useState(false);
+  const [persistenceError, setPersistenceError] = useState("");
   const [connectionState, setConnectionState] = useState<{ status: "idle" | "testing" | "success" | "error"; message: string }>({ status: "idle", message: "" });
   const [connectionVerified, setConnectionVerified] = useState(false);
   const [draftPathway, setDraftPathway] = useState<PathwayId>("seer");
@@ -136,12 +141,23 @@ export default function CompleteGame() {
       setSecureStorageAvailable(loaded.secureStorageAvailable);
       if (loaded.aiConfig) setAiConfig(loaded.aiConfig);
       setRememberApiKey(loaded.rememberApiKey);
+      if (loaded.persistenceError) {
+        setPersistenceError(PERSISTENCE_FATAL_MESSAGE);
+        setToast(PERSISTENCE_FATAL_MESSAGE);
+      }
       setHydrated(true);
     })(); }, 0);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, []);
 
-  useEffect(() => { if (hydrated && game.prologueComplete) persistActiveGame(game); }, [game, hydrated]);
+  useEffect(() => {
+    if (!hydrated || !game.prologueComplete) return;
+    void persistActiveGame(game).catch(() => {
+      setPersistenceError(PERSISTENCE_FATAL_MESSAGE);
+      setGenerationError(PERSISTENCE_FATAL_MESSAGE);
+      setToast(PERSISTENCE_FATAL_MESSAGE);
+    });
+  }, [game, hydrated]);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(""), 3600); return () => window.clearTimeout(timer); }, [toast]);
   const pathway = PATHWAYS[game.pathwayId];
   const currentSequence = pathway.sequences.find((sequence) => sequence.rank === game.currentSequence)!;
@@ -149,6 +165,25 @@ export default function CompleteGame() {
   const abilities = availableAbilities(game);
   const aiReady = Boolean(aiConfig.endpoint.trim() && aiConfig.apiKey.trim() && aiConfig.model.trim());
   const latestChapter = game.chronicle[0];
+
+  function blockPersistence() {
+    setPersistenceError(PERSISTENCE_FATAL_MESSAGE);
+    setGenerationError(PERSISTENCE_FATAL_MESSAGE);
+    setToast(PERSISTENCE_FATAL_MESSAGE);
+  }
+
+  function ensurePersistenceReady() {
+    if (!persistenceError) return true;
+    setGenerationError(persistenceError);
+    setToast(persistenceError);
+    return false;
+  }
+
+  function isCurrentGame(expected: GameState, message = "局面在异步处理期间发生了变化；本次结果已取消，请从当前局面重新发起。") {
+    if (gameRef.current === expected) return true;
+    setGenerationError(message);
+    return false;
+  }
 
   async function prepareContract() {
     const freeIntent = intentText.trim();
@@ -230,7 +265,7 @@ export default function CompleteGame() {
 
   function removeAction(id: string) { setGame((current) => ({ ...current, schedule: current.schedule.filter((item) => item.id !== id), councilRecords: current.councilRecords.map((record) => record.week === current.week ? { ...record, decisions: record.decisions.filter((decision) => decision.id !== `decision-${id}`) } : record) })); }
 
-  async function finishWeekGeneration(councilState: GameState, resolvedChapter: ChronicleChapter) {
+  async function finishWeekGeneration(councilState: GameState, resolvedChapter: ChronicleChapter, sourceGame: GameState) {
     setGenerationError("");
     setTurnChapter(resolvedChapter);
     setStreamPreview("");
@@ -247,13 +282,20 @@ export default function CompleteGame() {
       setStreamPreview("");
       return;
     }
+    if (!isCurrentGame(sourceGame, "本周局面在世界推演期间发生了变化；世界结果没有落地，请从当前局面重新发起。")) {
+      setGenerationStage("");
+      setStreamPreview("");
+      return;
+    }
     const enrichedChapter = simulatedState.chronicle.find((chapter) => chapter.id === resolvedChapter.id) ?? resolvedChapter;
     setCouncilDecisionSignal(0);
     setTurnChapter(enrichedChapter);
+    gameRef.current = simulatedState;
     setGame(simulatedState);
     const literaryStartedAt = performance.now();
     try {
       const literary = await generateLiteraryChapter(aiConfig, simulatedState, enrichedChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
+      if (!isCurrentGame(simulatedState, "世界事实已经保存，但界面局面在文学生成期间发生了变化；文学结果没有覆盖当前状态。")) return;
       setTurnStages((prev) => [...prev, { name: "文学章节", ms: Math.round(performance.now() - literaryStartedAt), status: "ok" }]);
       setTurnChapter(literary);
       setGame((current) => ({ ...current, chronicle: current.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) }));
@@ -266,6 +308,7 @@ export default function CompleteGame() {
   async function endWeek() {
     if (generationStage || worldTurnInFlight.current) return;
     if (game.fatalSituation || game.ending.phase === "major-event" || game.ending.phase === "finale" || game.ending.phase === "ended") return;
+    if (!ensurePersistenceReady()) return;
     if (!aiReady) {
       setGenerationError("请先连接人物与叙事模型；世界必须完成自己的回应后，这一周才能结束。");
       setToast("尚未配置模型，世界推演没有开始");
@@ -274,8 +317,18 @@ export default function CompleteGame() {
     }
     worldTurnInFlight.current = true;
     try {
-      createRecoveryCheckpoint(game, "week");
-      const resolved = resolveWeek(game);
+      const sourceGame = game;
+      try {
+        await createRecoveryCheckpointAsync(sourceGame, "week");
+      } catch {
+        blockPersistence();
+        return;
+      }
+      if (gameRef.current !== sourceGame) {
+        setGenerationError("本周局面在保存恢复点期间发生了变化；本次结算已取消，请从当前局面重新发起。");
+        return;
+      }
+      const resolved = resolveWeek(sourceGame);
       const councilState: GameState = {
         ...resolved.state,
         councilRecords: [
@@ -292,7 +345,7 @@ export default function CompleteGame() {
         setToast("局面的结局已经定下，不会因重试改变；亲历场景结束前，你还不知道最终结果");
         return;
       }
-      await finishWeekGeneration(councilState, resolved.chapter);
+      await finishWeekGeneration(councilState, resolved.chapter, sourceGame);
     } finally {
       worldTurnInFlight.current = false;
     }
@@ -301,10 +354,12 @@ export default function CompleteGame() {
   async function continueParticipationScene(intent: string) {
     const scene = game.activeParticipationScene;
     if (!scene || scene.status === "complete" || participationLoading) return;
+    const sourceGame = game;
     setParticipationLoading(true);
     setParticipationError("");
     try {
-      const narrative = await generateParticipationSceneBeat(aiConfig, game, scene, intent);
+      const narrative = await generateParticipationSceneBeat(aiConfig, sourceGame, scene, intent);
+      if (!isCurrentGame(sourceGame, "亲历场景期间局面发生了变化；本次回应没有覆盖当前状态。")) return;
       setGame((current) => current.activeParticipationScene ? { ...current, activeParticipationScene: resolveParticipationSceneTurn(current.activeParticipationScene, intent, narrative) } : current);
     } catch (error) {
       setParticipationError(`${error instanceof Error ? error.message : "亲历场景生成失败"}；这是模型接入错误，没有生成降级文本，也没有重掷事实。`);
@@ -314,12 +369,14 @@ export default function CompleteGame() {
   async function resumeAfterParticipation() {
     const scene = game.activeParticipationScene;
     if (!scene || scene.status !== "complete" || generationStage || worldTurnInFlight.current) return;
+    if (!ensurePersistenceReady()) return;
     const chapter = game.chronicle.find((item) => item.id === scene.chapterId);
     if (!chapter) { setParticipationError("已锁定章节不存在，无法继续世界推演"); return; }
-    const resumed = { ...game, activeParticipationScene: null };
+    const sourceGame = game;
+    const resumed = { ...sourceGame, activeParticipationScene: null };
     worldTurnInFlight.current = true;
     try {
-      await finishWeekGeneration(resumed, chapter);
+      await finishWeekGeneration(resumed, chapter, sourceGame);
     } finally {
       worldTurnInFlight.current = false;
     }
@@ -327,6 +384,7 @@ export default function CompleteGame() {
 
   async function retryLiteraryChapter(chapter: ChronicleChapter) {
     if (!aiReady || generationStage) return;
+    const sourceGame = game;
     setGenerationError("");
     setStreamPreview("");
     setTurnChapter(chapter);
@@ -334,7 +392,8 @@ export default function CompleteGame() {
     const retryStartedAt = performance.now();
     try {
       const literarySeed = chapter.source === "ai" ? { ...chapter, source: "local" as const, sections: [] } : chapter;
-      const literary = await generateLiteraryChapter(aiConfig, game, literarySeed, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
+      const literary = await generateLiteraryChapter(aiConfig, sourceGame, literarySeed, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
+      if (!isCurrentGame(sourceGame, "文学补写期间局面发生了变化；文学结果没有覆盖当前状态。")) return;
       setTurnStages([{ name: "文学章节补写", ms: Math.round(performance.now() - retryStartedAt), status: "ok" }]);
       setTurnChapter(literary);
       setGame((current) => ({ ...current, chronicle: current.chronicle.map((item) => item.id === literary.id ? literary : item) }));
@@ -364,27 +423,44 @@ export default function CompleteGame() {
 
   async function resolveFinaleStage() {
     if (generationStage || worldTurnInFlight.current) return;
-    const next = resolveFinalePhase(game);
+    if (!ensurePersistenceReady()) return;
+    const sourceGame = game;
+    const next = resolveFinalePhase(sourceGame);
     if (next === game) { setToast("三项并发危机都必须指派执行者"); return; }
     worldTurnInFlight.current = true;
     let finaleWorldFailed = true;
     let finaleLiteraryStartedAt = 0;
     const finaleWorldStartedAt = performance.now();
     try {
-      if (game.ending.campaign?.stage === 1 && !game.ending.campaign.reports.length) createRecoveryCheckpoint(game, "finale");
+      if (sourceGame.ending.campaign?.stage === 1 && !sourceGame.ending.campaign.reports.length) {
+        try {
+          await createRecoveryCheckpointAsync(sourceGame, "finale");
+        } catch {
+          blockPersistence();
+          return;
+        }
+      }
+      if (gameRef.current !== sourceGame) {
+        setGenerationError("终局局面在保存恢复点期间发生了变化；本次结算已取消，请从当前局面重新发起。");
+        return;
+      }
       const localChapter = next.chronicle[0];
       setStreamPreview("");
+      gameRef.current = next;
       setGame(next); setTurnChapter(localChapter); setGenerationError("");
       if (next.ending.phase === "ended") setView("ending");
       if (!aiReady || !localChapter || localChapter.id === game.chronicle[0]?.id) return;
       const worldSimulated = await generateAiWorldDelta(aiConfig, next, localChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
+      if (!isCurrentGame(next, "终局局面在世界推演期间发生了变化；世界结果没有落地，请从当前局面重新发起。")) return;
       finaleWorldFailed = false;
       setTurnStages([{ name: "重大事件世界推演", ms: Math.round(performance.now() - finaleWorldStartedAt), status: "ok" }]);
       const simulated = refreshFinaleFronts(worldSimulated);
       const enrichedChapter = simulated.chronicle.find((chapter) => chapter.id === localChapter.id) ?? localChapter;
+      gameRef.current = simulated;
       setGame(simulated); setTurnChapter(enrichedChapter);
       finaleLiteraryStartedAt = performance.now();
       const literary = await generateLiteraryChapter(aiConfig, simulated, enrichedChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
+      if (!isCurrentGame(simulated, "终局世界事实已经保存，但界面局面在文学生成期间发生了变化；文学结果没有覆盖当前状态。")) return;
       setTurnStages((prev) => [...prev, { name: "重大事件文学章节", ms: Math.round(performance.now() - finaleLiteraryStartedAt), status: "ok" }]);
       setTurnChapter(literary);
       setGame((current) => ({ ...current, chronicle: current.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter), ending: current.ending.phase === "ended" ? { ...current.ending, epilogue: literary.sections.flatMap((section) => section.paragraphs) } : current.ending }));
@@ -505,12 +581,25 @@ export default function CompleteGame() {
     });
   }
 
-  function attemptAdvance() {
+  async function attemptAdvance() {
+    if (!ensurePersistenceReady()) return;
     try {
-      if (game.prologueComplete) createRecoveryCheckpoint(game, "sequence");
-      const next = canAdvance(game) ? advanceSequence(game) : game.advancementProcess ? progressAdvancement(game) : beginAdvancement(game);
+      const sourceGame = game;
+      if (sourceGame.prologueComplete) {
+        try {
+          await createRecoveryCheckpointAsync(sourceGame, "sequence");
+        } catch {
+          blockPersistence();
+          return;
+        }
+      }
+      if (gameRef.current !== sourceGame) {
+        setToast("局面在保存恢复点期间发生了变化，请重新确认晋升");
+        return;
+      }
+      const next = canAdvance(sourceGame) ? advanceSequence(sourceGame) : sourceGame.advancementProcess ? progressAdvancement(sourceGame) : beginAdvancement(sourceGame);
       setGame(next); setSelectedRank(next.currentSequence);
-      setToast(canAdvance(game) ? `晋升完成：序列${next.currentSequence} · ${PATHWAYS[next.pathwayId].sequences.find((item) => item.rank === next.currentSequence)?.name}` : `晋升档案推进：${advancementStatus(next)}`);
+      setToast(canAdvance(sourceGame) ? `晋升完成：序列${next.currentSequence} · ${PATHWAYS[next.pathwayId].sequences.find((item) => item.rank === next.currentSequence)?.name}` : `晋升档案推进：${advancementStatus(next)}`);
     }
     catch (error) { setToast(error instanceof Error ? error.message : "尚不能晋升"); }
   }
@@ -558,9 +647,27 @@ export default function CompleteGame() {
       const preview = savePreview(envelope);
       const confirmed = window.confirm(`导入预览\n\n${preview.organization} · ${preview.leader}\n第${preview.week}周 · ${preview.date}\n序列${preview.sequence} · ${preview.chapters}篇纪事\n\n确认后将覆盖当前唯一存档；现存游戏会先写入隐藏恢复点。`);
       if (!confirmed) return;
-      if (game.prologueComplete) createRecoveryCheckpoint(game, "import");
+      if (!ensurePersistenceReady()) return;
+      const sourceGame = game;
+      if (sourceGame.prologueComplete) {
+        try {
+          await createRecoveryCheckpointAsync(sourceGame, "import");
+        } catch {
+          blockPersistence();
+          return;
+        }
+      }
+      if (gameRef.current !== sourceGame) {
+        setToast("当前局面在保存恢复点期间发生了变化，导入已取消");
+        return;
+      }
       const next = normalizeStoredGame(envelope.game);
-      persistActiveGame(next);
+      try {
+        await persistActiveGameAsync(next);
+      } catch {
+        blockPersistence();
+        return;
+      }
       setGame(next); setHasSave(true); setEntry("title"); setToast("存档校验通过并已导入；仍从标题页进入游戏");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "导入失败；当前存档没有被覆盖");
@@ -568,6 +675,7 @@ export default function CompleteGame() {
   }
 
   async function startNewGame() {
+    if (!ensurePersistenceReady()) return;
     if (!aiReady) { setShowSettings(true); setToast("先连接人物与叙事模型，再开始一部全新的纪事"); return; }
     if (!(await ensureModelConnection())) return;
     const next = createInitialGame(draftPathway);
@@ -575,6 +683,7 @@ export default function CompleteGame() {
   }
 
   function completePrologue(name: string, address: string, pathwayId: PathwayId, origin: PlayerOrigin) {
+    if (!ensurePersistenceReady()) return;
     const base = game.pathwayId === pathwayId && game.playerOrigin.organizationKind === origin.organizationKind ? game : createInitialGame(pathwayId, origin);
     const kind = organizationKindById(origin.organizationKind);
     const scenario = origin.pathwayOrigin;
@@ -844,10 +953,12 @@ export default function CompleteGame() {
 
   if (entry === "title") return <>
     <TitleScreen hydrated={hydrated} hasSave={hasSave} save={game} onContinue={continueSavedGame} onNewGame={startNewGame} onSettings={() => setShowSettings(true)} onExport={() => downloadSave(game)} onImport={(file) => void importSave(file)} />
+    {persistenceError && <div className="inline-warning persistence-warning" role="alert"><ShieldAlert size={15} /><span>{persistenceError}</span><button onClick={() => setShowSettings(true)}>检查数据库</button></div>}
     {showSettings && <div className="complete-sheet-backdrop title-settings-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="title-settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本地配置</p><h2 id="title-settings-title">模型、世界推演与设定资料</h2></div><button onClick={() => setShowSettings(false)} aria-label="关闭设置"><X size={17} /></button></header><AiSettings config={aiConfig} rememberKey={rememberApiKey} secureStorageAvailable={secureStorageAvailable} connection={connectionState} turnStages={turnStages} showDiagnostics={DEV_MODE} autoDecision={autoExecuteDecision} onAutoDecision={(value) => { setAutoExecuteDecision(value); window.localStorage.setItem("mist-chronicle-auto-decision", value ? "1" : "0"); }} draftPathway={draftPathway} onChange={(patch) => { setAiConfig((current) => ({ ...current, ...patch })); setConnectionState({ status: "idle", message: "配置已改变，请重新测试" }); setConnectionVerified(false); }} onRememberKey={setRememberApiKey} onTest={() => void testConnection()} onSave={() => void saveSettings()} onClearKey={() => void clearSavedKey()} onPathway={setDraftPathway} onNewGame={startNewGame} /></section></div>}
   </>;
 
   if (hydrated && !game.prologueComplete) return <main className="complete-game-shell prologue-only">
+    {persistenceError && <div className="inline-warning persistence-warning" role="alert"><ShieldAlert size={15} /><span>{persistenceError}</span><button onClick={() => setShowSettings(true)}>检查数据库</button></div>}
     <OpeningPrologue game={game} aiConfig={aiConfig} onBegin={completePrologue} />
   </main>;
 
@@ -873,6 +984,7 @@ export default function CompleteGame() {
     </nav>
 
     <section className="complete-content" id="complete-content" key={view}>
+      {persistenceError && <div className="inline-warning persistence-warning" role="alert"><ShieldAlert size={15} /><span>{persistenceError}</span><button onClick={() => setShowSettings(true)}>检查数据库</button></div>}
       {!aiReady && <button className="offline-banner" onClick={() => setShowSettings(true)}><ShieldAlert size={15} /><span><strong>世界回应已暂停</strong><small>连接人物与叙事模型后，成员才能回应自由决议，城市也才能走向下一周。</small></span><ChevronRight size={15} /></button>}
       {generationError && !contract && !turnChapter && <div className="inline-warning world-generation-warning" role="alert"><ShieldAlert size={15} /><span>{generationError}</span><button onClick={() => setShowSettings(true)}>检查模型</button></div>}
 
