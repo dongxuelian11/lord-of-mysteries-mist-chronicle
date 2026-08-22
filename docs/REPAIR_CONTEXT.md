@@ -551,3 +551,10 @@
 - `docs/PR2_PERSISTENCE_DESIGN.md` 与 `docs/CORE_GAMEPLAY_BUILD.md` 已更新为 PR2 完成状态；本机 SQLite/WAL 与 renderer authority 已有测试证据，但跨设备、clean-machine、长期生产和真人 5–20 小时仍未证明。
 - 本次整套 diff 的 Codex 独立只读审阅最终结论为 `CLEAN`；覆盖 driver、IPC、renderer 接线、迁移、异步状态一致性、读写/传输 fail-closed 和新增测试。审阅未修改文件；不声称 clean-machine、Electron 实机或生产证据。
 - 未推送、未开 PR、未合并；两个 `.qa-prodserver3.*.log` 继续未跟踪、未修改、未提交。PR2 已收口，下一阶段只允许另立 PR3。
+
+### 15.6. 2026-08-22 PR3 打包桌面持久化启动资格恢复覆盖
+
+- PR3 目标已收敛为一个有界增量：把 PR2 的 SQLite/WAL 本机边界接入现有 installer smoke，确认隔离 `GMZZ_USER_DATA` 首次启动确实创建 `mist-chronicle.sqlite`，并以 read-only probe 验证 `journal_mode=wal`、`persistence_records` 及六个必要列。
+- 当前变更文件：`scripts/release/smoke-installer.ps1`、`scripts/release/verify-persistence-db.mjs`、`tests/release-persistence-smoke.test.mjs`、`docs/PR3_PACKAGED_RUNTIME_QUALIFICATION.md` 和本账本/核心账本更新；不触碰两个 `.qa-prodserver3.*.log`。
+- 证据边界：probe 只验证启动 schema，不写业务记录，不宣称 renderer 保存—退出—重启恢复；clean-machine、跨设备、升级迁移、生产可用性和真人 5–20 小时仍为 `NOT_AVAILABLE`。若本轮没有实际构建并运行安装包，installer `release:smoke` 仍记为 `NOT_RUN`。
+- 当前进度：PR3 定向测试 3/3、全量 `npm.cmd test` 372 中 367 通过/5 跳过/0 失败、typecheck、lint、bundle budget、Node syntax check、PowerShell parse 和 diff check 均通过；既有 Codex 独立只读复审为 `CLEAN`。`npm.cmd run dist:win` 在 `release:verify:seed` 因 `seed-manifest-missing` 未生成 installer，故 `release:smoke` 记为 `NOT_RUN`。实现与证据整理完成，下一步是精确暂存并提交代码/测试/账本（不 push、不建 PR、不合并）。

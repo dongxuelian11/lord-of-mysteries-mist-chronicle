@@ -333,6 +333,18 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 
 PR2 不再拆分后续实现包。下一阶段若继续，应另立 PR3 目标；当前只需保留两个 `.qa-prodserver3.*.log`，不得清理、覆盖、提交或推送。
 
+## 2026-08-22 · PR3 Packaged Desktop Persistence Qualification
+
+- 状态：PR3 本地实现完成；范围收敛为安装包首次启动后的持久化 schema 资格检查，不重做 Gate 0、PR1 或 PR2，不改变玩家表面。
+- 已实现：
+  - `scripts/release/smoke-installer.ps1` 在隔离 `GMZZ_USER_DATA`、服务器 `GMZZ_READY` 和 seed 部署成功后，要求 `mist-chronicle.sqlite` 已创建。
+  - 新增 `scripts/release/verify-persistence-db.mjs`，以 read-only 方式检查 `journal_mode=wal`、`persistence_records` 表及 PR2 六个必要列；探针不写业务记录，失败以非零退出。
+  - 新增 `tests/release-persistence-smoke.test.mjs`，覆盖有效 WAL 数据库、缺失数据库 fail-closed 和 installer smoke 接线契约。
+  - 新增 `docs/PR3_PACKAGED_RUNTIME_QUALIFICATION.md`，记录目标、验收门和证据边界。
+- 当前证据：`node --test tests/release-persistence-smoke.test.mjs` 为 3/3；全量 `npm.cmd test` 为 372 项中 367 通过、5 条既有条件跳过、0 失败；`typecheck`、`lint`、`bundle:budget`、Node syntax check、PowerShell parse 和 `git diff --check` 均通过；独立 Codex 只读复审结论为 `CLEAN`。
+- 安装包边界：本轮 `npm.cmd run dist:win` 在 `release:verify:seed` 阶段因 `seed-manifest-missing` 停止，未生成可运行 installer，因此 `release:smoke` 为 `NOT_RUN`。这不影响本机真实 SQLite probe 的通过，但不能写成 packaged E2E、clean-machine、跨设备、升级或生产证据。
+- 恢复断点：PR3 只验证启动时 SQLite 结构存在，不宣称 renderer 保存—退出—重启恢复；后者作为独立 PR4 目标另行定义。两个 `.qa-prodserver3.*.log` 仍必须保留、不得清理、覆盖、提交或推送。
+
 ## 自动压缩恢复断点（2026-08-21 · Gate 0 + PR1）
 
 当前任务目标：**先完成 Gate 0 与 PR1（MIST-TURN-01），建立可恢复、不可重复结算的世界周事务边界；不要在此任务中扩展玩家表面或引入 SQLite。**

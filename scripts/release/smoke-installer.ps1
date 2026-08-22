@@ -45,10 +45,15 @@ try {
   if (-not $ready) { throw "Installed application did not become ready within 75 seconds" }
   $deployedSeed = Join-Path $userData "rag/index/seed-manifest.json"
   if (-not (Test-Path -LiteralPath $deployedSeed)) { throw "Bundled knowledge seed was not deployed on first launch" }
+  $database = Join-Path $userData "mist-chronicle.sqlite"
+  if (-not (Test-Path -LiteralPath $database -PathType Leaf)) { throw "SQLite persistence database was not created on first launch" }
+  $databaseVerifier = Join-Path $PSScriptRoot "verify-persistence-db.mjs"
+  & node $databaseVerifier $database
+  if ($LASTEXITCODE -ne 0) { throw "SQLite persistence database qualification failed with exit code $LASTEXITCODE" }
 } finally {
   if (-not $process.HasExited) {
     & taskkill /PID $process.Id /T /F | Out-Null
   }
 }
 
-Write-Output "Installer smoke test passed: server ready and knowledge seed deployed."
+Write-Output "Installer smoke test passed: server ready, knowledge seed deployed, and SQLite persistence schema qualified."
