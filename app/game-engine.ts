@@ -77,6 +77,7 @@ import { advanceAttentionSimulation } from "./attention-simulation.ts";
 import { adaptWorldAdjudication, type ExecutableProposalBoundary } from "./world-output-adapter.ts";
 import { attachOrganizationAdjudicationProtocol, WORLD_KERNEL_PROTOCOL, WORLD_PROPOSAL_PROVENANCE_PROTOCOL } from "./world-adjudication-protocol.ts";
 import { chronicleSummaryFromCausality, advancementRetrospective } from "./chronicle-causality.ts";
+import type { RuntimeTraceContext } from "./runtime-trace.ts";
 export type { AiConfig } from "./ai-client";
 export { actionTextBoundaryIssue } from "./action-boundaries.ts";
 export const callModel = invokeModel;
@@ -204,7 +205,7 @@ async function loreForActor(records: LoreRecord[], game: GameState, member: Game
   });
 }
 
-async function loreForWorld(records: LoreRecord[], game: GameState, query: string, maxChars = 12_000) {
+async function loreForWorld(records: LoreRecord[], game: GameState, query: string, maxChars = 12_000, trace?: Pick<RuntimeTraceContext, "traceId" | "turnId">) {
   return retrieveLoreContextAsync(records, {
     query,
     audience: { kind: "world-simulation-internal", knownLoreIds: [], topicGrants: [] },
@@ -213,6 +214,7 @@ async function loreForWorld(records: LoreRecord[], game: GameState, query: strin
     week: game.week,
     gameDate: game.date,
     horizon: knowledgeHorizon(game, true),
+    trace,
   });
 }
 
@@ -1883,6 +1885,8 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     LORE_RECORDS,
     game,
     `${game.date} ${worldActionResults.map((item) => item.contract.rawIntent).join(" ")} ${adjudicatorWorld.projects.map((item) => item.title).join(" ")} ${autonomousDecisionFrames.map((item) => `${item.displayName} ${item.currentObjective}`).join(" ")}`,
+    12_000,
+    { traceId: `turn:world:${chapter.week}`, turnId: `world:${chapter.week}` },
   );
   const payload = buildWorldAdjudicatorInput({
     game,
@@ -1912,7 +1916,14 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   });
   const boundedPayload = fitWorldAdjudicatorPayload(attachOrganizationAdjudicationProtocol(payload));
   assertWorldAdjudicatorPayloadBudget(boundedPayload);
-  const raw = await requestWorldEnvelope(worldConfig, WORLD_ADJUDICATOR_SYSTEM, buildWorldAdjudicatorPrompt(boundedPayload, `${WORLD_KERNEL_PROTOCOL}\n${WORLD_PROPOSAL_PROVENANCE_PROTOCOL}`), game, worldActionResults.length === 0, worldActionResults.map((result) => result.id), onStage, onToken);
+  const raw = await requestWorldEnvelope(worldConfig, WORLD_ADJUDICATOR_SYSTEM, buildWorldAdjudicatorPrompt(boundedPayload, `${WORLD_KERNEL_PROTOCOL}\n${WORLD_PROPOSAL_PROVENANCE_PROTOCOL}`), game, worldActionResults.length === 0, worldActionResults.map((result) => result.id), onStage, onToken, {
+    traceId: `turn:world:${chapter.week}:model`,
+    turnId: `world:${chapter.week}`,
+    requestId: lore.receipt.requestId,
+    retrievalId: lore.receipt.requestId,
+    promptVersion: "world-adjudicator:v1",
+    responseSchemaVersion: "world-envelope:v1",
+  });
   const allowedLoreIds = new Set(lore.receipt.chunkIds);
   const { worldMoves, canonMoves, publicSignals, atmosphere, undercurrents, kernelDelta } = adaptWorldAdjudication(raw, {
     game,

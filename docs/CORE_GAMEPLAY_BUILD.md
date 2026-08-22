@@ -636,3 +636,12 @@ PR2 不再拆分后续实现包。下一阶段若继续，应另立 PR3 目标�
 若继续开发，只做回归驱动的小步增量：先读取本文件和 `git status --short`，再以现有三件大事、首领指令、世界回应、纪事与注意力边界为验收基线。不得借新增页面、日程或后台字段重新扩大玩家表面。
 
 当前阻塞：无。保留未知来源的 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log`，不得清理或覆盖。
+
+### 2026-08-22 · PR6 Wave 4 运行时追踪契约（开发中）
+
+- 本批不新增玩家玩法，先把后续模型、RAG、事务拆分所需的可观测性真值固定下来。`app/runtime-trace.ts` 定义 schema v1 与有界 128 条内存环，统一 `traceId/requestId/turnId/retrievalId/modelTraceId`，并记录模型版本、Prompt/响应 schema 版本、延迟、修复次数、拒绝原因和提交状态。
+- 追踪只允许 ID、计数、状态和脱敏摘要；prompt、模型请求体、RAG 正文、存档和 API key 永不写入。供应商没有 tokenizer usage 时，输入/输出 token 与首 token 延迟为 `null`，不升级为估算或真实模型证据。
+- `ai-client`、RAG 客户端和 `WorldKernel.applyWorldTurn` 已接入：模型调用成功/失败、bridge/legacy 检索及其收据关联、世界提交/幂等重放/拒绝都会产生 trace；trace 失败不会阻断权威路径。世界裁决请求使用 `world:${week}` 事务 ID关联模型与检索。
+- `tests/runtime-trace.test.mjs` 覆盖脱敏/容量上限、模型关联、检索—事务关联和事务拒绝；当前专项 3/3，typecheck 通过。
+
+边界仍为本机内存可观测性契约，不宣称供应商 tokenizer 计量、跨进程 trace 持久化、packaged/clean-machine/production/human 证据。PR3 授权 seed 未提供时，installer smoke 继续 `NOT_RUN`；两个 QA 日志保持未跟踪。

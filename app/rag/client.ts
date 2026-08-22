@@ -11,6 +11,7 @@ import type {
 } from "./types";
 import type { LegacyLoreRecord } from "./index";
 import type { RetrievalReceipt } from "../world-authority-closure";
+import { tryRecordRuntimeTrace, type RuntimeTraceContext } from "../runtime-trace.ts";
 
 export type RagBridgeAudience = {
   kind: "world-simulation-internal" | "player-facing-narrator" | "player-known" | "actor-private" | "faction-private" | "world" | "player" | "actor" | "faction";
@@ -36,6 +37,7 @@ export type RagBridgeSearchRequest = {
   horizon?: CanonKnowledgeHorizon;
   limit?: number;
   maxChars?: number;
+  trace?: Pick<RuntimeTraceContext, "traceId" | "requestId" | "turnId" | "modelTraceId">;
 };
 
 export type RagBridgeChunk = {
@@ -233,6 +235,34 @@ function retrievalReceipt(
   };
 }
 
+function recordRetrievalRuntimeTrace(
+  receipt: RetrievalReceipt,
+  request: { trace?: Pick<RuntimeTraceContext, "traceId" | "requestId" | "turnId" | "modelTraceId"> },
+  startedAt: number,
+  mode: "bridge" | "legacy",
+  rejectedCount: number,
+) {
+  tryRecordRuntimeTrace({
+    traceId: request.trace?.traceId ?? `retrieval:${receipt.requestId}`,
+    operation: "retrieval",
+    requestId: request.trace?.requestId ?? receipt.requestId,
+    turnId: request.trace?.turnId,
+    retrievalId: receipt.requestId,
+    modelTraceId: request.trace?.modelTraceId,
+    retrievalMode: mode,
+    retrievalSelectedCount: receipt.chunkIds.length,
+    retrievalRejectedCount: rejectedCount,
+    latencyMs: Date.now() - startedAt,
+    inputTokens: null,
+    outputTokens: null,
+    firstTokenLatencyMs: null,
+    repairCount: 0,
+    rejectionReasons: [],
+    outcome: "PASS",
+    commitStatus: "NOT_APPLICABLE",
+  });
+}
+
 export async function retrieveLoreContextAsync(
   records: LegacyLoreRecord[],
   request: {
@@ -245,8 +275,10 @@ export async function retrieveLoreContextAsync(
     horizon?: CanonKnowledgeHorizon;
     limit?: number;
     maxChars?: number;
+    trace?: Pick<RuntimeTraceContext, "traceId" | "requestId" | "turnId" | "modelTraceId">;
   }
 ): Promise<{ records: LegacyLoreRecord[]; context: string; receipt: RetrievalReceipt }> {
+  const startedAt = Date.now();
   const rag = bridge();
   if (rag) {
     try {
@@ -292,10 +324,12 @@ export async function retrieveLoreContextAsync(
             indexVersion = undefined;
           }
         }
+        const receipt = retrievalReceipt(request, toLegacy(filtered), context, indexVersion ?? "bridge-unknown");
+        recordRetrievalRuntimeTrace(receipt, request, startedAt, "bridge", Math.max(0, response.records.length - filtered.length));
         return {
           records: toLegacy(filtered),
           context,
-          receipt: retrievalReceipt(request, toLegacy(filtered), context, indexVersion ?? "bridge-unknown"),
+          receipt,
         };
       }
     } catch {
@@ -320,9 +354,11 @@ export async function retrieveLoreContextAsync(
       maxChars: request.maxChars,
     }
   );
+  const receipt = retrievalReceipt(request, legacyResult.records, legacyResult.context, "legacy-v1");
+  recordRetrievalRuntimeTrace(receipt, request, startedAt, "legacy", 0);
   return {
     ...legacyResult,
-    receipt: retrievalReceipt(request, legacyResult.records, legacyResult.context, "legacy-v1"),
+    receipt,
   };
 }
 

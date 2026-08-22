@@ -1,4 +1,5 @@
 import type { MutationClaim, RetrievalReceipt } from "./world-authority-closure.ts";
+import { tryRecordRuntimeTrace } from "./runtime-trace.ts";
 
 export type WorldVisibility = "world" | "public" | "player" | "actors";
 
@@ -374,7 +375,72 @@ function validateWorldTurnTransaction(kernel: WorldKernel, delta: WorldTurnDelta
   return { transaction, replay: false };
 }
 
+function turnFailureCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (/事务|周次|修订号|输入哈希/.test(message)) return "TURN_TRANSACTION_REJECTED";
+  if (/Knowledge|知识|lore|LORE/.test(message)) return "TURN_KNOWLEDGE_REJECTED";
+  if (/事件|角色|势力|项目|地点|实体|引用/.test(message)) return "TURN_ENTITY_REJECTED";
+  return "TURN_COMMIT_REJECTED";
+}
+
+/**
+ * Exactly-once world commit with a redacted runtime trace. The trace records
+ * only transaction/retrieval identifiers and outcome codes; world payloads
+ * remain in the authoritative kernel and are never copied into diagnostics.
+ */
 export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): WorldKernel {
+  const startedAt = Date.now();
+  const transaction = delta.transaction;
+  const turnId = transaction && typeof transaction.turnId === "string" && transaction.turnId.trim()
+    ? transaction.turnId
+    : null;
+  const traceId = turnId ? `turn:${turnId}` : `turn:invalid:${worldTurnInputHash(delta)}`;
+  try {
+    const next = applyWorldTurnUnchecked(kernel, delta);
+    const replay = next === kernel;
+    tryRecordRuntimeTrace({
+      traceId,
+      operation: "turn",
+      requestId: delta.retrievalReceipt?.requestId,
+      turnId,
+      retrievalId: delta.retrievalReceipt?.requestId,
+      retrievalMode: null,
+      retrievalSelectedCount: null,
+      retrievalRejectedCount: null,
+      latencyMs: Date.now() - startedAt,
+      inputTokens: null,
+      outputTokens: null,
+      firstTokenLatencyMs: null,
+      repairCount: 0,
+      rejectionReasons: [],
+      outcome: "PASS",
+      commitStatus: replay ? "REPLAYED" : "COMMITTED",
+    });
+    return next;
+  } catch (error) {
+    tryRecordRuntimeTrace({
+      traceId,
+      operation: "turn",
+      requestId: delta.retrievalReceipt?.requestId,
+      turnId,
+      retrievalId: delta.retrievalReceipt?.requestId,
+      retrievalMode: null,
+      retrievalSelectedCount: null,
+      retrievalRejectedCount: null,
+      latencyMs: Date.now() - startedAt,
+      inputTokens: null,
+      outputTokens: null,
+      firstTokenLatencyMs: null,
+      repairCount: 0,
+      rejectionReasons: [turnFailureCode(error)],
+      outcome: "FAILED",
+      commitStatus: "REJECTED",
+    });
+    throw error;
+  }
+}
+
+function applyWorldTurnUnchecked(kernel: WorldKernel, delta: WorldTurnDelta): WorldKernel {
   const transactionState = validateWorldTurnTransaction(kernel, delta);
   if (transactionState.replay) return kernel;
   assertUniqueTurnEntityIds(kernel, delta);
