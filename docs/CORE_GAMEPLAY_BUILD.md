@@ -253,6 +253,26 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 
 下一步只在本地继续：先为 SQLite WAL driver、完整性/迁移/恢复边界分别写失败测试和设计记录，再逐项实现；不得把本地 adapter 证据提升为 SQLite、跨机器或生产可用证据。继续保留两个未知来源的 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log`，不得清理、覆盖、提交或推送。
 
+## 2026-08-22 · PR2-B Persistence Integrity Boundary
+
+- 状态：PR2-B 第一条本地 integrity slice 完成；未安装 SQLite、未接入 WAL/Main Process gateway、未改变存储介质或 UI。
+- 已实现：
+  - 新增 `app/persistence-integrity.ts`，集中提供确定性 JSON checksum 与 fail-closed 校验；算法保持原 `save-system.ts` 的 FNV-1a 风格结果，不宣称密码学防篡改。
+  - `createSaveEnvelope` 与 `parseSaveEnvelope` 改用共享 helper；SaveEnvelope 格式、schema、校验顺序和中文错误语义保持不变。
+  - 新增 `docs/PR2_PERSISTENCE_DESIGN.md`，把后续 SQLite WAL、迁移、恢复和故障注入契约标为未来工作，明确当前证据上限。
+- 验证证据：
+  - integrity 定向测试：3/3 通过；PR2-A + 存档/管理/渲染相关回归：41/41 通过。
+  - `npm.cmd test`：构建成功；344 项测试中 339 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
+  - `npm.cmd run typecheck`、`npm.cmd run lint`：通过，lint 0 warning。
+  - `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+  - `git diff --check`：通过。
+  - Codex 独立只读复审：`CLEAN`；未发现 `[P1]`/`[P2]`，确认 helper 等价性、SaveEnvelope 兼容性、无 window 副作用及设计文档的能力边界。
+- 当前边界：只证明纯 checksum/SaveEnvelope integrity；不证明 SQLite、WAL 崩溃原子性、跨设备恢复、clean-machine 安装或真人长线体验。
+
+### PR2-B 后续恢复断点
+
+下一步只在本地继续：为 SQLite driver port contract、未知 schema/截断 payload、raw v20/v21 迁移幂等、checkpoint 上限与 WAL 中断故障分别写 RED→GREEN 切片；保持当前 localStorage authority 直到 driver 有独立证据。两个 `.qa-prodserver3.*.log` 继续保留且不得触碰。
+
 ## 自动压缩恢复断点（2026-08-21 · Gate 0 + PR1）
 
 当前任务目标：**先完成 Gate 0 与 PR1（MIST-TURN-01），建立可恢复、不可重复结算的世界周事务边界；不要在此任务中扩展玩家表面或引入 SQLite。**

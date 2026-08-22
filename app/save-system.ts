@@ -21,6 +21,7 @@ import { ensureHighSequenceLedger, type HighSequenceLedger } from "./high-sequen
 import { ensureCampaignWorldState, type CampaignWorldState } from "./campaign-world.ts";
 import { ensureAttentionSimulationState } from "./attention-simulation.ts";
 import { ensureWorldKernelTransactionState } from "./world-kernel.ts";
+import { matchesJsonChecksum, stableJsonChecksum } from "./persistence-integrity.ts";
 
 export const ACTIVE_SAVE_KEY = "mist-chronicle-complete-v21";
 export const LEGACY_ACTIVE_SAVE_KEYS = Array.from(
@@ -569,24 +570,14 @@ export function ensureCampaignState(game: { campaignWorld?: unknown }): void {
   (game as { campaignWorld: CampaignWorldState }).campaignWorld = ensureCampaignWorldState(game.campaignWorld as Partial<CampaignWorldState> | undefined);
 }
 
-function stableHash(text: string) {
-  let hash = 2166136261;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
 export function createSaveEnvelope(game: GameState): SaveEnvelope {
-  const payload = JSON.stringify(game);
   return {
     format: "mist-chronicle-save",
     schemaVersion: SAVE_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     loreVersion: "LOTM_Worldbuilding_Compendium_2026-08-02",
     knowledgePermission: { unlockedRecords: game.facts.length + game.evidenceNodes.filter((item) => item.discovered).length, highestSequence: game.currentSequence },
-    checksum: stableHash(payload),
+    checksum: stableJsonChecksum(game),
     game,
   };
 }
@@ -594,7 +585,7 @@ export function createSaveEnvelope(game: GameState): SaveEnvelope {
 export function parseSaveEnvelope(raw: string) {
   const value = JSON.parse(raw) as Partial<SaveEnvelope> & { schemaVersion?: number };
   if (value.format !== "mist-chronicle-save" || ![15, 16, 17, 18, 19, 20, SAVE_SCHEMA_VERSION].includes(value.schemaVersion ?? -1) || !value.game) throw new Error("这不是可迁移的《灰雾纪事》存档文件");
-  if (stableHash(JSON.stringify(value.game)) !== value.checksum) throw new Error("存档校验失败：文件不完整或被修改");
+  if (!matchesJsonChecksum(value.game, value.checksum)) throw new Error("存档校验失败：文件不完整或被修改");
   if (!value.game.prologueComplete || !value.game.worldKernel || !Array.isArray(value.game.chronicle)) throw new Error("存档缺少世界状态或开局记录，未覆盖当前游戏");
   value.game = normalizeStoredGame(value.game);
   value.schemaVersion = SAVE_SCHEMA_VERSION;
