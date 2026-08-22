@@ -292,6 +292,26 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 
 下一步只在本地继续：设计并测试 SQLite driver port contract 与迁移/故障注入边界；在 driver 证据形成前保持 localStorage authority 和现有 fail-closed 语义不变。两个 `.qa-prodserver3.*.log` 继续保留且不得触碰。
 
+## 2026-08-22 · PR2-D Save Migration Boundary
+
+- 状态：PR2-D 本地迁移/输入边界切片完成；仅为迁移后的 checksum round-trip 增加一处生产修复和边界测试，未安装 SQLite、未接入 WAL/Main Process gateway、未改变 UI 或当前 localStorage authority。
+- 已锁定：
+  - unknown envelope schema 在迁移前 fail-closed。
+  - 截断 JSON 在应用存档状态前被拒绝。
+  - v20 envelope 迁移到 v21 后重新计算 checksum，迁移结果可再次导入；直接 `migrateStoredGame` 不修改 source，重复迁移确定性一致。
+- 验证证据：
+  - `tests/persistence-migration-boundary.test.mjs`：3/3 通过；联合 PR2-A/B/C/D 定向回归：47/47 通过。
+  - `npm.cmd test`：构建成功；350 项测试中 345 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
+  - `npm.cmd run typecheck`、`npm.cmd run lint`：通过，lint 0 warning。
+  - `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+  - `git diff --check`：通过。
+  - Codex 独立只读复审：首次发现并定位 checksum round-trip 的 `[P2]`，修复后第二次复审为 `CLEAN`，未发现 `[P1]`/`[P2]`/`[P3]`。
+- 当前边界：该切片只证明当前 SaveEnvelope 的 schema/输入拒绝、迁移规范化和 checksum round-trip；不证明 SQLite、WAL 崩溃原子性、跨设备恢复、clean-machine 安装或生产可用性。
+
+### PR2-D 后续恢复断点
+
+下一步只在本地继续：为 SQLite driver port contract 与 WAL 中断故障分别写 RED→GREEN 测试；在 driver 证据形成前保持 localStorage authority 和现有 fail-closed 语义不变。两个 `.qa-prodserver3.*.log` 继续保留且不得触碰。
+
 ## 自动压缩恢复断点（2026-08-21 · Gate 0 + PR1）
 
 当前任务目标：**先完成 Gate 0 与 PR1（MIST-TURN-01），建立可恢复、不可重复结算的世界周事务边界；不要在此任务中扩展玩家表面或引入 SQLite。**

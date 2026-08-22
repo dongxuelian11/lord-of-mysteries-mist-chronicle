@@ -589,6 +589,7 @@ export function parseSaveEnvelope(raw: string) {
   if (!value.game.prologueComplete || !value.game.worldKernel || !Array.isArray(value.game.chronicle)) throw new Error("存档缺少世界状态或开局记录，未覆盖当前游戏");
   value.game = normalizeStoredGame(value.game);
   value.schemaVersion = SAVE_SCHEMA_VERSION;
+  value.checksum = stableJsonChecksum(value.game);
   return value as SaveEnvelope;
 }
 
