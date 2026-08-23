@@ -14,6 +14,7 @@ test("world protocol keeps authority rules external to the engine and requests c
   assert.match(WORLD_ADJUDICATOR_SYSTEM, /不得因此省略任何有因果意义的字段或内容/);
   assert.match(prompt, /presence不等于perception/);
   assert.match(prompt, /sourceProposalIds/);
+  assert.match(prompt, /mutationClaims/);
   assert.match(prompt, /directiveInterruptions/);
   assert.match(prompt, /公开变化只写一次到 publicSignals/);
   assert.doesNotMatch(prompt, /"changes": \["0至4条公开变化"\]/);

@@ -2,6 +2,7 @@ import type { ActionResult, ChronicleChapter, GameState } from "./game-model";
 import { callModel, type AiConfig } from "./ai-client";
 import { actionTextBoundaryIssue } from "./action-boundaries";
 import { extractJson, textSimilarity } from "./model-output";
+import type { RuntimeTraceContext } from "./runtime-trace.ts";
 
 const REPEATED_PUBLIC_SIGNALS_ISSUE = "全部公开消息都与最近四周高度复写";
 
@@ -39,7 +40,7 @@ export function worldEnvelopeIssue(value: Record<string, unknown>, game: GameSta
   return null;
 }
 
-async function repairPublicSignals(config: AiConfig, value: Record<string, unknown>, game: GameState, onStage: (value: string) => void, onToken?: (text: string) => void): Promise<Record<string, unknown>> {
+async function repairPublicSignals(config: AiConfig, value: Record<string, unknown>, game: GameState, onStage: (value: string) => void, onToken?: (text: string) => void, trace?: RuntimeTraceContext): Promise<Record<string, unknown>> {
   const recentSignalExcerpts = (game.worldSignals ?? [])
     .filter((signal) => signal.week >= game.week - 4)
     .slice(0, 16)
@@ -64,7 +65,7 @@ async function repairPublicSignals(config: AiConfig, value: Record<string, unkno
     onStage(attempt ? `公开消息仍不合格（${lastIssue}），正在进行第二次局部重写` : "本周世界事实已经裁定，正在单独重写重复的报纸与公开消息");
     const prompt = `本周世界事实已经完成裁决并被冻结。你只能重写 publicSignals，绝对不得新增、删除或改变任何事件、角色行动、势力行动、组织结算或持续项目。\n\n冻结事实：\n${JSON.stringify(stableFacts)}\n\n本次禁止复写的最近四周公开文本：\n${recentSignalExcerpts || "（没有近期公开文本）"}\n\n只返回严格 JSON：{"publicSignals":[...]}，数组必须有2至4条。每条包含 channel、headline、body、reliability，可选 districtId、cityId、relatedFactionId。channel 只能是“报纸、街谈、官方通告、行业消息、神秘征兆、私人来信”，至少一条来自报纸、官方通告或行业消息；reliability 只能是“公开事实、多源传闻、单一消息、异常感知”。\n每条都必须是冻结事实的公开可见侧面；允许安静周刊登天气、物价、交通、治安告示或行业通知，但不得借此虚构新的世界事件。不能只替换同义词，主题、受影响人群或可观察后果必须与禁用文本有实质区别。${attempt ? `\n上次局部重写仍失败：${lastIssue}。本次请更换报道角度与公开信息主题。` : ""}`;
     try {
-      const repaired = extractJson(await callModel(config, "你是《灰雾纪事》的公开消息编辑。世界事实是只读输入；你的唯一输出权限是 publicSignals。", prompt, { json: true, maxTokens: 2200, temperature: attempt ? .68 : .55, stream: true, onToken }));
+      const repaired = extractJson(await callModel(config, "你是《灰雾纪事》的公开消息编辑。世界事实是只读输入；你的唯一输出权限是 publicSignals。", prompt, { json: true, maxTokens: 2200, temperature: attempt ? .68 : .55, stream: true, onToken, trace: trace ? { ...trace, traceId: `${trace.traceId ?? "world"}:public-repair:${attempt}`, repairCount: (trace.repairCount ?? 0) + attempt + 1 } : undefined }));
       const candidate: Record<string, unknown> = { ...value, publicSignals: repaired.publicSignals };
       const issue = publicSignalsIssue(candidate, game);
       if (!issue) return candidate;
@@ -76,17 +77,17 @@ async function repairPublicSignals(config: AiConfig, value: Record<string, unkno
   throw new Error(`${lastIssue}；两次公开消息局部重写后仍未通过校验`);
 }
 
-export async function requestWorldEnvelope(config: AiConfig, system: string, prompt: string, game: GameState, playerIssuedNoOrders: boolean, expectedActionIds: string[], onStage: (value: string) => void, onToken?: (text: string) => void) {
+export async function requestWorldEnvelope(config: AiConfig, system: string, prompt: string, game: GameState, playerIssuedNoOrders: boolean, expectedActionIds: string[], onStage: (value: string) => void, onToken?: (text: string) => void, trace?: RuntimeTraceContext) {
   let lastIssue = "世界模型没有返回可解析结构";
   const recentSignalExcerpts = (game.worldSignals ?? []).filter((signal) => signal.week >= game.week - 4).slice(0, 12).map((signal) => `- ${signal.channel}｜${signal.headline}：${signal.body.slice(0, 180)}`).join("\n");
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const repair = attempt ? `\n\n上一次输出未通过结构校验：${lastIssue}。不要解释错误，不要沿用损坏JSON；请根据同一事实与持续状态重新推演一次，并返回完整、严格、可解析的JSON。若错误涉及重复，以下是本次禁止复写的近期公开文本：\n${recentSignalExcerpts || "（没有近期公开文本）"}\n持续事件必须推进到新的参与者反应、地点变化、制度后果或可观察代价；仅改写措辞仍视为失败。至少两条公开消息应来自近期消息未覆盖的事件结果或社会侧面，但仍须由本周世界状态因果支持。` : "";
     try {
-      const value = extractJson(await callModel(config, system, `${prompt}${repair}`, { json: true, maxTokens: 8200, temperature: attempt ? .58 : .72, stream: true, onToken }));
+      const value = extractJson(await callModel(config, system, `${prompt}${repair}`, { json: true, maxTokens: 8200, temperature: attempt ? .58 : .72, stream: true, onToken, trace: trace ? { ...trace, traceId: `${trace.traceId ?? "world"}:attempt:${attempt}`, repairCount: (trace.repairCount ?? 0) + attempt } : undefined }));
       const issue = worldEnvelopeIssue(value, game, playerIssuedNoOrders, expectedActionIds);
       if (!issue) return value;
       if (issue === REPEATED_PUBLIC_SIGNALS_ISSUE) {
-        const repaired = await repairPublicSignals(config, value, game, onStage, onToken);
+        const repaired = await repairPublicSignals(config, value, game, onStage, onToken, trace);
         const repairedIssue = worldEnvelopeIssue(repaired, game, playerIssuedNoOrders, expectedActionIds);
         if (!repairedIssue) return repaired;
         lastIssue = repairedIssue;

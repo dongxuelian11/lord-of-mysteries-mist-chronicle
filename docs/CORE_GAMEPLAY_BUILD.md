@@ -1,7 +1,7 @@
 # 《灰雾纪事》核心玩法构建总账
 
 状态：执行中
-最后更新：2026-08-20
+最后更新：2026-08-21
 维护规则：每完成一个工作包，必须更新本文件的状态、证据与下一步。后续会话先读本文件，再读 `git status --short`，不得依赖聊天上下文恢复目标。
 
 ## 北极星体验
@@ -231,6 +231,260 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 
 当前阻塞：无。保留未知来源的 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log`，不得清理或覆盖。
 
+## 2026-08-22 · PR4/PR5 桌面持久化与证据契约
+
+- 状态：PR4 本机 Electron 生命周期回归已完成；PR5 发布证据契约与 fail-closed 校验已完成。PR3 的授权 seed/installer 证据仍为 `BLOCKED`/`NOT_RUN`，不因 PR4/PR5 升级。
+- PR4 实现：`scripts/release/persistence-lifecycle.mjs` 启动两个独立 Electron 进程；`electron-persistence-lifecycle-runner.cjs` 使用正式 `electron/preload.cjs`、`electron/persistence-ipc.cjs` 和 `electron/persistence-sqlite.cjs`，在隔离 user-data 中完成 renderer bridge 写入、进程退出、重启读回 active save 与 recovery checkpoint，再调用 PR3 read-only verifier。
+- PR4 测试：`tests/release-persistence-lifecycle.test.mjs` 锁定 runner/bridge/双阶段接线，并实际运行本机 Electron 回归；结果 2/2 通过，读回 marker 与 recovery 均匹配，WAL probe 通过。
+- PR5 实现：`scripts/release/verify-evidence.mjs` 校验 schema、应用名、生成时间、来源 commit/branch/worktree 状态、claim 唯一性、状态与证据等级；`PASS` 必须有证据，其他状态必须有 reason；artifact 必须是仓库相对安全路径并重新计算 SHA-256。`--match-head` 可阻断过期 commit 证据。
+- PR5 测试与文档：`tests/release-evidence.test.mjs` 4/4 通过；`docs/PR4_DESKTOP_PERSISTENCE_LIFECYCLE.md` 与 `docs/PR5_RELEASE_EVIDENCE_CONTRACT.md` 记录运行方法、状态字面量和证据边界；新增脚本 `release:persistence:lifecycle` 与 `release:evidence:verify`。
+- 明确边界：PR4 只到 `local-electron`；它不证明安装包、clean-machine、跨设备、升级、生产或真人长线体验。PR5 只提高发布记录的可核验性，不生成 seed、不把缺失输入写成 PASS。
+- 最终本地门禁：全量 `npm.cmd test` 为 378 项中 373 通过、5 条既有条件跳过、0 失败；PR4/PR5 定向回归 9/9，typecheck、lint、bundle budget、Node/PowerShell syntax 与 `git diff --check` 通过。对应本地提交为 `feat: complete PR4 and PR5 evidence boundaries`；远端未推送，两个 QA 日志仍排除。
+- 自动压缩恢复断点：若继续，先读取本节、`docs/REPAIR_CONTEXT.md` 的 15.8/15.9 和实际 `git status --short`；保留两个 `.qa-prodserver3.*.log`，不要重复 PR1/PR2/PR3 已完成代码。
+
+## 2026-08-22 · PR2-A Active Save Authority Adapter
+
+- 状态：PR2-A 本地切片完成；未引入 SQLite、未改变 UI/产品定位、未推送、未开 PR、未合并。
+- 已实现：
+  - 新增 `app/persistence-authority.ts`，以 storage-neutral `KeyValueStore`/`ActiveSaveAuthority` 端口封装当前存档键、旧键有序回退、当前键写入和当前键清理。
+  - `app/game-session-controller.ts` 的 active-save 读取与写入改走该端口；AI 设置与 session key 的既有 local/session storage 路径保持不变。
+  - 保留旧行为：当前键优先；当前键缺失或空值时按旧键顺序回退；当前存档损坏/迁移失败只清理当前键；旧存档损坏不清理、不影响新游戏；写入与清理不扩大到旧键。
+  - `tests/persistence-authority.test.mjs` 以公开端口覆盖上述四条行为，并锁定空值语义。
+- 验证证据：
+  - 定向回归：38/38 通过（包含新增 4 项持久化测试及管理、存档、第三优先级、渲染回归）。
+  - `npm.cmd test`：构建成功；341 项测试中 336 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
+  - `npm.cmd run typecheck`：通过。
+  - `npm.cmd run lint`：通过，0 warning。
+  - `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+  - `git diff --check`：通过。
+  - Codex 独立只读复审：`CLEAN`；未发现 `[P1]`/`[P2]`，确认当前/旧键优先级、损坏处理、清理范围和 SSR 边界保持原语义。
+- 当前边界：该切片只建立后续 SQLite WAL driver 可实现的替换端口；没有安装 SQLite runtime、没有迁移恢复点、没有引入 Main Process gateway，也没有真人长线可用性证据。
+
+### PR2-A 后续恢复断点
+
+下一步只在本地继续：先为 SQLite WAL driver、完整性/迁移/恢复边界分别写失败测试和设计记录，再逐项实现；不得把本地 adapter 证据提升为 SQLite、跨机器或生产可用证据。继续保留两个未知来源的 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log`，不得清理、覆盖、提交或推送。
+
+## 2026-08-22 · PR2-B Persistence Integrity Boundary
+
+- 状态：PR2-B 第一条本地 integrity slice 完成；未安装 SQLite、未接入 WAL/Main Process gateway、未改变存储介质或 UI。
+- 已实现：
+  - 新增 `app/persistence-integrity.ts`，集中提供确定性 JSON checksum 与 fail-closed 校验；算法保持原 `save-system.ts` 的 FNV-1a 风格结果，不宣称密码学防篡改。
+  - `createSaveEnvelope` 与 `parseSaveEnvelope` 改用共享 helper；SaveEnvelope 格式、schema、校验顺序和中文错误语义保持不变。
+  - 新增 `docs/PR2_PERSISTENCE_DESIGN.md`，把后续 SQLite WAL、迁移、恢复和故障注入契约标为未来工作，明确当前证据上限。
+- 验证证据：
+  - integrity 定向测试：3/3 通过；PR2-A + 存档/管理/渲染相关回归：41/41 通过。
+  - `npm.cmd test`：构建成功；344 项测试中 339 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
+  - `npm.cmd run typecheck`、`npm.cmd run lint`：通过，lint 0 warning。
+  - `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+  - `git diff --check`：通过。
+  - Codex 独立只读复审：`CLEAN`；未发现 `[P1]`/`[P2]`，确认 helper 等价性、SaveEnvelope 兼容性、无 window 副作用及设计文档的能力边界。
+- 当前边界：只证明纯 checksum/SaveEnvelope integrity；不证明 SQLite、WAL 崩溃原子性、跨设备恢复、clean-machine 安装或真人长线体验。
+
+### PR2-B 后续恢复断点
+
+下一步只在本地继续：为 SQLite driver port contract、未知 schema/截断 payload、raw v20/v21 迁移幂等、checkpoint 上限与 WAL 中断故障分别写 RED→GREEN 切片；保持当前 localStorage authority 直到 driver 有独立证据。两个 `.qa-prodserver3.*.log` 继续保留且不得触碰。
+
+## 2026-08-22 · PR2-C Recovery Checkpoint Contract
+
+- 状态：PR2-C 第一条 recovery contract slice 完成；只新增公开行为测试，未改变 `save-system.ts`、未安装 SQLite、未接入 WAL。
+- 已锁定：
+  - 当前 recovery key 的有效 checkpoint 过滤与最多保留 3 条。
+  - 当前 key 缺失时按 `LEGACY_RECOVERY_KEYS` 声明顺序回退到第一个可用旧 key。
+  - 当前 key 存在但 JSON 损坏时返回空列表并 fail-closed，不静默回退旧 key。
+  - 测试使用内存 storage，结束后恢复全局 `window`，不污染其他测试。
+- 验证证据：
+  - `node --test tests/recovery-checkpoint.test.mjs`：3/3 通过。
+  - `npm.cmd test`：构建成功；347 项测试中 342 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
+  - `npm.cmd run lint`、`npm.cmd run bundle:budget`、`git diff --check`：通过。
+  - Codex 独立只读复审：`CLEAN`；未发现 `[P1]`/`[P2]`。
+- 当前边界：该切片只冻结现有 renderer recovery 语义，不证明 SQLite checkpoint 表、WAL 中断原子性、跨设备恢复或生产可用性。
+
+### PR2-C 后续恢复断点
+
+下一步只在本地继续：设计并测试 SQLite driver port contract 与迁移/故障注入边界；在 driver 证据形成前保持 localStorage authority 和现有 fail-closed 语义不变。两个 `.qa-prodserver3.*.log` 继续保留且不得触碰。
+
+## 2026-08-22 · PR2-D Save Migration Boundary
+
+- 状态：PR2-D 本地迁移/输入边界切片完成；仅为迁移后的 checksum round-trip 增加一处生产修复和边界测试，未安装 SQLite、未接入 WAL/Main Process gateway、未改变 UI 或当前 localStorage authority。
+- 已锁定：
+  - unknown envelope schema 在迁移前 fail-closed。
+  - 截断 JSON 在应用存档状态前被拒绝。
+  - v20 envelope 迁移到 v21 后重新计算 checksum，迁移结果可再次导入；直接 `migrateStoredGame` 不修改 source，重复迁移确定性一致。
+- 验证证据：
+  - `tests/persistence-migration-boundary.test.mjs`：3/3 通过；联合 PR2-A/B/C/D 定向回归：47/47 通过。
+  - `npm.cmd test`：构建成功；350 项测试中 345 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
+  - `npm.cmd run typecheck`、`npm.cmd run lint`：通过，lint 0 warning。
+  - `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+  - `git diff --check`：通过。
+  - Codex 独立只读复审：首次发现并定位 checksum round-trip 的 `[P2]`，修复后第二次复审为 `CLEAN`，未发现 `[P1]`/`[P2]`/`[P3]`。
+- 当前边界：该切片只证明当前 SaveEnvelope 的 schema/输入拒绝、迁移规范化和 checksum round-trip；不证明 SQLite、WAL 崩溃原子性、跨设备恢复、clean-machine 安装或生产可用性。
+
+### PR2-D 后续恢复断点
+
+下一步只在本地继续：为 SQLite driver port contract 与 WAL 中断故障分别写 RED→GREEN 测试；在 driver 证据形成前保持 localStorage authority 和现有 fail-closed 语义不变。两个 `.qa-prodserver3.*.log` 继续保留且不得触碰。
+
+## 2026-08-22 · PR2 Persistence Closure
+
+- 状态：PR2 持久化闭环一次完成；SQLite WAL driver、Main Process gateway、renderer active-save/recovery 接线、首次 localStorage 迁移回退和原子故障测试均已落地。未引入额外 native npm 依赖，使用 Node/Electron 内置 `node:sqlite`。
+- 已实现：
+  - `electron/persistence-sqlite.cjs`：WAL、`synchronous=FULL`、记录 schema/version、SHA-256 payload checksum、原子 batch、恢复点 append 和 corruption quarantine。
+  - `electron/persistence-ipc.cjs` + `electron/preload.cjs` + `electron/main.cjs`：白名单 key、有界 payload、当前主窗口 WebContents/动态 serverPort sender 门禁、数据库生命周期；renderer 不获得文件系统能力。
+  - `app/game-session-controller.ts`：Electron persistence bridge 为桌面 active-save authority；写入串行化；空 SQLite 首次启动仍可从 localStorage/v20 兼容键迁移；只有明确的 `persistence-unavailable`/`sqlite-runtime-unavailable` 才允许兼容回退，其他读写/传输异常均 fail-closed。
+  - `app/save-system.ts` / `app/complete-game.tsx`：recovery checkpoint 走原子 append bridge，当前记录损坏仍 fail-closed；浏览器模式继续使用同步 localStorage fallback，桌面 fatal 状态持续告警并阻止需要持久化的推进。
+- 验证证据：
+  - SQLite/IPC/bridge/迁移/recovery 定向回归：34/34 通过；包含 active-save 读写、recovery 读写、bridge 传输失败和 fatal 回退回归。
+  - `npm.cmd test`：构建成功；369 项测试中 364 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
+  - `npm.cmd run typecheck`、`npm.cmd run build`、`npm.cmd run lint`、Electron CJS `node --check`：通过。
+  - `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+  - `git diff --check`：通过。
+  - Codex 独立只读审阅：`CLEAN`；复核 driver、IPC、renderer 接线、迁移、异步状态一致性、fatal fail-closed 与新增测试；审阅未修改、提交或推送。
+- 当前边界：已证明本机 SQLite WAL 与 renderer authority 的本地闭环，不证明跨设备同步、clean-machine 安装升级矩阵、长时间生产运行或真人 5–20 小时体验；不改变 Gate 0/PR1 世界权威边界和产品定位。
+
+### PR2 完成后的恢复断点
+
+PR2 不再拆分后续实现包。下一阶段若继续，应另立 PR3 目标；当前只需保留两个 `.qa-prodserver3.*.log`，不得清理、覆盖、提交或推送。
+
+## 2026-08-22 · PR3 Packaged Desktop Persistence Qualification
+
+- 状态：PR3 本地实现完成；范围收敛为安装包首次启动后的持久化 schema 资格检查，不重做 Gate 0、PR1 或 PR2，不改变玩家表面。
+- 已实现：
+  - `scripts/release/smoke-installer.ps1` 在隔离 `GMZZ_USER_DATA`、服务器 `GMZZ_READY` 和 seed 部署成功后，要求 `mist-chronicle.sqlite` 已创建。
+  - 新增 `scripts/release/verify-persistence-db.mjs`，以 read-only 方式检查 `journal_mode=wal`、`persistence_records` 表及 PR2 六个必要列；探针不写业务记录，失败以非零退出。
+  - 新增 `tests/release-persistence-smoke.test.mjs`，覆盖有效 WAL 数据库、缺失数据库 fail-closed 和 installer smoke 接线契约。
+  - 新增 `docs/PR3_PACKAGED_RUNTIME_QUALIFICATION.md`，记录目标、验收门和证据边界。
+- 当前证据：`node --test tests/release-persistence-smoke.test.mjs` 为 3/3；全量 `npm.cmd test` 为 372 项中 367 通过、5 条既有条件跳过、0 失败；`typecheck`、`lint`、`bundle:budget`、Node syntax check、PowerShell parse 和 `git diff --check` 均通过；独立 Codex 只读复审结论为 `CLEAN`。
+- 安装包边界：本轮 `npm.cmd run dist:win` 在 `release:verify:seed` 阶段因 `seed-manifest-missing` 停止，未生成可运行 installer，因此 `release:smoke` 为 `NOT_RUN`。这不影响本机真实 SQLite probe 的通过，但不能写成 packaged E2E、clean-machine、跨设备、升级或生产证据。
+- 恢复断点：PR3 只验证启动时 SQLite 结构存在，不宣称 renderer 保存—退出—重启恢复；后者作为独立 PR4 目标另行定义。两个 `.qa-prodserver3.*.log` 仍必须保留、不得清理、覆盖、提交或推送。
+- 本地提交：`68f0598 feat: qualify packaged persistence startup`，并已随当前分支推送到 `origin/codex/gate0-pr1-turn-guard`；本轮继续复核起点远端 HEAD 为 `cd18fb5`，未开 PR、未合并。
+- 本轮阻塞复核：`KNOWLEDGE_SEED_URL`、`KNOWLEDGE_SEED_SHA256` 未设置，`private/rag/index` 不存在，受限 D 盘未发现 `seed-manifest.json`；因此没有合法输入可以让 `dist:win` 越过 `release:verify:seed`，不得伪造 installer 证据。
+
+## 自动压缩恢复断点（2026-08-21 · Gate 0 + PR1）
+
+当前任务目标：**先完成 Gate 0 与 PR1（MIST-TURN-01），建立可恢复、不可重复结算的世界周事务边界；不要在此任务中扩展玩家表面或引入 SQLite。**
+
+当前分支：`codex/gate0-pr1-turn-guard`。工作树中两个未知来源的 QA 日志仍保持未跟踪，禁止清理或覆盖。
+
+### Gate 0 状态
+
+- 已完成注意力模拟修复：授权历史不再静默截断到 24 项；分部候选会检查所在 district 的异常；新增 2 条回归测试。
+- 已完成 CI 矩阵：`.github/workflows/ci.yml` 在 Ubuntu 与 Windows 上执行相同的 typecheck、lint、test、bundle budget 与 high-severity audit。
+- 已完成并复核 `main` 分支保护：严格要求两个矩阵检查、至少 1 次 PR 审阅、线性历史、会话解决，禁止强推与删除。
+- 远端 CI：`PENDING`（当前分支尚未推送/开 PR；本地通过不替代远端检查）。
+
+### PR1 / MIST-TURN-01 状态
+
+- `WorldKernel` 增加 `revision` 与有界 `committedTransactions`，旧存档归一化会 additive 补齐这两个字段。
+- 每个提交事务携带 `turnId / resolvingWeek / baseRevision / inputHash`；周次必须严格为 `lastResolvedWeek + 1`，基准修订号必须匹配。
+- 同一事务以完全相同的输入重放时直接返回原内核（零差异）；同一 ID 绑定不同输入、哈希不匹配、更新 ID 重复或事务身份缺失都会拒绝。
+- 生产世界推演使用稳定的 `world:<week>` 事务 ID；不新增数据库、不把模型输出当作第二套 authority。
+
+### 已验证证据
+
+- `npm.cmd test`：构建成功；320 项测试中 315 通过、5 项按既有公共知识库/可选 Playwright 条件跳过、0 失败。
+- `npm.cmd run typecheck`：通过。
+- `npm.cmd run lint`：通过，0 warning。
+- `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+- `git diff --check`：通过。
+- `npm.cmd audit --audit-level=high`：退出码 0；报告 4 个 moderate，未执行会引入 breaking change 的 `--force` 修复。
+- Gate 0 主分支保护：只读 API 已复核上述两个检查和保护规则；这不是远端 CI 通过证明。
+
+### 自动压缩后的继续规则
+
+1. 先读本节与 `git status --short`，保留当前分支、两个 QA 日志和未合并边界。
+2. 不重复实现 Gate 0/PR1；只完成本地提交和必要的独立复核。
+3. 若要让 GitHub CI 运行，先单独确认推送/开 PR；在 CI 通过和独立审阅前不得合并。
+4. 下一阶段只在 PR1 证据稳定后规划 SQLite/恢复点等后续工作，不把本地专项通过写成生产可用。
+
+## 自动压缩恢复断点（2026-08-21 · MIST-AUTH-01）
+
+当前任务目标：**把“知识 ID 存在”升级为“本轮实际获得的证据”，把“提案 ID 合法”升级为“该提案实际授权的变化”；不新增 UI、剧情、SQLite、本地模型或大规模 Agent 能力。**
+
+当前分支仍为：`codex/gate0-pr1-turn-guard`。两个未知来源的 QA 日志 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log` 仍保持未跟踪，禁止清理或覆盖。
+
+### MIST-AUTH-01 已完成的本地闭环
+
+- `app/rag/client.ts` 的异步检索现在返回 `RetrievalReceipt`：包含 `requestId`、`indexVersion`、`audienceRef`、`queryHash`、`filterHash`、最终过滤后的 `chunkIds` 与 `contextHash`；Electron worker 从索引元数据提供稳定版本标识，旧检索回退使用明确的 `legacy-v1`。
+- 世界裁决只使用 `receipt.chunkIds` 作为 `allowedLoreIds`；知识与配方引用未在本轮检索结果中的 lore 会以 `UNRETRIEVED_LORE_REFERENCE_REJECTED` 拒绝，不再用整个静态语料或运行时索引白名单代替本轮证据。
+- 新增 `app/world-authority-closure.ts` 的 `MutationClaim`、`ExecutionPlanScope` 和确定性校验器：检查参与者/目标/持有者范围、资源投入上限、地点同地点来源事件、知识事件与观察链；无关实体会以 `UNRELATED_PROPOSAL_MUTATION_REJECTED` 拒绝。
+- `WorldKernel` turn delta 携带 receipt 与 mutation claims；它们进入事务输入哈希、有限历史与幂等重放。`narrative-ready` 账本事件绑定 `modelCallId`、receipt 与 claims，保留模型结果与权威提交之间的证据链。
+- 世界协议已要求模型声明 `mutationClaims`；玩家表面和现有三件大事循环未扩展。
+
+### 当前证据
+
+- `npm.cmd test`：构建成功；327 项测试中 322 通过、5 项按公共空壳知识库或可选 Playwright 条件跳过、0 失败。
+- `npm.cmd run typecheck`：通过。
+- `npm.cmd run lint`：通过，0 warning。
+- `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+- `npm.cmd audit --audit-level=high`：退出码 0；报告 4 个 moderate 的 esbuild/drizzle-kit 依赖问题，修复会触发 breaking change，未执行 `--force`。
+- 新增负向与重放覆盖：本轮未检索 lore、合法 proposal 绑定无关势力、地点缺少来源事件、receipt/claims 事务重放；现有世界周集成测试保持通过。
+- 远端 CI：仍为 `PENDING`；分支尚未推送/开 PR，本地通过不替代 GitHub 检查或独立审阅。
+
+### 自动压缩后的继续规则
+
+1. 先读本节、`git status --short` 与当前提交；不要重做 Gate 0/PR1 或 MIST-AUTH-01。
+2. 当前本地提交需要独立 review 后再决定是否推送；不得自动合并，也不得把本地证据写成远端 CI 通过。
+3. 下一项按原审查顺序进入 exactly-once 与角色隐私闭环；SQLite 仍不在本批范围内。
+4. 继续工作时保留两个未知 QA 日志，不扩大玩家表面，不引入新的剧情或 Agent 能力。
+
+## 自动压缩恢复断点（2026-08-21 · P0-4 角色隐私闭环）
+
+当前任务目标：**关闭角色知识隔离的两条硬泄漏路径；不新增 UI、剧情、SQLite、本地模型或 Agent 数量。**
+
+当前分支仍为：`codex/gate0-pr1-turn-guard`。`main` 仍停在 `f519128`，本地工作提交尚未推送、尚未开 PR、尚未合并。两个未知来源的 QA 日志 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log` 仍保持未跟踪，禁止清理或覆盖。
+
+### P0-4 已完成的本地闭环
+
+- `projectWorldForAudience()` 不再把权威地点对象原样放进角色投影；非 `world` 受众收到 `AudienceLocationProjection`，只包含地点标识/名称、`knownConditions`、`knownActorIds`、`knownFactionIds`、`perceivedRisk`、`publicMood`、稳定性和更新时间。隐藏的 `actorIds`、`factionIds`、原始 `conditions` 不再透传；已知实体只从受众可见事件、观察和受众自身持有关系中派生。投影还带确定性的 `projectionHash`，并清空不属于角色视角的检索收据与 mutation claims。
+- Agent 规划的 `currentLocation` 改为读取同一份受众地点投影；自治规划的相关地点签名和势力归属也只消费 `knownFactionIds`、`knownConditions` 与 `perceivedRisk`。
+- `generateCouncilReplies()` 改为每位成员独立调用模型，可并行但不合并 Prompt。每次请求只包含一个 `speaker`、该成员的 `authorizedLore`、`dynamicMemory` 和 `authorizedKnowledge`；模型只能返回该成员的公开发言。跨成员私有上下文不再通过“不要串读”的提示词隔离，后续书记员只消费已经公开的发言。
+- 新增 `tests/privacy-closure.test.mjs`：地点投影隐藏字段回归、跨成员私有令牌 canary、每成员调用次数和公开回复数量回归。
+
+### 当前证据与继续规则
+
+- 本地红绿循环已通过：地点投影、Agent 规划投影、议会独立调用与跨成员秘密 canary。
+- `npm.cmd test`：构建成功；329 项测试中 324 通过、5 项按既有公共空壳知识库或可选 Playwright 条件跳过、0 失败。
+- `npm.cmd run typecheck`：通过；`npm.cmd run lint`：通过；`npm.cmd run bundle:budget`：通过，最大 bundle 198.8 KiB / 450 KiB。
+- `npm.cmd audit --audit-level=high`：退出码 0；仍报告 4 个 moderate 的 esbuild/drizzle-kit 依赖问题，修复会触发 breaking change，未执行 `--force`。
+- `git diff --check`：通过；本轮隐私闭环已形成本地提交。本地通过不替代 GitHub CI，远端仍为 `PENDING`，不得自动推送、开 PR 或合并。
+- 继续时先读本节、`git status --short` 和最新提交；保留两个 QA 日志，不重复 Gate 0、PR1、MIST-AUTH-01 或本 P0-4 闭环。
+- 下一步是独立审阅本地差异并决定是否推送；SQLite、完整存档恢复和更大范围模型实跑仍不在本批范围内。
+
+### 2026-08-21 · 继续复核
+
+- 发现并修复一条权威边界漏洞：带本轮 `retrievalReceipt` 的知识增量不能再复用历史事件或历史 `sourceProposalIds`；必须绑定本轮事件及本轮可执行提案。新增回归测试覆盖该路径。
+- 修复后本地全量：`npm.cmd test` 330 项中 325 通过、5 项条件跳过、0 失败；`typecheck`、`lint`、`bundle:budget`、`git diff --check` 均通过；依赖审计仍为 4 个 moderate，未执行 breaking `--force` 修复。
+- 跨模型 Codex 只读审阅两次均未形成结果：首次是本机 `codex.exe` 启动被拒绝，第二次被主机以私有仓库差异外发需额外授权为由拒绝；不能计作独立审阅，也不得绕过该安全边界。没有推送、开 PR 或合并。
+- 继续门禁：需要用户明确授权外部只读审阅，或提供另一独立审阅主体；完成后再决定是否推送/开 PR；远端 CI 仍为 `PENDING`。
+
+### 2026-08-21 · Gate 0/PR1 Codex 独立审阅修复（已完成，CLEAN）
+
+- 用户已明确授权把当前分支差异发送给 Codex 做只读独立审阅。审阅通过现有本地 Codex 项目线程完成；未修改、提交、推送、开 PR 或合并。
+- 首轮审阅结论为 `NOT CLEAN`，指出 4 个 P1 与 1 个 P2：新实体创建被旧执行范围拒绝、本轮临时事件 ID 未归一化、地点 claim 可借历史事件、周推演缺少并发单飞/CAS、受众投影泄漏事务技术元数据。
+- 已修复：新 actor/faction/project 创建绑定到现有 proposal scope；explicit claim 的临时事件 ID 统一映射到本轮权威事件；地点/知识 claim 只接受本轮事件且要求当前 proposal 来源；标准闭周与重大事件入口共用单飞锁；受众投影改为显式白名单，不携带 `revision`、`committedTransactions`、receipts 或 mutation claims。
+- 修复后复审通过上述五项，但仍发现 1 个 P1 与 1 个 P2：无检索回执时知识仍可借历史事件，角色投影事件/观察/知识 DTO 仍携带因果或检索内部字段。
+- 已再次修复：知识无条件要求本轮事件、观察和当前可执行提案；`WorldKernel` 事务层拒绝只引用历史事件的知识；受众事件/观察/知识/授权记录改用脱敏 DTO，Agent 所需 lore 与因果映射仅保留在后端并从模型序列化中排除。
+- 新增 authority/privacy/kernel 回归覆盖；上一轮修复后的本地定向测试 60/60 通过。
+
+### 当前证据
+
+- `npm.cmd test`：构建成功；最终 337 项测试中 332 通过、5 项按既有公共空壳知识库/可选 Playwright 条件跳过、0 失败。
+- `npm.cmd run typecheck`：通过。
+- `npm.cmd run lint`：通过，0 warning。
+- `npm.cmd run bundle:budget`：通过（最大 bundle 198.8 KiB，预算 450 KiB）。
+- `git diff --check`：通过。
+- `npm.cmd audit --audit-level=high`：退出码 0；报告 4 个 moderate 的 esbuild/drizzle-kit 依赖问题，修复需要 breaking `--force`，未执行。
+- 本地 PR1 定向回归最终 68/68 通过；独立 Codex 线程本轮定向复核 63/63 通过。
+- Codex 第三轮复审曾发现 1 个 P1：`WorldKernel` 在缺少 receipt/sourceProposalIds/executableProposalIds 时存在知识写入兼容旁路；另有 1 个 P2 复核模型 JSON 不得携带 lore 映射。已在 `5e34789` 修复：`executableProposalIds` 成为事务必需边界，adapter 写入已准入 proposal 集，所有知识都必须同时满足本轮事件、可执行 proposal 交集和同事件同 proposal 的 `knowledge` mutation claim；并保持模型 JSON 不含 `loreRecordIds`、`authorizedLoreIds`、`knowledgeSourceEventIds`。
+- Codex 最终只读独立复审：`CLEAN`（复审范围 `origin/main...HEAD`，HEAD=`23dcbe3`；代码修复提交=`5e34789`）；此前三轮发现的 4 个 P1+1 个 P2、1 个 P1+1 个 P2、1 个 P1+1 个 P2 均已关闭。复审未修改文件；未推送、未开 PR、未合并。
+- 远端 CI：仍为 `PENDING`；本地通过与独立审阅不替代 GitHub 检查。
+
+### 自动压缩后的继续规则
+
+1. 先读本节、`git status --short` 和最新提交；保留两个未知 QA 日志及未合并边界。
+2. Gate 0/PR1 的本地实现与独立只读审阅已完成；继续时不要重做，先核对 `23dcbe3` 与工作树。
+3. 不推送、不开 PR、不合并；远端 CI 仍为 `PENDING`，任何远端动作需单独授权。
+4. PR1 只建立内存事务边界；SQLite、完整存档恢复和更大范围模型实跑不在本批范围内。
+
 ### 2026-08-20 · 注意力驱动模拟 H
 
 - 状态：CG-09 已完成；剩余 1 个工作包：CG-10。
@@ -382,3 +636,12 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 若继续开发，只做回归驱动的小步增量：先读取本文件和 `git status --short`，再以现有三件大事、首领指令、世界回应、纪事与注意力边界为验收基线。不得借新增页面、日程或后台字段重新扩大玩家表面。
 
 当前阻塞：无。保留未知来源的 `.qa-prodserver3.err.log` 与 `.qa-prodserver3.out.log`，不得清理或覆盖。
+
+### 2026-08-22 · PR6 Wave 4 运行时追踪契约（已完成，已纳入当前分支）
+
+- 本批不新增玩家玩法，先把后续模型、RAG、事务拆分所需的可观测性真值固定下来。`app/runtime-trace.ts` 定义 schema v1 与有界 128 条内存环，统一 `traceId/requestId/turnId/retrievalId/modelTraceId`，并记录模型版本、Prompt/响应 schema 版本、延迟、修复次数、拒绝原因和提交状态。
+- 追踪只允许 ID、计数、状态和脱敏摘要；prompt、模型请求体、RAG 正文、存档和 API key 永不写入。供应商没有 tokenizer usage 时，输入/输出 token 与首 token 延迟为 `null`，不升级为估算或真实模型证据。
+- `ai-client`、RAG 客户端和 `WorldKernel.applyWorldTurn` 已接入：模型调用成功/失败、bridge/legacy 检索及其收据关联、世界提交/幂等重放/拒绝都会产生 trace；trace 失败不会阻断权威路径。世界裁决请求使用 `world:${week}` 事务 ID关联模型与检索。
+- `tests/runtime-trace.test.mjs` 覆盖脱敏/容量上限、模型关联、检索—事务关联和事务拒绝；专项 3/3，PR4/PR5/PR6 定向回归 9/9，全量测试 383 项中 378 通过、5 条既有条件跳过、0 失败，typecheck、lint、bundle budget、Node/PowerShell syntax 和远端差异检查均通过。PR4/PR5/PR6 实现与本记录已纳入当前分支；GitHub PR、CI 与审批状态以远端实时查询为准，不把本地记录升级为远端通过。
+
+边界仍为本机内存可观测性契约，不宣称供应商 tokenizer 计量、跨进程 trace 持久化、packaged/clean-machine/production/human 证据。PR3 授权 seed 未提供时，installer smoke 继续 `NOT_RUN`；两个 QA 日志保持未跟踪。

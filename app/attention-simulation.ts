@@ -106,7 +106,7 @@ export function ensureAttentionSimulationState(value: unknown): AttentionSimulat
   if (!value || typeof value !== "object") return createInitialAttentionSimulationState();
   const source = value as Partial<AttentionSimulationState>;
   const approvals = Array.isArray(source.approvals)
-    ? source.approvals.map(normalizeApproval).filter((item): item is AttentionAutomationApproval => Boolean(item)).slice(-24)
+    ? source.approvals.map(normalizeApproval).filter((item): item is AttentionAutomationApproval => Boolean(item))
     : [];
   return {
     version: 1,
@@ -148,7 +148,7 @@ function departmentCandidate(game: GameState, department: GameState["departments
 function branchCandidate(game: GameState, branch: NonNullable<GameState["management"]>["branches"][number]): AttentionAutomationCandidate {
   const district = game.management.map.districts.find((item) => item.id === branch.districtId);
   const id = `branch:${branch.id}`;
-  const issue = issueForCandidate(game, { id, label: branch.name, scope: "branch", sourceRefs: [branch.id], ready: true, reason: "" });
+  const issue = issueForCandidate(game, { id, label: branch.name, scope: "branch", sourceRefs: [branch.id, branch.districtId], ready: true, reason: "" });
   const stable = branch.status === "active" && (district?.control ?? 0) >= 60 && (branch.warningRefs?.length ?? 0) === 0;
   return {
     id,
@@ -197,7 +197,7 @@ export function confirmAttentionAutomation(
   };
   return {
     ...state,
-    approvals: [...state.approvals, approval].slice(-24),
+    approvals: [...state.approvals, approval],
     reopenedRefs: [...new Set([...state.reopenedRefs, candidate.id])],
   };
 }

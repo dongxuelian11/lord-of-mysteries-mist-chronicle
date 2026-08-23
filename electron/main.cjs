@@ -6,11 +6,12 @@
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, utilityProcess } = require("electron");
 const { spawn, execFileSync } = require("node:child_process");
 const http = require("node:http");
-const net = require("node:net");
 const path = require("node:path");
 const fs = require("node:fs");
 const { createRagIpc } = require("./rag-ipc.cjs");
 const { deploySeed } = require("./knowledge-seed.cjs");
+const { registerPersistenceIpc } = require("./persistence-ipc.cjs");
+const { resolveServerPort } = require("./server-port.cjs");
 
 const isWindows = process.platform === "win32";
 const appRoot = path.join(__dirname, "..");
@@ -43,6 +44,8 @@ const vinextDir = app.isPackaged
 let mainWindow = null;
 let serverProc = null;
 let ragWorker = null;
+let persistenceStore = null;
+let persistenceStatus = { available: false, error: "persistence-unavailable", fatal: false };
 let serverPort = 0;
 let stopping = false;
 const ragIpc = createRagIpc({
@@ -51,6 +54,40 @@ const ragIpc = createRagIpc({
 
 const log = (...args) => console.log("[gmzz]", ...args);
 const credentialFile = () => path.join(app.getPath("userData"), "ai-credentials.json");
+const persistenceDatabaseFile = () => path.join(app.getPath("userData"), "mist-chronicle.sqlite");
+
+function startPersistenceStore() {
+  const databaseFile = persistenceDatabaseFile();
+  const existingDatabase = fs.existsSync(databaseFile);
+  try {
+    const { createSqlitePersistenceStore } = require("./persistence-sqlite.cjs");
+    persistenceStore = createSqlitePersistenceStore(databaseFile);
+    persistenceStatus = { available: true, error: "", fatal: false };
+    log(`持久化数据库已就绪（SQLite WAL）：${databaseFile}`);
+  } catch (error) {
+    persistenceStore = null;
+    persistenceStatus = {
+      available: false,
+      error: existingDatabase ? "persistence-initialization-failed" : "sqlite-runtime-unavailable",
+      fatal: existingDatabase,
+    };
+    log(existingDatabase
+      ? "SQLite 持久化数据库无法打开，已阻断旧存档回退："
+      : "SQLite runtime 不可用，渲染端将保留兼容存储回退：", error?.message ?? error);
+  }
+}
+
+function stopPersistenceStore() {
+  if (!persistenceStore) return;
+  try { persistenceStore.close(); } catch (error) { log("关闭持久化数据库失败:", error?.message ?? error); }
+  persistenceStore = null;
+}
+
+function isTrustedPersistenceSender(event) {
+  if (!mainWindow || event?.sender !== mainWindow.webContents) return false;
+  const url = event?.senderFrame?.url ?? "";
+  return url === `http://127.0.0.1:${serverPort}/` || url.startsWith(`http://127.0.0.1:${serverPort}/`);
+}
 
 async function credentialEncryptionAvailable() {
   const available = typeof safeStorage.isAsyncEncryptionAvailable === "function"
@@ -107,17 +144,6 @@ function registerCredentialIpc() {
   ipcMain.handle("credentials:load", () => loadCredential());
   ipcMain.handle("credentials:save", (_event, apiKey) => saveCredential(apiKey));
   ipcMain.handle("credentials:clear", () => clearCredential());
-}
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const probe = net.createServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const { port } = probe.address();
-      probe.close(() => resolve(port));
-    });
-  });
 }
 
 function httpReady(url, timeoutMs) {
@@ -278,7 +304,7 @@ function openLogStream() {
 
 async function startServer() {
   const envPort = Number(process.env.GMZZ_PORT || 0);
-  serverPort = envPort || await freePort();
+  serverPort = await resolveServerPort(envPort);
   const out = openLogStream();
 
   log(`启动生产服务器（端口 ${serverPort}）…`);
@@ -388,6 +414,7 @@ if (!gotLock) {
 
   app.on("before-quit", () => {
     stopServer();
+    stopPersistenceStore();
     ragIpc.abortAll("app quitting");
     if (ragWorker) {
       try {
@@ -404,6 +431,13 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    startPersistenceStore();
+    registerPersistenceIpc({
+      ipcMain,
+      store: persistenceStore,
+      isTrustedSender: isTrustedPersistenceSender,
+      unavailableResult: () => ({ ...persistenceStatus }),
+    });
     ensureBundledKnowledge();
     startRagWorker();
     registerRagIpc();

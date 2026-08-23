@@ -1,8 +1,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyWorldTurn, createWorldKernel, projectWorldForAudience } from "../app/world-kernel.ts";
+import { applyWorldTurn as commitWorldTurn, createWorldKernel, createWorldTurnTransaction, projectWorldForAudience } from "../app/world-kernel.ts";
 import { createInitialGame } from "../app/game-model.ts";
+
+function withKnowledgeAuthority(delta) {
+  if (!Array.isArray(delta.knowledge) || delta.knowledge.length === 0) return delta;
+  const fallbackProposalId = "test:knowledge";
+  const executableProposalIds = Array.isArray(delta.executableProposalIds) ? delta.executableProposalIds : [fallbackProposalId];
+  const events = (delta.events ?? []).map((event) => ({
+    ...event,
+    sourceProposalIds: Array.isArray(event.sourceProposalIds) ? event.sourceProposalIds : [fallbackProposalId],
+  }));
+  const mutationClaims = [...(delta.mutationClaims ?? [])];
+  for (const node of delta.knowledge) {
+    if (mutationClaims.some((claim) => claim.effectKind === "knowledge" && claim.subjectRef === `knowledge:${node.id}`)) continue;
+    const sourceEvent = events.find((event) => event.id === node.sourceEventId);
+    const proposalId = sourceEvent?.sourceProposalIds?.find((id) => executableProposalIds.includes(id));
+    if (proposalId) mutationClaims.push({ proposalId, effectKind: "knowledge", subjectRef: `knowledge:${node.id}`, targetRefs: [], sourceEventId: node.sourceEventId });
+  }
+  return { ...delta, executableProposalIds, events, mutationClaims };
+}
+
+function applyWorldTurn(kernel, delta, turnId = `test:${delta.week}`) {
+  const prepared = withKnowledgeAuthority(delta);
+  return commitWorldTurn(kernel, { ...prepared, transaction: createWorldTurnTransaction(kernel, prepared, turnId) });
+}
 
 test("a new campaign begins with a persistent anchored world, not an empty weekly summary shell", () => {
   const game = createInitialGame("spectator");
@@ -124,5 +147,66 @@ test("private knowledge authority cannot bypass grants or borrow another holder'
   assert.throws(
     () => applyWorldTurn(initial, { ...base, knowledgeGrants: [{ id: "borrowed-observation", knowledgeId: "private-fact", holderRef: "actor:outsider", kind: "investigation", sourceEventId: "private-source", sourceObservationId: "private-source-observation" }] }),
     /invalid observation/,
+  );
+});
+
+test("world kernel rejects knowledge that references only a historical event", () => {
+  const initial = createWorldKernel({
+    week: 1,
+    date: "1349年1月1日",
+    factions: [],
+    actors: [],
+    locations: [{ id: "dock", name: "码头区", risk: 20 }],
+    timeline: [],
+  });
+  initial.events = [{ id: "historical-event", week: 1, title: "历史事件", detail: "上一周的事实。", actorIds: [], factionIds: [], causeIds: [], visibility: "world", sourceProposalIds: ["old-proposal"] }];
+  assert.throws(() => applyWorldTurn(initial, {
+    week: 1,
+    playerIssuedNoOrders: true,
+    actorUpdates: [],
+    factionUpdates: [],
+    projectUpdates: [],
+    locationUpdates: [],
+    events: [],
+    observations: [],
+    knowledge: [{ id: "historical-knowledge", subject: "旧事实", statement: "不能在本周重新获得。", truth: "likely", visibility: "public", holderIds: [], loreRecordIds: [], sourceEventId: "historical-event" }],
+  }), /current-turn event/);
+  assert.throws(() => applyWorldTurn(initial, {
+    week: 1,
+    playerIssuedNoOrders: true,
+    actorUpdates: [],
+    factionUpdates: [],
+    projectUpdates: [],
+    locationUpdates: [],
+    events: [{ id: "rejected-event", title: "拒绝提案事件", detail: "不应成为本周知识来源。", actorIds: [], factionIds: [], causeIds: [], visibility: "world", sourceProposalIds: ["proposal:rejected"] }],
+    observations: [{ id: "rejected-observation", eventId: "rejected-event", channel: "调查", text: "不应被接受。", visibility: "public", holderIds: [] }],
+    knowledge: [{ id: "rejected-knowledge", subject: "拒绝事实", statement: "不能被未授权提案写入。", truth: "likely", visibility: "public", holderIds: [], loreRecordIds: [], sourceEventId: "rejected-event" }],
+  }), /executable proposal/);
+});
+
+test("world kernel rejects current-turn knowledge without an executable proposal boundary", () => {
+  const initial = createWorldKernel({
+    week: 1,
+    date: "1349年1月1日",
+    factions: [],
+    actors: [],
+    locations: [{ id: "dock", name: "码头区", risk: 20 }],
+    timeline: [],
+  });
+  const delta = {
+    week: 1,
+    playerIssuedNoOrders: true,
+    executableProposalIds: [],
+    actorUpdates: [],
+    factionUpdates: [],
+    projectUpdates: [],
+    locationUpdates: [],
+    events: [{ id: "unbound-event", title: "未绑定事件", detail: "本轮事件没有可执行提案来源。", actorIds: [], factionIds: [], causeIds: [], visibility: "world" }],
+    observations: [],
+    knowledge: [{ id: "unbound-knowledge", subject: "未绑定事实", statement: "不能绕过可执行提案边界。", truth: "likely", visibility: "public", holderIds: [], loreRecordIds: [], sourceEventId: "unbound-event" }],
+  };
+  assert.throws(
+    () => commitWorldTurn(initial, { ...delta, transaction: createWorldTurnTransaction(initial, delta, "test:unbound-knowledge") }),
+    /executable proposal/,
   );
 });

@@ -42,39 +42,49 @@ export async function generateCouncilReplies(config: AiConfig, game: GameState, 
       memoryPromptBlockWithIds(game.memory, "council", member.id, game.week),
     ])
   );
-  const payload = {
+  const sharedPayload = {
     leader: { name: game.playerName, address: game.playerAddress },
     topic: topicText,
-    speakers: members.map((member) => ({ id: member.id, name: member.name, role: member.role, specialty: member.specialty, background: member.background, core: member.core, voice: member.voice, trust: member.trust ?? member.loyalty })),
     knownFacts: game.facts.slice(-18),
     currentWorld: game.worldSnapshots?.[0] ? { week: game.worldSnapshots[0].week, date: game.worldSnapshots[0].date, atmosphere: game.worldSnapshots[0].atmosphere, changes: game.worldSnapshots[0].changes } : null,
     recentSignals: game.worldSignals?.slice(0, 10) ?? [],
-    speakerAuthorizedLore: speakerLore,
-    speakerDynamicMemory: Object.fromEntries(
-      members.map((member) => [member.id, speakerMemory[member.id].text])
-    ),
-    authorizedKnowledge: Object.fromEntries(members.map((member) => [member.id, (game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.holderIds.includes(member.id) || node.holderRefs?.includes(`actor:${member.id}`)).slice(-12)])),
     lastWeek: game.chronicle[0] ? { summary: game.chronicle[0].summary, results: game.chronicle[0].results.map((item) => ({ title: item.title, outcome: item.outcome, findings: item.findings })) } : null,
     activePressure: game.missions.find((item) => item.state === "active") ?? null,
     scheduled: game.schedule.map((item) => ({ title: item.title, rawIntent: item.rawIntent, risk: item.risk })),
   };
-  const raw = extractJson(await callModel(config, `你正在模拟一个维多利亚神秘组织的内部最高议会。这里只允许已经列出的内部成员发言，绝不引入候选人、盟友、证人、教会人员或其他外部人士。组织领导人拥有最终决定权，成员必须尊重其身份，但尊敬通过称谓、停顿、措辞和服从最终决议自然表现，不要让每个人反复说“请您示下”或“由您拍板”。每名成员只能使用本人职责范围、下属已经汇报的信息、authorizedKnowledge以及speakerAuthorizedLore中以本人id标注的内容；严禁让一名成员读取另一名成员的授权资料。来源差异应自然写进叙述，不得使用“亲历/下属报告/个人推断/未知”四段式标签，也不要说“我分几点讲”。允许人物沉默、短答、误判、记起旧事、彼此补充或礼貌地不同意。不要生成任务卡，不要自动形成决议，不得泄露隐藏真相。文风采用克制的神秘悬疑、具体动作和有限视角，不复刻任何现成文本。只返回JSON。`, `围绕玩家此刻提出的问题，让一至三名最相关的内部成员自由回应。人数、顺序和长度由内容决定；简单问题可以只有一名成员一句话，复杂问题可以形成自然交锋。不要机械复述议题。返回：{"replies":[{"speakerId":"已有成员id","text":"自然发言与动作","stance":"赞成|保留|反对|信息不足|涉及私情"}]}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 3000, temperature: .96 }));
-  const allowed = new Set(members.map((item) => item.id));
-  const replies = Array.isArray(raw.replies) ? raw.replies : [];
-  const result = replies.slice(0, 3).flatMap((item, index) => {
-    if (!item || typeof item !== "object") return [];
-    const value = item as Record<string, unknown>;
-    const speakerId = String(value.speakerId ?? "");
-    const text = String(value.text ?? "").trim();
-    if (!allowed.has(speakerId) || !text) return [];
-    const stance = ["赞成", "保留", "反对", "信息不足", "涉及私情"].includes(String(value.stance)) ? value.stance as CouncilTopicMessage["stance"] : "保留";
-    return [{
-      id: stableEntityId("council-message", topicId ?? `week:${game.week}:${topicText}`, speakerId, index + 1, text),
-      speakerId,
-      text: text.slice(0, 800),
-      stance,
-    }];
-  });
+  const result = (await Promise.all(members.map(async (member, memberIndex) => {
+    const authorizedKnowledge = (game.worldKernel?.knowledge ?? [])
+      .filter((node) => node.visibility === "public" || node.holderIds.includes(member.id) || node.holderRefs?.includes(`actor:${member.id}`))
+      .slice(-12);
+    const payload = {
+      ...sharedPayload,
+      speaker: { id: member.id, name: member.name, role: member.role, specialty: member.specialty, background: member.background, core: member.core, voice: member.voice, trust: member.trust ?? member.loyalty },
+      authorizedLore: speakerLore[member.id] ?? "",
+      dynamicMemory: speakerMemory[member.id].text,
+      authorizedKnowledge,
+    };
+    const raw = extractJson(await callModel(
+      config,
+      `你正在模拟一个维多利亚神秘组织内部议会的一名成员。当前唯一发言者是 ${member.id}，只允许此成员使用自己的职责、已汇报信息、authorizedKnowledge、authorizedLore 与 dynamicMemory。模型请求中不会提供其他成员的私有资料；不得猜测或补全未给出的秘密。组织领导人拥有最终决定权，尊敬通过称谓、停顿、措辞和服从最终决议自然表现，不要反复说“请您示下”或“由您拍板”。来源差异应自然写进叙述，不得使用“亲历/下属报告/个人推断/未知”四段式标签，也不要说“我分几点讲”。允许沉默、短答、误判、记起旧事或礼貌地不同意。不要生成任务卡，不要自动形成决议，不得泄露隐藏真相。文风采用克制的神秘悬疑、具体动作和有限视角，不复刻任何现成文本。只返回JSON。`,
+      `围绕玩家此刻提出的问题，让当前成员作出一段可以公开记录的回应。不要代替其他成员发言。返回：{"replies":[{"speakerId":"${member.id}","text":"自然发言与动作","stance":"赞成|保留|反对|信息不足|涉及私情"}]}。\n${JSON.stringify(payload)}`,
+      { json: true, maxTokens: 1400, temperature: .96 },
+    ));
+    const replies = Array.isArray(raw.replies) ? raw.replies : raw.reply ? [raw.reply] : [];
+    return replies.slice(0, 1).flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const value = item as Record<string, unknown>;
+      const speakerId = String(value.speakerId ?? "");
+      const text = String(value.text ?? "").trim();
+      if (speakerId !== member.id || !text) return [];
+      const stance = ["赞成", "保留", "反对", "信息不足", "涉及私情"].includes(String(value.stance)) ? value.stance as CouncilTopicMessage["stance"] : "保留";
+      return [{
+        id: stableEntityId("council-message", topicId ?? `week:${game.week}:${topicText}`, speakerId, memberIndex + 1, text),
+        speakerId,
+        text: text.slice(0, 800),
+        stance,
+      }];
+    });
+  }))).flat().slice(0, 3);
   // 调用成功：按成员独立提交 delivered + presented
   for (const member of members) {
     const view = speakerMemory[member.id];
