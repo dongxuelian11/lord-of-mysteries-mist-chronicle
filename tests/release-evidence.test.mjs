@@ -3,12 +3,15 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
 
 import { validateEvidenceManifest } from "../scripts/release/verify-evidence.mjs";
+import { createRequire } from "node:module";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
+const require = createRequire(import.meta.url);
+const { buildSeedManifest } = require("../electron/knowledge-seed.cjs");
 
 function baseManifest(claims) {
   return {
@@ -165,4 +168,92 @@ test("production deployment must use a verified artifact with matching provenanc
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("artifact provenance command fails closed with a diagnosable seed gate when release inputs are absent", () => {
+  const missingSeed = path.join("D:\\gmzz\\.runtime", `release-seed-missing-${crypto.randomUUID()}`);
+  assert.equal(fs.existsSync(missingSeed), false);
+  const result = spawnSync(process.execPath, [path.join(repositoryRoot, "scripts/release/verify-release.mjs"), "artifact"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GMZZ_STORAGE_ROOT: "D:\\gmzz\\.runtime",
+      KNOWLEDGE_SEED_DIR: missingSeed,
+      TEMP: "D:\\gmzz\\.runtime\\tmp",
+      TMP: "D:\\gmzz\\.runtime\\tmp",
+    },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}\n${result.stderr}`, /seed-source-path-missing/);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /ENOENT.*scandir/);
+});
+
+test("release seed verifier accepts an explicit D-drive seed directory and stages manifest-listed files", () => {
+  const runtimeRoot = path.join(repositoryRoot, ".runtime");
+  fs.mkdirSync(runtimeRoot, { recursive: true });
+  const fixtureParent = fs.mkdtempSync(path.join(runtimeRoot, "release-seed-input-"));
+  const fixtureDir = path.join(fixtureParent, "index");
+  const stagedDir = path.join(runtimeRoot, "release-seed");
+  fs.mkdirSync(fixtureDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(fixtureDir, "index.meta.json"),
+    JSON.stringify({ version: 2, chunks: 1, builtAt: "2026-01-01T00:00:00.000Z" }),
+    "utf8"
+  );
+  fs.writeFileSync(path.join(fixtureDir, "chunks.json"), JSON.stringify([{ id: "fixture" }]), "utf8");
+  fs.writeFileSync(path.join(fixtureDir, "documents.json"), "[]", "utf8");
+  fs.writeFileSync(path.join(fixtureDir, "inverted.json"), "{}", "utf8");
+  fs.writeFileSync(path.join(fixtureDir, "alias-map.json"), "{}", "utf8");
+  fs.writeFileSync(path.join(fixtureDir, "vectors.json"), JSON.stringify({ vectors: [] }), "utf8");
+  fs.writeFileSync(
+    path.join(fixtureParent, "sources.manifest.json"),
+    JSON.stringify({ sources: [{ id: "authorized-fixture" }] }),
+    "utf8"
+  );
+  const manifest = buildSeedManifest(fixtureDir);
+  const vectors = fs.readFileSync(path.join(fixtureDir, "vectors.json"));
+  manifest.files["vectors.json"] = {
+    bytes: vectors.length,
+    sha256: crypto.createHash("sha256").update(vectors).digest("hex"),
+  };
+  fs.writeFileSync(path.join(fixtureDir, "seed-manifest.json"), JSON.stringify(manifest), "utf8");
+
+  try {
+    const result = spawnSync(process.execPath, [path.join(repositoryRoot, "scripts/release/verify-release.mjs"), "seed"], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GMZZ_STORAGE_ROOT: runtimeRoot,
+        GMZZ_REQUIRE_D_DRIVE: "1",
+        KNOWLEDGE_SEED_DIR: fixtureDir,
+        TEMP: path.join(runtimeRoot, "tmp"),
+        TMP: path.join(runtimeRoot, "tmp"),
+      },
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(`${result.stdout}\n${result.stderr}`, /\[release:seed\].*buildId=/);
+    assert.equal(fs.existsSync(path.join(stagedDir, "vectors.json")), true);
+  } finally {
+    fs.rmSync(fixtureParent, { recursive: true, force: true });
+    fs.rmSync(stagedDir, { recursive: true, force: true });
+  }
+});
+
+test("release seed verifier rejects an explicit non-D seed path before reading repository fallback", () => {
+  const result = spawnSync(process.execPath, [path.join(repositoryRoot, "scripts/release/verify-release.mjs"), "seed"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GMZZ_STORAGE_ROOT: "D:\\gmzz\\.runtime",
+      GMZZ_REQUIRE_D_DRIVE: "1",
+      KNOWLEDGE_SEED_DIR: "C:\\authorized-seed",
+      TEMP: "D:\\gmzz\\.runtime\\tmp",
+      TMP: "D:\\gmzz\\.runtime\\tmp",
+    },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}\n${result.stderr}`, /seed-source-path-invalid/);
 });

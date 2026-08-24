@@ -1,10 +1,10 @@
 // 干净环境知识库部署验证：隔离临时 userData 目录，覆盖 A/B/C/D 四场景。
 import { fork } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
 import { buildPack, installPack } from "./pack.mjs";
+import { resolveRuntimePaths } from "../lib/runtime-paths.mjs";
 
 const WORKER = path.join("electron", "rag-worker.mjs");
 
@@ -24,9 +24,9 @@ function request(worker, type, payload, timeoutMs = 20000) {
   });
 }
 
-function startWorker(indexPath) {
+function startWorker(indexPath, runtimeEnv = process.env) {
   const child = fork(WORKER, [], {
-    env: { ...process.env, RAG_INDEX_DIR: indexPath },
+    env: { ...runtimeEnv, RAG_INDEX_DIR: indexPath },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     windowsHide: true,
   });
@@ -35,8 +35,8 @@ function startWorker(indexPath) {
   return child;
 }
 
-async function withWorker(indexPath, fn) {
-  const child = startWorker(indexPath);
+async function withWorker(indexPath, fn, runtimeEnv = process.env) {
+  const child = startWorker(indexPath, runtimeEnv);
   try {
     return await fn(child);
   } finally {
@@ -66,7 +66,24 @@ async function buildTamperedPack(kind, validBuffer) {
 }
 
 export async function runCleanInstallTest() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rag-clean-install-"));
+  const baseEnv = {
+    ...process.env,
+    GMZZ_REQUIRE_D_DRIVE: process.env.GMZZ_REQUIRE_D_DRIVE ?? "1",
+  };
+  const runtimePaths = resolveRuntimePaths({ env: baseEnv });
+  const runtimeEnv = {
+    ...baseEnv,
+    GMZZ_STORAGE_ROOT: runtimePaths.root,
+    GMZZ_USER_DATA: runtimePaths.userDataRoot,
+    TEMP: runtimePaths.tempRoot,
+    TMP: runtimePaths.tempRoot,
+    npm_config_cache: runtimePaths.npmCacheRoot,
+    ELECTRON_CACHE: runtimePaths.electronCacheRoot,
+    ELECTRON_BUILDER_CACHE: runtimePaths.electronCacheRoot,
+    PLAYWRIGHT_BROWSERS_PATH: runtimePaths.playwrightRoot,
+  };
+  fs.mkdirSync(runtimePaths.tempRoot, { recursive: true });
+  const root = fs.mkdtempSync(path.join(runtimePaths.tempRoot, "rag-clean-install-"));
   const validPack = await buildPack();
   const validBuffer = fs.readFileSync(validPack.file);
   const results = { A: null, B: null, C: {}, D: null };
@@ -88,7 +105,7 @@ export async function runCleanInstallTest() {
       searchError: search.error ?? null,
       noCrash: true,
     };
-  });
+  }, runtimeEnv);
 
   // 场景 B：有效知识包
   const bDir = path.join(root, "b-valid");
@@ -110,7 +127,7 @@ export async function runCleanInstallTest() {
       recordCount: search.records?.length ?? 0,
       zhHit: (search.records ?? []).some((record) => record.sourceId === "zh-lotm-txt"),
     };
-  });
+  }, runtimeEnv);
 
   // 场景 C：损坏知识包拒绝且不破坏现有索引
   const cDir = path.join(root, "c-corrupt");
@@ -137,7 +154,7 @@ export async function runCleanInstallTest() {
     const intact = await withWorker(cDir, async (worker) => {
       const status = await request(worker, "status");
       return status.available && status.chunks > 0;
-    });
+    }, runtimeEnv);
     results.C[kind] = { rejected, error: error.slice(0, 80), oldIndexIntact: intact };
   }
 
@@ -148,7 +165,7 @@ export async function runCleanInstallTest() {
   const before = await withWorker(dDir, async (worker) => {
     const status = await request(worker, "status");
     return status.available;
-  });
+  }, runtimeEnv);
   const upgrade = await installPack(validPack.file, [dDir]);
   const after = await withWorker(dDir, async (worker) => {
     const status = await request(worker, "status");
@@ -160,7 +177,7 @@ export async function runCleanInstallTest() {
       maxChars: 1000,
     });
     return { available: status.available, recordCount: search.records?.length ?? 0 };
-  });
+  }, runtimeEnv);
   // 升级失败回滚：损坏包安装必须保留可用索引
   const rollbackFile = path.join(root, "rollback-bad.mcrag");
   fs.writeFileSync(rollbackFile, await buildTamperedPack("hash-mismatch", validBuffer));
@@ -173,7 +190,7 @@ export async function runCleanInstallTest() {
   const rollback = await withWorker(dDir, async (worker) => {
     const status = await request(worker, "status");
     return status.available;
-  });
+  }, runtimeEnv);
   results.D = {
     firstInstall: first.installed.length,
     before,

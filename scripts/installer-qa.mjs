@@ -4,19 +4,22 @@
 import { spawn, execFileSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
-import os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { prepareQaEnvironment, resolveQaPaths } from "./lib/qa-paths.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageVersion = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
 const installer =
   process.argv[2] ||
   path.join(root, "release", `灰雾纪事-Setup-${packageVersion}.exe`);
+const qaPaths = resolveQaPaths();
+const qaEnv = prepareQaEnvironment({ runtimePaths: qaPaths });
 const installDir =
   process.argv[3] ||
-  path.join(os.tmpdir(), "gmzz-install-test-" + Date.now());
+  path.join(qaPaths.tempRoot, "gmzz-install-test-" + Date.now());
 const port = Number(process.argv[4] || 3224);
-const qaDir = process.env.QA_DIR || path.join(root, ".runtime", "prod-qa");
+const qaDir = qaPaths.qaRoot;
+fs.mkdirSync(qaPaths.tempRoot, { recursive: true });
 fs.mkdirSync(qaDir, { recursive: true });
 
 function run(exe, args, opts = {}) {
@@ -54,19 +57,15 @@ if (!fs.existsSync(installedExe)) {
 }
 
 // 2. 用 Playwright 打开已安装的游戏窗口并验证
-const playwrightIndex = path.join(
-  "C:\\Users\\Administrator\\AppData\\Local\\Temp\\gmzz-qa-playwright",
-  "node_modules",
-  "playwright",
-  "index.mjs"
-);
-const { _electron } = await import(pathToFileURL(playwrightIndex).href);
+const { _electron } = await import(pathToFileURL(qaPaths.playwrightIndex).href);
 const app = await _electron.launch({
   executablePath: installedExe,
-  args: [],
+  // The current QA host may not expose a usable GPU/virtualization context.
+  // Keep this evidence path deterministic without changing normal launches.
+  args: ["--disable-gpu", "--disable-gpu-compositing", "--disable-software-rasterizer", "--in-process-gpu"],
   cwd: installDir,
   env: {
-    ...process.env,
+    ...qaEnv,
     GMZZ_PORT: String(port),
     GMZZ_HOST: "127.0.0.1",
   },

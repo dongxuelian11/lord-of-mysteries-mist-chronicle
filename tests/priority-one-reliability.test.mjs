@@ -41,16 +41,17 @@ test("finale rule and world outcomes receive durable acknowledgement before beco
 });
 
 test("malformed world envelopes receive one bounded structural retry", async () => {
-  const [engine, envelope] = await Promise.all([read("app/game-engine.ts"), read("app/world-envelope.ts")]);
+  const [engine, worldTurn, envelope] = await Promise.all([read("app/game-engine.ts"), read("app/game-engine/world-turn-orchestrator.ts"), read("app/world-envelope.ts")]);
+  const worldRules = `${engine}\n${worldTurn}`;
   assert.match(envelope, /function worldEnvelopeIssue/);
   assert.match(envelope, /while \(durableAttempt < 2 && preModelFailures < 2\)/);
   assert.match(envelope, /worldAttemptStarted/);
   assert.match(envelope, /正在进行一次结构修复/);
   assert.match(envelope, /结构修复后仍未达到世界回合最低要求/);
-  assert.match(engine, /requestWorldEnvelope\(worldConfig/);
+  assert.match(worldRules, /requestWorldEnvelope\(worldConfig/);
   assert.match(envelope, /无玩家命令的一周不应生成行动报告/);
   assert.match(envelope, /本次禁止复写的近期公开文本/);
-  assert.match(envelope, /至少两条公开消息应来自近期消息未覆盖的事件结果或社会侧面/);
+  assert.match(envelope, /公开消息可以是0至4条/);
 });
 
 test("world envelopes reject mechanical weekly repetition and repair raw control characters", async () => {
@@ -69,24 +70,26 @@ test("world envelopes reject mechanical weekly repetition and repair raw control
 });
 
 test("non-investigation orders keep their own semantics instead of becoming clue hunts", async () => {
-  const [engine, adjudicatorPrompt] = await Promise.all([read("app/game-engine.ts"), read("app/world-adjudicator-prompt.ts")]);
+  const [engine, resolution, worldTurn, adjudicatorPrompt] = await Promise.all([read("app/game-engine.ts"), read("app/game-engine/week-resolution.ts"), read("app/game-engine/world-turn-orchestrator.ts"), read("app/world-adjudicator-prompt.ts")]);
+  const rules = `${engine}\n${resolution}\n${worldTurn}`;
   for (const domain of ["finance", "training", "security", "recruitment", "cover", "diplomacy"]) {
-    assert.match(engine, new RegExp(`domain === "${domain}"`));
+    assert.match(rules, new RegExp(`domain === "${domain}"`));
   }
-  assert.match(engine, /function seeksEvidence\(contract/);
-  assert.doesNotMatch(engine, /function discoverEvidence/);
-  assert.match(engine, /const actionEvidenceIds = seeksEvidence\(result\.contract\)/);
-  assert.match(engine, /findings: observableFacts\.length \? observableFacts : result\.findings/);
+  assert.match(rules, /function seeksEvidence\(contract/);
+  assert.doesNotMatch(rules, /function discoverEvidence/);
+  assert.match(rules, /const actionEvidenceIds = seeksEvidence\(result\.contract\)/);
+  assert.match(rules, /findings: observableFacts\.length \? observableFacts : result\.findings/);
   assert.match(adjudicatorPrompt, /非调查行动不得凭空发现档案补录、马车路线、宴会名单/);
 });
 
 test("recruitment governance is not mistaken for recruiting a workflow as a person", async () => {
-  const engine = await read("app/game-engine.ts");
-  assert.match(engine, /function isInternalGovernanceIntent/);
-  assert.match(engine, /const affirmativeIntent = intent\.replace/);
-  assert.match(engine, /governanceIntent \? "自由行动"/);
-  assert.match(engine, /if \(contract\.kind === "招募" \|\| isRecruitmentIntent\(text\)\) return "recruitment"/);
-  assert.match(engine, /档案保密\|名单泄露\|保密流程/);
+  const [engine, resolution, contracts] = await Promise.all([read("app/game-engine.ts"), read("app/game-engine/week-resolution.ts"), read("app/game-engine/action-contracts.ts")]);
+  const rules = `${engine}\n${resolution}`;
+  assert.match(contracts, /function isInternalGovernanceIntent/);
+  assert.match(contracts, /const affirmativeIntent = intent\.replace/);
+  assert.match(contracts, /governanceIntent \? "自由行动"/);
+  assert.match(rules, /if \(contract\.kind === "招募" \|\| isRecruitmentIntent\(text\)\) return "recruitment"/);
+  assert.match(rules + contracts, /档案保密\|名单泄露\|保密流程/);
 });
 
 test("no-order literary chapters cannot make the player investigate off-screen", async () => {
@@ -110,13 +113,14 @@ test("negated artifact mentions do not silently replace the chosen pathway abili
 });
 
 test("weekly prose distinguishes internal governance, issued orders, and uncommitted retries", async () => {
-  const engine = await read("app/game-engine.ts");
+  const [engine, resolution] = await Promise.all([read("app/game-engine.ts"), read("app/game-engine/week-resolution.ts")]);
+  const rules = `${engine}\n${resolution}`;
   const app = await read("app/complete-game.tsx");
-  assert.match(engine, /handledInsideBase/);
-  assert.match(engine, /你在据点内亲自主持了这项工作/);
-  assert.match(engine, /组织执行了本周决议；它没有直接推进当前危机/);
-  assert.match(engine, /不加干预/);
-  assert.match(engine, /results\.length[\s\S]*组织本周没有发出正式行动命令/);
+  assert.match(rules, /handledInsideBase/);
+  assert.match(rules, /你在据点内亲自主持了这项工作/);
+  assert.match(rules, /组织执行了本周决议；它没有直接推进当前危机/);
+  assert.match(rules, /不加干预/);
+  assert.match(rules, /results\.length[\s\S]*组织本周没有发出正式行动命令/);
   assert.match(app, /readerChapterCommitted/);
   assert.match(app, /本周尚未结算 · 可原样重试/);
   assert.match(app, /readerChapterCommitted && aiReady/);

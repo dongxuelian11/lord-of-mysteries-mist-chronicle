@@ -6,8 +6,11 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
+import { prepareQaEnvironment, resolveQaPaths } from "./lib/qa-paths.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const qaPaths = resolveQaPaths({ env: process.env });
+const qaEnv = prepareQaEnvironment({ env: process.env, runtimePaths: qaPaths });
 const port = Number(process.argv[2] || 3218);
 const electronExe =
   process.argv[3] ||
@@ -62,7 +65,7 @@ if (serverOnly) {
 const proc = spawn(electronExe, appArgs, {
   cwd: root,
   env: {
-    ...process.env,
+    ...qaEnv,
     ...(serverOnly ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
     GMZZ_PORT: String(port),
     GMZZ_HOST: "127.0.0.1",
@@ -92,11 +95,7 @@ const url = `http://127.0.0.1:${port}`;
 const ready = await waitForServer(url, 60000);
 console.log(`\n[smoke] ready=${ready} url=${url} electronPid=${proc.pid}`);
 
-const logPath = path.join(
-  process.env.APPDATA || "",
-  "灰雾纪事",
-  "gmzz-server.log"
-);
+const logPath = path.join(qaPaths.userDataRoot, "gmzz-server.log");
 if (fs.existsSync(logPath)) {
   const lines = fs
     .readFileSync(logPath, "utf8")

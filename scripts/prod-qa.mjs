@@ -9,11 +9,14 @@ import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { prepareQaEnvironment, resolveQaPaths } from "./lib/qa-paths.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number(process.argv[2] || 3210);
 const exePath = process.argv[3] || "";
-const qaDir = process.env.QA_DIR || path.join(root, ".runtime", "prod-qa");
+const qaPaths = resolveQaPaths();
+const qaEnv = prepareQaEnvironment({ runtimePaths: qaPaths });
+const qaDir = qaPaths.qaRoot;
 fs.mkdirSync(qaDir, { recursive: true });
 
 const serverScript = path.join(root, "electron", "server.mjs");
@@ -62,7 +65,8 @@ function killTree(pid) {
 }
 
 const env = {
-  ...process.env,
+  ...qaEnv,
+  RAG_INDEX_DIR: qaPaths.ragRoot,
   GMZZ_PORT: String(port),
   GMZZ_HOST: "127.0.0.1",
   GMZZ_OUT_DIR: path.join(root, "dist"),
@@ -111,15 +115,9 @@ if (html.status === 200) {
 }
 
 // Playwright 验证页面真正渲染且无网络/控制台错误
-const playwrightIndex = path.join(
-  "C:\\Users\\Administrator\\AppData\\Local\\Temp\\gmzz-qa-playwright",
-  "node_modules",
-  "playwright",
-  "index.mjs"
-);
 let browser = null;
 try {
-  const { chromium } = await import(pathToFileURL(playwrightIndex).href);
+  const { chromium } = await import(pathToFileURL(qaPaths.playwrightIndex).href);
   browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const errors = [];

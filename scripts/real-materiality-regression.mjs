@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { JsHybridRetriever } from "./rag/lib/search.mjs";
+import { resolveRuntimePaths } from "./lib/runtime-paths.mjs";
 
 const apiKey = process.env.DEEPSEEK_API_KEY || "";
 if (!apiKey) {
@@ -11,7 +12,13 @@ if (!apiKey) {
 }
 
 globalThis.window = globalThis;
-const ragIndexDir = process.env.RAG_INDEX_DIR || join(process.env.APPDATA || "", "mist-chronicle-prototype", "rag", "index");
+const runtimePaths = resolveRuntimePaths({
+  env: {
+    ...process.env,
+    GMZZ_REQUIRE_D_DRIVE: process.env.GMZZ_REQUIRE_D_DRIVE ?? "1",
+  },
+});
+const ragIndexDir = process.env.RAG_INDEX_DIR?.trim() || runtimePaths.ragRoot;
 const ragMetrics = [];
 let ragChunkCount = 0;
 if (existsSync(join(ragIndexDir, "index.meta.json"))) {
@@ -159,4 +166,3 @@ try {
 } finally {
   await server.close();
 }
-

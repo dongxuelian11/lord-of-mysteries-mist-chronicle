@@ -2,20 +2,17 @@
 // 存档恢复、窗口关闭无残留；真实模型命令视 QA_KEY 是否提供而定。
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { prepareQaEnvironment, resolveQaPaths } from "./lib/qa-paths.mjs";
 import { installPack } from "./rag/pack.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const exePath = path.join(root, "release", "win-unpacked", "MistChronicle.exe");
-const playwrightIndex = path.join(
-  "C:\\Users\\Administrator\\AppData\\Local\\Temp\\gmzz-qa-playwright",
-  "node_modules",
-  "playwright",
-  "index.mjs"
-);
-const { _electron } = await import(pathToFileURL(playwrightIndex).href);
+const qaPaths = resolveQaPaths();
+const qaEnv = prepareQaEnvironment({ runtimePaths: qaPaths });
+fs.mkdirSync(qaPaths.tempRoot, { recursive: true });
+const { _electron } = await import(pathToFileURL(qaPaths.playwrightIndex).href);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -39,7 +36,7 @@ async function launch(appDataDir, port, ragIndexDir, extraEnv = {}) {
     args: [],
     cwd: path.dirname(exePath),
     env: {
-      ...process.env,
+      ...qaEnv,
       APPDATA: appDataDir,
       GMZZ_PORT: String(port),
       GMZZ_HOST: "127.0.0.1",
@@ -65,7 +62,7 @@ async function closeAndCheck(app, exeName = "MistChronicle.exe") {
 }
 
 const results = { A: null, B: null, C: null, D: null, E: null };
-const appData = fs.mkdtempSync(path.join(os.tmpdir(), "mist-alpha-qa-"));
+const appData = fs.mkdtempSync(path.join(qaPaths.tempRoot, "mist-alpha-qa-"));
 const qaKey = process.env.QA_KEY || "";
 
 // A：干净无索引启动
@@ -95,7 +92,7 @@ const qaKey = process.env.QA_KEY || "";
 
 // C：全新 APPDATA、无 RAG_INDEX_DIR——安装包内置知识库应自动初始化
 {
-  const freshAppData = fs.mkdtempSync(path.join(os.tmpdir(), "mist-alpha-fresh-"));
+  const freshAppData = fs.mkdtempSync(path.join(qaPaths.tempRoot, "mist-alpha-fresh-"));
   const { app, window, errors } = await launch(freshAppData, 3625, undefined, {
     GMZZ_USER_DATA: freshAppData,
   });

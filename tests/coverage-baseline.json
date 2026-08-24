@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "1aed3d86c6ce3375e8beb9982722e5b05568cbab",
+  "generatedAt": "2026-08-24T12:18:30.669Z",
+  "sourceFiles": {
+    "app/ai-provider-capabilities.ts": {
+      "statements": {
+        "total": 64,
+        "covered": 48,
+        "pct": 75
+      },
+      "functions": {
+        "total": 28,
+        "covered": 14,
+        "pct": 50
+      },
+      "branches": {
+        "total": 47,
+        "covered": 39,
+        "pct": 82.97872340425532
+      }
+    },
+    "app/game-engine.ts": {
+      "statements": {
+        "total": 174,
+        "covered": 15,
+        "pct": 8.620689655172415
+      },
+      "functions": {
+        "total": 59,
+        "covered": 6,
+        "pct": 10.16949152542373
+      },
+      "branches": {
+        "total": 271,
+        "covered": 11,
+        "pct": 4.059040590405904
+      }
+    },
+    "app/world-authority-closure.ts": {
+      "statements": {
+        "total": 107,
+        "covered": 54,
+        "pct": 50.467289719626166
+      },
+      "functions": {
+        "total": 17,
+        "covered": 11,
+        "pct": 64.70588235294117
+      },
+      "branches": {
+        "total": 135,
+        "covered": 67,
+        "pct": 49.629629629629626
+      }
+    },
+    "app/world-kernel.ts": {
+      "statements": {
+        "total": 307,
+        "covered": 157,
+        "pct": 51.14006514657981
+      },
+      "functions": {
+        "total": 105,
+        "covered": 43,
+        "pct": 40.95238095238095
+      },
+      "branches": {
+        "total": 345,
+        "covered": 111,
+        "pct": 32.17391304347826
+      }
+    },
+    "app/world-output-adapter.ts": {
+      "statements": {
+        "total": 572,
+        "covered": 268,
+        "pct": 46.85314685314685
+      },
+      "functions": {
+        "total": 161,
+        "covered": 56,
+        "pct": 34.78260869565217
+      },
+      "branches": {
+        "total": 872,
+        "covered": 261,
+        "pct": 29.931192660550458
+      }
+    },
+    "app/game-engine/action-contracts.ts": {
+      "statements": {
+        "total": 197,
+        "covered": 92,
+        "pct": 46.7005076142132
+      },
+      "functions": {
+        "total": 70,
+        "covered": 27,
+        "pct": 38.57142857142858
+      },
+      "branches": {
+        "total": 337,
+        "covered": 109,
+        "pct": 32.34421364985163
+      }
+    },
+    "app/game-engine/dialogue-orchestration.ts": {
+      "statements": {
+        "total": 48,
+        "covered": 0,
+        "pct": 0
+      },
+      "functions": {
+        "total": 17,
+        "covered": 0,
+        "pct": 0
+      },
+      "branches": {
+        "total": 117,
+        "covered": 0,
+        "pct": 0
+      }
+    },
+    "app/game-engine/week-resolution.ts": {
+      "statements": {
+        "total": 614,
+        "covered": 12,
+        "pct": 1.9543973941368076
+      },
+      "functions": {
+        "total": 183,
+        "covered": 1,
+        "pct": 0.546448087431694
+      },
+      "branches": {
+        "total": 763,
+        "covered": 18,
+        "pct": 2.3591087811271296
+      }
+    },
+    "app/game-engine/world-turn-orchestrator.ts": {
+      "statements": {
+        "total": 479,
+        "covered": 0,
+        "pct": 0
+      },
+      "functions": {
+        "total": 150,
+        "covered": 0,
+        "pct": 0
+      },
+      "branches": {
+        "total": 543,
+        "covered": 0,
+        "pct": 0
+      }
+    },
+    "app/nlp/intent-contract.ts": {
+      "statements": {
+        "total": 285,
+        "covered": 263,
+        "pct": 92.28070175438596
+      },
+      "functions": {
+        "total": 31,
+        "covered": 29,
+        "pct": 93.54838709677419
+      },
+      "branches": {
+        "total": 220,
+        "covered": 187,
+        "pct": 85
+      }
+    },
+    "electron/autonomous-inference.cjs": {
+      "statements": {
+        "total": 283,
+        "covered": 116,
+        "pct": 40.98939929328622
+      },
+      "functions": {
+        "total": 62,
+        "covered": 26,
+        "pct": 41.935483870967744
+      },
+      "branches": {
+        "total": 344,
+        "covered": 71,
+        "pct": 20.63953488372093
+      }
+    },
+    "electron/inference-scheduler.cjs": {
+      "statements": {
+        "total": 139,
+        "covered": 77,
+        "pct": 55.39568345323741
+      },
+      "functions": {
+        "total": 23,
+        "covered": 16,
+        "pct": 69.56521739130434
+      },
+      "branches": {
+        "total": 129,
+        "covered": 49,
+        "pct": 37.98449612403101
+      }
+    },
+    "electron/persistence-provenance.cjs": {
+      "statements": {
+        "total": 61,
+        "covered": 47,
+        "pct": 77.04918032786885
+      },
+      "functions": {
+        "total": 24,
+        "covered": 22,
+        "pct": 91.66666666666666
+      },
+      "branches": {
+        "total": 78,
+        "covered": 46,
+        "pct": 58.97435897435898
+      }
+    },
+    "electron/world-prompt.cjs": {
+      "statements": {
+        "total": 145,
+        "covered": 75,
+        "pct": 51.724137931034484
+      },
+      "functions": {
+        "total": 62,
+        "covered": 31,
+        "pct": 50
+      },
+      "branches": {
+        "total": 212,
+        "covered": 57,
+        "pct": 26.88679245283019
+      }
+    }
+  }
+}

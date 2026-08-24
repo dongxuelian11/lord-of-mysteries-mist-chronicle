@@ -50,7 +50,6 @@ export async function planAutonomousAgentsForWeek(input: AgentPlanningServiceInp
     ),
     {
       maxAttempts: 2,
-      concurrency: 8,
       proposalCache,
       memory,
       materialityGate: !(typeof window !== "undefined" && typeof window.mistInference?.requestAutonomous === "function"),

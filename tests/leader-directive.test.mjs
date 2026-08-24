@@ -269,7 +269,11 @@ test("invalid references remain rejected and ledger reviews carry execution plan
 });
 
 test("weekly resolution is wired to the executable plan and surfaces authorization escalations", () => {
-  const source = readFileSync(new URL("../app/game-engine.ts", import.meta.url), "utf8");
+  const source = [
+    readFileSync(new URL("../app/game-engine.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../app/game-engine/week-resolution.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../app/game-engine/world-turn-orchestrator.ts", import.meta.url), "utf8"),
+  ].join("\n");
   assert.match(source, /if \(!adjudication \|\| !executionPlan\?\.executable\)/);
   assert.match(source, /money: -grantedCommitments\.money/);
   assert.match(source, /executionPlan\.timeWindow\.days/);

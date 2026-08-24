@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "providers": {
+    "deepseek": {
+      "endpointPolicy": "official",
+      "officialEndpoint": "https://api.deepseek.com",
+      "maxContextChars": 160000,
+      "maxOutputTokens": 12000,
+      "supportsJsonObject": true,
+      "supportsJsonSchema": false,
+      "supportsStreaming": true,
+      "defaultConcurrency": 8,
+      "highLatencyMs": 5000,
+      "circuitFailureThreshold": 3,
+      "cooldownMs": 30000,
+      "retryableStatusCodes": [408, 429, 500, 501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511],
+      "tokenizer": {
+        "mode": "provider-reported",
+        "charsPerToken": 2
+      }
+    },
+    "compatible": {
+      "endpointPolicy": "loopback",
+      "maxContextChars": 80000,
+      "maxOutputTokens": 12000,
+      "supportsJsonObject": true,
+      "supportsJsonSchema": false,
+      "supportsStreaming": true,
+      "defaultConcurrency": 8,
+      "highLatencyMs": 5000,
+      "circuitFailureThreshold": 3,
+      "cooldownMs": 30000,
+      "retryableStatusCodes": [408, 429, 500, 501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511],
+      "tokenizer": {
+        "mode": "estimated",
+        "charsPerToken": 2
+      }
+    }
+  },
+  "tasks": {
+    "connection-test": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "plain", "streaming": true },
+    "intent-parser": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "json-object", "streaming": false },
+    "situation-brief": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "plain", "streaming": true },
+    "npc-dialogue": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "plain", "streaming": true },
+    "council-reply": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "plain", "streaming": true },
+    "council-summary": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "plain", "streaming": true },
+    "decision-draft": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "json-object", "streaming": false },
+    "ability-draft": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "json-object", "streaming": false },
+    "ability-scene": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "plain", "streaming": true },
+    "participation-scene": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "plain", "streaming": true },
+    "autonomous-planning": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "json-object", "streaming": false },
+    "world-adjudication": { "promptMaxChars": 160000, "maxOutputTokens": 12000, "structuredOutput": "json-object", "streaming": false },
+    "world-repair": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "json-object", "streaming": false },
+    "literary-generation": { "promptMaxChars": 160000, "maxOutputTokens": 12000, "structuredOutput": "plain", "streaming": true },
+    "dynamic-origin": { "promptMaxChars": 80000, "maxOutputTokens": 12000, "structuredOutput": "json-object", "streaming": false }
+  }
+}

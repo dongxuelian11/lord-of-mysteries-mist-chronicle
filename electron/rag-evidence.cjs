@@ -72,31 +72,95 @@ function receiptFor(derived, evidence, indexVersion, audience) {
   };
 }
 
-function assertNoVerbatimLoreLeak(content, records) {
-  if (typeof content !== "string") throw new Error("MODEL_RESPONSE_INVALID");
-  const normalizeLeakText = (value) => value.replace(/[\s\p{P}\p{S}]+/gu, "");
-  const normalized = normalizeLeakText(content);
-  const minimumWindowSize = 8;
+const LEAK_POLICY_VERSION = "verbatim-leak-v2";
+const SENSITIVITY_WINDOW_BASE = Object.freeze({ low: 16, medium: 12, high: 8, critical: 6 });
+
+function normalizeLeakText(value) {
+  return value.normalize("NFKC").replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function leakSensitivityFor(record) {
+  if (record?.publicCanonical === true || record?.isPublicCanonical === true || record?.canonicalVisibility === "public" || record?.visibility === "public") return "public";
+  const candidate = String(record?.leakSensitivity ?? record?.sensitivity ?? record?.visibility ?? "").trim().toLowerCase();
+  if (candidate === "public" || candidate === "public-canonical") return "public";
+  if (candidate === "low" || candidate === "restricted-low") return "low";
+  if (candidate === "medium" || candidate === "restricted") return "medium";
+  if (candidate === "critical" || candidate === "cosmic") return "critical";
+  return "high";
+}
+
+function leakUniquenessFor(record, sensitivity) {
+  if (record?.uniqueness === "unique" || record?.unique === true) return "unique";
+  if (record?.uniqueness === "common" || record?.uniqueness === "shared" || record?.unique === false) return "common";
+  if (Number.isFinite(record?.uniquenessScore)) return Number(record.uniquenessScore) >= 0.7 ? "unique" : "common";
+  return sensitivity === "high" || sensitivity === "critical" ? "unique" : "common";
+}
+
+function leakPolicyForRecord(record, sourceLength) {
+  const sensitivity = leakSensitivityFor(record);
+  if (sensitivity === "public") return { sensitivity, uniqueness: "common", minimumWindowLength: Number.POSITIVE_INFINITY, lengthBand: "public" };
+  const uniqueness = leakUniquenessFor(record, sensitivity);
+  const base = SENSITIVITY_WINDOW_BASE[sensitivity] ?? SENSITIVITY_WINDOW_BASE.high;
+  const uniquenessAdjustment = uniqueness === "unique" ? 0 : 4;
+  const candidate = base + uniquenessAdjustment;
+  const minimumWindowLength = Math.max(4, Math.min(sourceLength, candidate));
+  const lengthBand = sourceLength < 12 ? "short" : sourceLength < 32 ? "medium" : "long";
+  return { sensitivity, uniqueness, minimumWindowLength, lengthBand };
+}
+
+function hasSharedWindow(source, response, windowSize) {
+  if (!Number.isFinite(windowSize) || windowSize <= 0 || source.length < windowSize || response.length < windowSize) return false;
   const responseWindows = new Set();
-  for (let offset = 0; offset + minimumWindowSize <= normalized.length; offset += 1) {
-    responseWindows.add(normalized.slice(offset, offset + minimumWindowSize));
+  for (let offset = 0; offset + windowSize <= response.length; offset += 1) responseWindows.add(response.slice(offset, offset + windowSize));
+  for (let offset = 0; offset + windowSize <= source.length; offset += 1) {
+    if (responseWindows.has(source.slice(offset, offset + windowSize))) return true;
   }
-  for (const record of records) {
+  return false;
+}
+
+function inspectVerbatimLoreLeak(content, records) {
+  if (typeof content !== "string") throw new Error("MODEL_RESPONSE_INVALID");
+  const normalized = normalizeLeakText(content);
+  const rejects = [];
+  const riskSignals = [];
+  for (const [index, record] of (Array.isArray(records) ? records : []).entries()) {
     const source = typeof record?.content === "string" ? normalizeLeakText(record.content) : "";
     if (!source) continue;
-    if (source.length < minimumWindowSize) {
-      if (normalized.includes(source)) throw new Error("WORLD_LORE_VERBATIM_LEAK_REJECTED");
+    const policy = leakPolicyForRecord(record, source.length);
+    if (policy.sensitivity === "public") continue;
+    const recordId = typeof record?.id === "string" && record.id.trim() ? record.id.trim() : `record:${index}`;
+    const matched = source.length < policy.minimumWindowLength
+      ? normalized.includes(source)
+      : hasSharedWindow(source, normalized, policy.minimumWindowLength);
+    if (matched) {
+      rejects.push({ recordId, sensitivity: policy.sensitivity, uniqueness: policy.uniqueness, matchedLength: source.length < policy.minimumWindowLength ? source.length : policy.minimumWindowLength, minimumWindowLength: policy.minimumWindowLength, lengthBand: policy.lengthBand });
       continue;
     }
-    for (let offset = 0; offset + minimumWindowSize <= source.length; offset += 1) {
-      if (responseWindows.has(source.slice(offset, offset + minimumWindowSize))) throw new Error("WORLD_LORE_VERBATIM_LEAK_REJECTED");
+    if (policy.minimumWindowLength > 8 && hasSharedWindow(source, normalized, 8)) {
+      riskSignals.push({ recordId, sensitivity: policy.sensitivity, uniqueness: policy.uniqueness, minimumWindowLength: policy.minimumWindowLength, signalLength: 8, lengthBand: policy.lengthBand });
     }
   }
+  return { policyVersion: LEAK_POLICY_VERSION, rejects, riskSignals };
+}
+
+function assertNoVerbatimLoreLeak(content, records) {
+  const result = inspectVerbatimLoreLeak(content, records);
+  if (result.rejects.length) {
+    const error = new Error("WORLD_LORE_VERBATIM_LEAK_REJECTED");
+    error.leaks = result.rejects;
+    error.riskSignals = result.riskSignals;
+    throw error;
+  }
+  return result;
 }
 
 module.exports = {
+  LEAK_POLICY_VERSION,
   assertNoVerbatimLoreLeak,
   exactPromptEvidence,
+  inspectVerbatimLoreLeak,
+  leakPolicyForRecord,
+  normalizeLeakText,
   receiptFor,
   stableSerialize,
 };

@@ -27,7 +27,15 @@ if (-not $appExe) { throw "Installed application executable was not found" }
 
 $env:GMZZ_NO_WINDOW = "1"
 $env:GMZZ_USER_DATA = $userData
-$process = Start-Process -FilePath $appExe.FullName -PassThru
+# The smoke host may not expose a usable GPU/virtualization context. Keep the
+# server-only QA path deterministic while leaving normal desktop launches
+# unchanged.
+$process = Start-Process -FilePath $appExe.FullName -ArgumentList @(
+  "--disable-gpu",
+  "--disable-gpu-compositing",
+  "--disable-software-rasterizer",
+  "--in-process-gpu"
+) -PassThru
 $log = Join-Path $userData "gmzz-server.log"
 $deadline = (Get-Date).AddSeconds(75)
 $ready = $false
@@ -52,8 +60,22 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "SQLite persistence database qualification failed with exit code $LASTEXITCODE" }
 } finally {
   if (-not $process.HasExited) {
-    & taskkill /PID $process.Id /T /F | Out-Null
+    try { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } catch { }
   }
+  # The packaged app can fan out several Electron processes. Restrict the
+  # fallback cleanup to this exact install root so a failed taskkill cannot
+  # leave the smoke host dirty or touch an unrelated application.
+  $installPrefix = [IO.Path]::GetFullPath($installRoot).TrimEnd('\') + '\'
+  Get-Process -Name "MistChronicle" -ErrorAction SilentlyContinue |
+    Where-Object {
+      try {
+        $path = $_.Path
+        $path -and $path.StartsWith($installPrefix, [StringComparison]::OrdinalIgnoreCase)
+      } catch { $false }
+    } |
+    ForEach-Object {
+      try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch { }
+    }
 }
 
 Write-Output "Installer smoke test passed: server ready, knowledge seed deployed, and SQLite persistence schema qualified."

@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("mistPersistence", {
   appendRecovery: (key, checkpoint, maxEntries) => ipcRenderer.invoke("persistence:append-recovery", key, checkpoint, maxEntries),
   commitTurn: (key, payload, traces) => ipcRenderer.invoke("persistence:commit-turn", key, payload, traces),
   runtimeTraces: (originId, limit) => ipcRenderer.invoke("persistence:runtime-traces", originId, limit),
+  provenance: (key, options) => ipcRenderer.invoke("persistence:provenance", key, options),
   listQuarantine: (key) => ipcRenderer.invoke("persistence:list-quarantine", key),
   replaceWithRecovery: (activeKey, payload, recoveryKey, checkpoint, maxEntries) => ipcRenderer.invoke("persistence:replace-with-recovery", activeKey, payload, recoveryKey, checkpoint, maxEntries),
   quarantine: (key, reason) => ipcRenderer.invoke("persistence:quarantine", key, reason),

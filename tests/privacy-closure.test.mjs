@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
+import { createRequire } from "node:module";
 
 import { closeRuntimeServer, loadRuntimeModule } from "../scripts/rag/lib/load-runtime.mjs";
 import { buildAutonomousDecisionFrames, createAutonomousWorldState } from "../app/autonomous-agents.ts";
@@ -13,6 +14,8 @@ import {
 } from "../app/world-kernel.ts";
 
 after(() => closeRuntimeServer());
+
+const require = createRequire(import.meta.url);
 
 function withKnowledgeAuthority(delta) {
   if (!Array.isArray(delta.knowledge) || delta.knowledge.length === 0) return delta;
@@ -64,6 +67,32 @@ test("canonical holderRefs override ambiguous legacy holderIds in audience proje
 
   assert.equal(projectWorldForAudience(kernel, { kind: "actor", holderId: "shared" }).knowledge.length, 0);
   assert.equal(projectWorldForAudience(kernel, { kind: "faction", holderId: "shared" }).knowledge.length, 1);
+});
+
+test("Main CJS audience projection stays byte-equivalent to the renderer projection", () => {
+  const kernel = createWorldKernel({
+    week: 2,
+    date: "1349年1月8日",
+    actors: [{ id: "observer", name: "观察者", locationId: "dock", agenda: "观察" }],
+    factions: [],
+    locations: [{ id: "dock", name: "码头", risk: 35, stability: 70, publicMood: "平静", conditions: ["雾"] }],
+    timeline: [],
+  });
+  kernel.events = [{
+    id: "event:public",
+    week: 2,
+    title: "公开潮汐",
+    detail: "码头出现异常雾气",
+    locationId: "dock",
+    actorIds: [],
+    factionIds: [],
+    causeIds: [],
+    visibility: "public",
+  }];
+  const audience = { kind: "actor", holderId: "observer" };
+  const rendererProjection = projectWorldForAudience(kernel, audience);
+  const mainProjection = require("../shared/audience-projection.cjs").projectWorldForAudience(kernel, audience);
+  assert.deepEqual(mainProjection, rendererProjection);
 });
 
 test("角色地点投影只暴露受众已知的边界字段", () => {
