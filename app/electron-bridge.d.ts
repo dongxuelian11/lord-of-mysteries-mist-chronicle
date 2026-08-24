@@ -43,6 +43,11 @@ declare global {
         user: string;
         options?: { json?: boolean; maxTokens?: number; temperature?: number };
       }): Promise<{ ok: boolean; content?: string; usage?: { inputTokens: number | null; outputTokens: number | null }; retrieval?: { receipt: import("./world-authority-closure").RetrievalReceipt; selectedCount: number; rejectedCount: number; authority: { turnId: string; baseRevision: number; week?: number; gameDate?: string; payloadHash?: string } }; error?: string; attemptStarted?: boolean }>;
+      requestAutonomous(task: {
+        task: "autonomous-planning";
+        config: { provider?: string; endpoint: string; model: string; timeoutMs?: number };
+        autonomousRequest: { principalRef: string; planningWeek: number; baseRevision: number; attempt: number };
+      }): Promise<{ ok: boolean; content?: string; usage?: { inputTokens: number | null; outputTokens: number | null }; retrieval?: { receipt: import("./world-authority-closure").RetrievalReceipt; selectedCount: number; rejectedCount: number }; error?: string }>;
       lockWorld(request: { turnId: string; baseRevision: number }): Promise<{ ok: boolean; snapshotHash?: string; originId?: string; turnId?: string; baseRevision?: number; replayed?: boolean; error?: string }>;
       stageWorld(request: { turnId: string; baseRevision: number; resolution: import("./game-model").GameState }): Promise<{ ok: boolean; resolutionHash?: string; originId?: string; turnId?: string; baseRevision?: number; replayed?: boolean; error?: string }>;
       finalizeWorld(request: { turnId: string; baseRevision: number; manifest: Record<string, unknown> }): Promise<{ ok: boolean; manifestHash?: string; manifest?: Record<string, unknown>; originId?: string; turnId?: string; baseRevision?: number; replayed?: boolean; error?: string }>;

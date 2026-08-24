@@ -1,4 +1,10 @@
-import type { MutationClaim, RetrievalReceipt } from "./world-authority-closure.ts";
+import runtimeLimits from "../shared/runtime-limits.json" with { type: "json" };
+import type {
+  DurableMutationClaim,
+  DurableRetrievalReceipt,
+  MutationClaim,
+  RetrievalReceipt,
+} from "./world-authority-closure.ts";
 import { tryRecordRuntimeTrace } from "./runtime-trace.ts";
 import { sha256Hex } from "./sha256.ts";
 
@@ -123,8 +129,8 @@ export type WorldKernel = {
   lastResolvedWeek: number;
   revision: number;
   committedTransactions: WorldTurnTransaction[];
-  retrievalReceipts: RetrievalReceipt[];
-  mutationClaims: MutationClaim[];
+  retrievalReceipts: DurableRetrievalReceipt[];
+  mutationClaims: DurableMutationClaim[];
   actors: PersistentWorldActor[];
   factions: PersistentWorldFaction[];
   projects: PersistentWorldProject[];
@@ -182,8 +188,8 @@ export type WorldTurnDelta = {
 
 const clamp = (value: number, minimum = 0, maximum = 100) => Math.max(minimum, Math.min(maximum, value));
 
-const MAX_COMMITTED_WORLD_TRANSACTIONS = 256;
-const MAX_AUTHORITY_RECEIPTS = 256;
+const MAX_COMMITTED_WORLD_TRANSACTIONS = runtimeLimits.maxCommittedWorldTransactions;
+const MAX_AUTHORITY_RECEIPTS = runtimeLimits.maxAuthorityReceipts;
 
 function stableSerialize(value: unknown): string {
   if (value === null) return "null";
@@ -236,9 +242,9 @@ function isWorldTurnTransaction(value: unknown): value is WorldTurnTransaction {
     && /^(?:[0-9a-f]{8}|[0-9a-f]{64})$/.test(transaction.inputHash);
 }
 
-function isRetrievalReceipt(value: unknown): value is RetrievalReceipt {
+function isRetrievalReceipt(value: unknown): value is RetrievalReceipt & { turnId?: string } {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const receipt = value as Partial<RetrievalReceipt>;
+  const receipt = value as Partial<RetrievalReceipt & { turnId: string }>;
   return typeof receipt.requestId === "string"
     && (receipt.turnId === undefined || typeof receipt.turnId === "string" && receipt.turnId.trim().length > 0)
     && typeof receipt.indexVersion === "string"
@@ -250,9 +256,9 @@ function isRetrievalReceipt(value: unknown): value is RetrievalReceipt {
     && typeof receipt.contextHash === "string";
 }
 
-function isMutationClaim(value: unknown): value is MutationClaim {
+function isMutationClaim(value: unknown): value is MutationClaim & { turnId?: string } {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const claim = value as Partial<MutationClaim>;
+  const claim = value as Partial<MutationClaim & { turnId: string }>;
   return typeof claim.proposalId === "string"
     && (claim.turnId === undefined || typeof claim.turnId === "string" && claim.turnId.trim().length > 0)
     && typeof claim.effectKind === "string"
@@ -270,11 +276,20 @@ export function ensureWorldKernelTransactionState(value: unknown): WorldKernel {
   const committedTransactions = Array.isArray(source.committedTransactions)
     ? source.committedTransactions.filter(isWorldTurnTransaction).slice(-MAX_COMMITTED_WORLD_TRANSACTIONS)
     : [];
+  const legacyAuthorityTurnId = committedTransactions.length === 1
+    ? committedTransactions[0].turnId
+    : "state-import";
   const retrievalReceipts = Array.isArray(source.retrievalReceipts)
-    ? source.retrievalReceipts.filter(isRetrievalReceipt).slice(-MAX_AUTHORITY_RECEIPTS)
+    ? source.retrievalReceipts
+      .filter(isRetrievalReceipt)
+      .map((receipt) => ({ ...receipt, turnId: receipt.turnId?.trim() || legacyAuthorityTurnId }))
+      .slice(-MAX_AUTHORITY_RECEIPTS)
     : [];
   const mutationClaims = Array.isArray(source.mutationClaims)
-    ? source.mutationClaims.filter(isMutationClaim).slice(-MAX_AUTHORITY_RECEIPTS * 4)
+    ? source.mutationClaims
+      .filter(isMutationClaim)
+      .map((claim) => ({ ...claim, turnId: claim.turnId?.trim() || legacyAuthorityTurnId }))
+      .slice(-MAX_AUTHORITY_RECEIPTS * 4)
     : [];
   const sourceRevision = Number.isInteger(source.revision) && (source.revision as number) >= 0 ? source.revision as number : 0;
   const actors = Array.isArray(source.actors) ? source.actors : [];

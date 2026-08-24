@@ -1,0 +1,4 @@
+{
+  "maxCommittedWorldTransactions": 256,
+  "maxAuthorityReceipts": 256
+}

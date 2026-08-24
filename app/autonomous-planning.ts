@@ -1,4 +1,4 @@
-import { callModel, type AiConfig } from "./ai-client.ts";
+import { callModel, userFacingModelError, type AiConfig } from "./ai-client.ts";
 import type { LegacyLoreRecord } from "./rag/index.ts";
 import { retrieveLoreContextAsync, type RagBridgeAudience } from "./rag/client.ts";
 import type { CanonKnowledgeHorizon } from "./rag/types.ts";
@@ -9,6 +9,7 @@ export type AutonomousPlanningRuntime = {
   week: number;
   date: string;
   horizon: CanonKnowledgeHorizon;
+  baseRevision: number;
 };
 
 export function autonomousRagAudience(projection: Pick<AgentPlanningProjection, "memoryAudience">): RagBridgeAudience["kind"] {
@@ -40,6 +41,28 @@ export async function requestAutonomousAgentProposal(
   runtime: AutonomousPlanningRuntime,
   context: { attempt: number; previousIssue?: string },
 ) {
+  if (typeof window !== "undefined" && typeof window.mistInference?.requestAutonomous === "function") {
+    const response = await window.mistInference.requestAutonomous({
+      task: "autonomous-planning",
+      config: {
+        provider: config.provider,
+        endpoint: config.endpoint,
+        model: config.model,
+        timeoutMs: config.timeoutMs,
+      },
+      autonomousRequest: {
+        principalRef: projectionInput.agent.ref,
+        planningWeek: projectionInput.week,
+        baseRevision: runtime.baseRevision,
+        attempt: Math.max(0, context.attempt - 1),
+      },
+    });
+    if (!response.ok || typeof response.content !== "string" || !response.content.trim()) {
+      throw new Error(userFacingModelError(response.error ?? "MODEL_REQUEST_FAILED"), { cause: response.error });
+    }
+    const raw = extractJson(response.content);
+    return raw.proposal && typeof raw.proposal === "object" && !Array.isArray(raw.proposal) ? raw.proposal : raw;
+  }
   const lore = await loreForAutonomousAgent(records, projectionInput, runtime);
   const projection = Object.fromEntries(
     Object.entries(projectionInput).filter(([key]) => key !== "authorizedLoreIds" && key !== "knowledgeSourceEventIds"),

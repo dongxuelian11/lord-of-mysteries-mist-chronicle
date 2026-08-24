@@ -19,6 +19,7 @@ const PURPOSES = new Set([
   "autonomous-actor",
   "autonomous-faction",
 ]);
+const AUTONOMOUS_PURPOSES = new Set(["autonomous-actor", "autonomous-faction"]);
 
 function recordOf(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -136,8 +137,41 @@ function workerRequestFor(payload, game, audience, authorityBinding = {}) {
 function deriveRagWorkerRequest(payload, store) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid-rag-request");
   if (payload.purpose === "world-simulation") throw new Error("rag-purpose-internal-only");
+  if (AUTONOMOUS_PURPOSES.has(payload.purpose)) throw new Error("rag-autonomous-purpose-internal-only");
   const game = loadPersistedGame(store);
   return workerRequestFor(payload, game, authorityFor(payload, game));
+}
+
+function deriveAutonomousRagWorkerRequestForGame(payload, game) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid-autonomous-rag-request");
+  const keys = Object.keys(payload);
+  if (keys.some((key) => !["principalRef", "planningWeek"].includes(key))) throw new Error("invalid-autonomous-rag-request");
+  const principalRef = typeof payload.principalRef === "string" ? payload.principalRef.trim() : "";
+  const purpose = principalRef.startsWith("faction:") ? "autonomous-faction" : principalRef.startsWith("actor:") ? "autonomous-actor" : "";
+  if (!purpose || !Number.isInteger(payload.planningWeek) || payload.planningWeek !== game.week) throw new Error("autonomous-planning-authority-mismatch");
+  const profiles = Array.isArray(game.worldAgents?.profiles) ? game.worldAgents.profiles : [];
+  const profile = profiles.find((candidate) => candidate?.ref === principalRef);
+  if (!profile) throw new Error("rag-principal-not-authorized");
+  const entityId = principalRef.slice(principalRef.indexOf(":") + 1);
+  const projects = Array.isArray(game.worldKernel?.projects) ? game.worldKernel.projects : [];
+  const ownedProjectTitles = projects
+    .filter((project) => project?.ownerId === entityId && project?.status === "active")
+    .sort((left, right) => Number(right?.updatedWeek ?? 0) - Number(left?.updatedWeek ?? 0))
+    .slice(0, 4)
+    .map((project) => typeof project?.title === "string" ? project.title : "")
+    .filter(Boolean);
+  const query = [profile.displayName, profile.currentObjective, profile.nextAction, ...ownedProjectTitles]
+    .filter((value) => typeof value === "string" && value.trim())
+    .join(" ")
+    .slice(0, 4_000);
+  const audience = authorityFor({ purpose, principalRef }, game);
+  return workerRequestFor({ purpose, principalRef, query, limit: 8, maxChars: 3_500 }, game, audience, {
+    planningWeek: payload.planningWeek,
+  });
+}
+
+function deriveAutonomousRagWorkerRequest(payload, store) {
+  return deriveAutonomousRagWorkerRequestForGame(payload, loadPersistedGame(store));
 }
 
 function deriveWorldRagWorkerRequest(payload, store) {
@@ -165,6 +199,8 @@ module.exports = {
   ACTIVE_SAVE_KEY,
   DEFAULT_HORIZON,
   PURPOSES,
+  deriveAutonomousRagWorkerRequest,
+  deriveAutonomousRagWorkerRequestForGame,
   deriveRagWorkerRequest,
   deriveWorldRagWorkerRequest,
   loadPersistedGame,

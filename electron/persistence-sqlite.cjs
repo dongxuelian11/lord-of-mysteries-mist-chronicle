@@ -5,13 +5,16 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
 const { stablePersistenceOriginId } = require("./persistence-origin.cjs");
+const runtimeLimits = require("../shared/runtime-limits.json");
 
 const RECORD_SCHEMA_VERSION = 1;
 const RECORD_KIND = "key-value";
 const DEFAULT_MAX_PAYLOAD_BYTES = 24 * 1024 * 1024;
 const WORLD_INFERENCE_MANIFEST_MAX_BYTES = 1024 * 1024;
 const WORLD_INFERENCE_REQUEST_MAX_BYTES = 256 * 1024;
-const MAX_RETAINED_WORLD_TRANSACTIONS = 256;
+const MAX_RETAINED_WORLD_TRANSACTIONS = runtimeLimits.maxCommittedWorldTransactions;
+const AUTONOMOUS_PROPOSAL_KEYS = new Set(["version", "planningWeek", "agentRef", "disposition", "intent", "rationale", "locationId", "targetRefs", "requiredKnowledgeIds", "usedMemoryIds", "planningSource", "planningIssue", "conditionalOn"]);
+const AUTONOMOUS_DISPOSITIONS = new Set(["act", "continue", "observe", "hide", "rest", "wait"]);
 
 function checksumPayload(payload) {
   return crypto.createHash("sha256").update(payload, "utf8").digest("hex");
@@ -106,9 +109,31 @@ function turnJournalFromPayload(payload) {
   };
 }
 
+function validateStoredAutonomousProposal(value) {
+  const proposal = recordOf(value);
+  const validStrings = (items, maximum) => Array.isArray(items) && items.length <= maximum
+    && new Set(items).size === items.length
+    && items.every((item) => typeof item === "string" && Boolean(item.trim()) && item.length <= 512);
+  if (!proposal || Object.keys(proposal).some((key) => !AUTONOMOUS_PROPOSAL_KEYS.has(key))
+    || proposal.version !== 1 || !Number.isInteger(proposal.planningWeek) || proposal.planningWeek < 0
+    || typeof proposal.agentRef !== "string" || !/^(actor|faction):[^\s:][^\s]*$/.test(proposal.agentRef)
+    || !AUTONOMOUS_DISPOSITIONS.has(proposal.disposition)
+    || typeof proposal.intent !== "string" || !proposal.intent.trim() || proposal.intent.length > 360
+    || typeof proposal.rationale !== "string" || !proposal.rationale.trim() || proposal.rationale.length > 480
+    || !validStrings(proposal.targetRefs, 12) || !validStrings(proposal.requiredKnowledgeIds, 16) || !validStrings(proposal.usedMemoryIds, 12)
+    || !["model", "deterministic-fallback"].includes(proposal.planningSource)
+    || (proposal.locationId !== undefined && (typeof proposal.locationId !== "string" || !proposal.locationId.trim() || proposal.locationId.length > 80))
+    || (proposal.conditionalOn !== undefined && (typeof proposal.conditionalOn !== "string" || !proposal.conditionalOn.trim() || proposal.conditionalOn.length > 300))
+    || (proposal.planningIssue !== undefined && (typeof proposal.planningIssue !== "string" || !proposal.planningIssue.trim() || proposal.planningIssue.length > 300))) {
+    throw new Error("autonomous-proposal-invalid");
+  }
+  return proposal;
+}
+
 function authorityTurnId(record, journal, latest, kind, durableTurnExists = () => false) {
   const explicit = typeof record?.turnId === "string" && record.turnId.trim() ? record.turnId.trim() : null;
   if (explicit) {
+    if (explicit === "state-import") return explicit;
     const retained = journal.transactions.some((transaction) => transaction.turnId === explicit);
     if (retained || durableTurnExists(explicit)) return explicit;
     const mayHaveAgedOut = journal.transactions.length >= MAX_RETAINED_WORLD_TRANSACTIONS && journal.stateRevision > journal.transactions.length;
@@ -229,6 +254,16 @@ class SqlitePersistenceStore {
       ) STRICT;
       CREATE UNIQUE INDEX IF NOT EXISTS world_inference_requests_origin_turn_idx
         ON world_inference_requests(origin_id, turn_id);
+      CREATE TABLE IF NOT EXISTS world_autonomous_proposals (
+        origin_id TEXT NOT NULL,
+        turn_id TEXT NOT NULL,
+        base_revision INTEGER NOT NULL,
+        agent_ref TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        checksum TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(origin_id, turn_id, agent_ref)
+      ) STRICT;
     `);
     const worldLockColumns = new Set(this.db.prepare("PRAGMA table_info(world_inference_locks)").all().map((column) => column.name));
     if (!worldLockColumns.has("resolution")) this.db.exec("ALTER TABLE world_inference_locks ADD COLUMN resolution TEXT");
@@ -280,6 +315,10 @@ class SqlitePersistenceStore {
     this.selectWorldInferenceForTurn = this.db.prepare("SELECT ticket, origin_id, turn_id, base_revision, active_save_checksum, payload, checksum, attempt_count FROM world_inference_requests WHERE origin_id = ? AND turn_id = ?");
     this.advanceWorldInference = this.db.prepare("UPDATE world_inference_requests SET attempt_count = attempt_count + 1, last_consumed_at = ? WHERE ticket = ? AND attempt_count = ?");
     this.deleteWorldInferenceTicket = this.db.prepare("DELETE FROM world_inference_requests WHERE ticket = ?");
+    this.insertAutonomousProposal = this.db.prepare("INSERT OR IGNORE INTO world_autonomous_proposals(origin_id, turn_id, base_revision, agent_ref, payload, checksum, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    this.selectAutonomousProposal = this.db.prepare("SELECT base_revision, agent_ref, payload, checksum FROM world_autonomous_proposals WHERE origin_id = ? AND turn_id = ? AND agent_ref = ?");
+    this.listAutonomousProposals = this.db.prepare("SELECT base_revision, agent_ref, payload, checksum FROM world_autonomous_proposals WHERE origin_id = ? AND turn_id = ? ORDER BY agent_ref");
+    this.deleteAutonomousProposals = this.db.prepare("DELETE FROM world_autonomous_proposals WHERE origin_id = ? AND turn_id = ?");
   }
 
   getItem(key) {
@@ -444,6 +483,7 @@ class SqlitePersistenceStore {
     if (latest) {
       this.deleteWorldInferenceForTurn.run(journal.originId, latest.turnId);
       this.deleteWorldInferenceLock.run(journal.originId, latest.turnId);
+      this.deleteAutonomousProposals.run(journal.originId, latest.turnId);
     }
     return { latest, replayed: Boolean(latestExisting) };
   }
@@ -585,6 +625,65 @@ class SqlitePersistenceStore {
     }
   }
 
+  readWorldInferenceAuthority(activeKey, turnId, baseRevision) {
+    assertKey(activeKey);
+    const normalizedTurnId = requiredText(turnId, "world-inference-turn-id-missing");
+    if (!Number.isInteger(baseRevision) || baseRevision < 0) throw new Error("world-inference-base-revision-invalid");
+    const activePayload = payloadFromRow(this.select.get(activeKey));
+    if (!activePayload) throw new Error("world-inference-active-save-missing");
+    const journal = turnJournalFromPayload(activePayload);
+    const activeGame = recordOf(JSON.parse(activePayload));
+    const kernelWeek = Number(activeGame?.worldKernel?.currentWeek);
+    const durableWeek = Number.isInteger(kernelWeek) ? kernelWeek : Number(activeGame?.week);
+    const durableRevision = Number(activeGame?.worldKernel?.revision);
+    if (!journal || normalizedTurnId !== `world:${durableWeek}`) throw new Error("world-inference-turn-mismatch");
+    if (durableRevision !== baseRevision) throw new Error("world-inference-base-revision-mismatch");
+    const authorityLock = this.selectWorldInferenceLock.get(journal.originId, normalizedTurnId);
+    if (!authorityLock || authorityLock.base_revision !== baseRevision) throw new Error("world-inference-lock-missing");
+    if (checksumPayload(authorityLock.snapshot) !== authorityLock.snapshot_checksum) throw new Error("world-inference-lock-corrupt");
+    if (typeof authorityLock.resolution !== "string" || checksumPayload(authorityLock.resolution) !== authorityLock.resolution_checksum) throw new Error("world-inference-resolution-missing");
+    const resolution = recordOf(JSON.parse(authorityLock.resolution));
+    if (!resolution || !recordOf(resolution.worldKernel)) throw new Error("world-inference-resolution-corrupt");
+    return structuredClone(resolution);
+  }
+
+  readAutonomousProposal(activeKey, turnId, baseRevision, agentRef) {
+    const resolution = this.readWorldInferenceAuthority(activeKey, turnId, baseRevision);
+    const activePayload = payloadFromRow(this.select.get(activeKey));
+    const journal = turnJournalFromPayload(activePayload);
+    const normalizedAgentRef = requiredText(agentRef, "autonomous-agent-ref-missing");
+    const activeRefs = new Set(Array.isArray(resolution.worldAgents?.activeAgentRefs) ? resolution.worldAgents.activeAgentRefs : []);
+    if (!activeRefs.has(normalizedAgentRef)) throw new Error("autonomous-agent-not-active");
+    const row = this.selectAutonomousProposal.get(journal.originId, turnId, normalizedAgentRef);
+    if (!row) return null;
+    if (row.base_revision !== baseRevision || checksumPayload(row.payload) !== row.checksum) throw new Error("autonomous-proposal-corrupt");
+    return validateStoredAutonomousProposal(JSON.parse(row.payload));
+  }
+
+  recordAutonomousProposal(activeKey, turnId, baseRevision, proposal) {
+    const resolution = this.readWorldInferenceAuthority(activeKey, turnId, baseRevision);
+    const activePayload = payloadFromRow(this.select.get(activeKey));
+    const journal = turnJournalFromPayload(activePayload);
+    const record = validateStoredAutonomousProposal(proposal);
+    const normalizedAgentRef = requiredText(record?.agentRef, "autonomous-agent-ref-missing");
+    const activeRefs = new Set(Array.isArray(resolution.worldAgents?.activeAgentRefs) ? resolution.worldAgents.activeAgentRefs : []);
+    const planningWeek = Number(String(turnId).replace(/^world:/, ""));
+    if (!activeRefs.has(normalizedAgentRef) || record.planningWeek !== planningWeek) throw new Error("autonomous-proposal-authority-mismatch");
+    const payload = JSON.stringify(record);
+    if (Buffer.byteLength(payload, "utf8") > 64 * 1024) throw new Error("autonomous-proposal-too-large");
+    const checksum = checksumPayload(payload);
+    const existing = this.selectAutonomousProposal.get(journal.originId, turnId, normalizedAgentRef);
+    if (existing) {
+      if (existing.base_revision !== baseRevision || checksumPayload(existing.payload) !== existing.checksum) throw new Error("autonomous-proposal-corrupt");
+      if (stableSerialize(JSON.parse(existing.payload)) !== stableSerialize(record)) throw new Error("autonomous-proposal-identity-conflict");
+      return validateStoredAutonomousProposal(JSON.parse(existing.payload));
+    }
+    this.insertAutonomousProposal.run(journal.originId, turnId, baseRevision, normalizedAgentRef, payload, checksum, this.clock());
+    const written = this.selectAutonomousProposal.get(journal.originId, turnId, normalizedAgentRef);
+    if (!written || written.checksum !== checksum) throw new Error("autonomous-proposal-write-failed");
+    return validateStoredAutonomousProposal(JSON.parse(written.payload));
+  }
+
   finalizeWorldInference(activeKey, turnId, baseRevision, manifest) {
     assertKey(activeKey);
     const normalizedTurnId = requiredText(turnId, "world-inference-turn-id-missing");
@@ -610,6 +709,57 @@ class SqlitePersistenceStore {
       if (!authorityLock) throw new Error("world-inference-lock-missing");
       if (checksumPayload(authorityLock.snapshot) !== authorityLock.snapshot_checksum) throw new Error("world-inference-lock-corrupt");
       if (typeof authorityLock.resolution !== "string" || checksumPayload(authorityLock.resolution) !== authorityLock.resolution_checksum) throw new Error("world-inference-resolution-missing");
+      const resolutionGame = recordOf(JSON.parse(authorityLock.resolution));
+      const activeAgentRefs = Array.isArray(resolutionGame?.worldAgents?.activeAgentRefs)
+        ? resolutionGame.worldAgents.activeAgentRefs.filter((value) => typeof value === "string" && value.trim()).map((value) => value.trim())
+        : [];
+      if (new Set(activeAgentRefs).size !== activeAgentRefs.length) throw new Error("autonomous-proposal-authority-corrupt");
+      const expectedAgentRefs = [...activeAgentRefs].sort();
+      const proposalRows = this.listAutonomousProposals.all(journal.originId, normalizedTurnId);
+      if (proposalRows.length !== expectedAgentRefs.length) throw new Error("autonomous-proposal-set-incomplete");
+      const proposalsByRef = new Map();
+      for (const row of proposalRows) {
+        if (row.base_revision !== baseRevision || checksumPayload(row.payload) !== row.checksum) throw new Error("autonomous-proposal-corrupt");
+        let proposal;
+        try { proposal = validateStoredAutonomousProposal(JSON.parse(row.payload)); }
+        catch { throw new Error("autonomous-proposal-corrupt"); }
+        if (proposal.agentRef !== row.agent_ref) throw new Error("autonomous-proposal-corrupt");
+        proposalsByRef.set(row.agent_ref, proposal);
+      }
+      if (stableSerialize([...proposalsByRef.keys()].sort()) !== stableSerialize(expectedAgentRefs)) throw new Error("autonomous-proposal-set-mismatch");
+      const candidateManifest = recordOf(JSON.parse(authorityLock.manifest === null ? manifestPayload : authorityLock.manifest));
+      if (!candidateManifest) throw new Error("world-inference-manifest-invalid");
+      const manifestProposals = Array.isArray(candidateManifest.runtimeAutonomousProposals) ? candidateManifest.runtimeAutonomousProposals : [];
+      if (manifestProposals.length !== expectedAgentRefs.length) throw new Error("autonomous-proposal-manifest-mismatch");
+      const seenManifestRefs = new Set();
+      for (const candidate of manifestProposals) {
+        const proposal = recordOf(candidate);
+        const recorded = proposal && proposalsByRef.get(proposal.agentRef);
+        if (!recorded || seenManifestRefs.has(proposal.agentRef) || stableSerialize(proposal) !== stableSerialize(recorded)) throw new Error("autonomous-proposal-manifest-mismatch");
+        seenManifestRefs.add(proposal.agentRef);
+      }
+      const autonomousPlans = (Array.isArray(candidateManifest.unifiedActionPlans) ? candidateManifest.unifiedActionPlans : [])
+        .filter((candidate) => recordOf(candidate)?.source === "autonomous-agent");
+      if (autonomousPlans.length !== expectedAgentRefs.length) throw new Error("autonomous-plan-manifest-mismatch");
+      const seenPlanRefs = new Set();
+      for (const candidate of autonomousPlans) {
+        const plan = recordOf(candidate);
+        const proposal = plan && proposalsByRef.get(plan.agentRef);
+        const executionPlan = recordOf(plan?.executionPlan);
+        const proposalId = proposal ? `proposal:agent:${proposal.planningWeek}:${proposal.agentRef}` : "";
+        const participantRefs = Array.isArray(executionPlan?.participantRefs) ? executionPlan.participantRefs : [];
+        const targetRefs = Array.isArray(executionPlan?.targetRefs) ? executionPlan.targetRefs : [];
+        const allowedTargets = new Set(Array.isArray(proposal?.targetRefs) ? proposal.targetRefs : []);
+        const commitments = recordOf(executionPlan?.commitments);
+        const zeroCommitments = { money: 0, manpower: 0, extraordinaryMaterials: 0, spirituality: 0 };
+        if (!proposal || seenPlanRefs.has(plan.agentRef) || plan.proposalId !== proposalId || executionPlan?.proposalId !== proposalId
+          || stableSerialize(participantRefs) !== stableSerialize([proposal.agentRef])
+          || targetRefs.some((ref) => !allowedTargets.has(ref))
+          || stableSerialize(commitments) !== stableSerialize(zeroCommitments)) {
+          throw new Error("autonomous-plan-manifest-mismatch");
+        }
+        seenPlanRefs.add(plan.agentRef);
+      }
       const activeChecksum = checksumPayload(activePayload);
       const activeStable = stableSerialize(activeGame);
       if (activeChecksum !== authorityLock.snapshot_checksum && activeChecksum !== authorityLock.resolution_checksum

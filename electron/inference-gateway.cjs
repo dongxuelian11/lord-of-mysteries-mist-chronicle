@@ -11,7 +11,6 @@ const TASKS = new Set([
   "ability-draft",
   "ability-scene",
   "participation-scene",
-  "autonomous-planning",
   "world-repair",
   "literary-generation",
   "dynamic-origin",
@@ -42,7 +41,9 @@ function normalizedEndpoint(config) {
 
 function normalizeTask(input, policy = {}) {
   const task = recordOf(input);
-  if (!task || !TASKS.has(task.task) && !(policy.allowWorldAdjudication === true && task.task === "world-adjudication")) throw new Error("invalid-model-task");
+  const internalTask = policy.allowWorldAdjudication === true && task?.task === "world-adjudication"
+    || policy.allowAutonomousPlanning === true && task?.task === "autonomous-planning";
+  if (!task || !TASKS.has(task.task) && !internalTask) throw new Error("invalid-model-task");
   const config = recordOf(task.config);
   const options = recordOf(task.options) ?? {};
   const system = typeof task.system === "string" ? task.system : "";
@@ -101,7 +102,10 @@ function safeStatusError(status) {
 }
 
 async function requestInference(input, dependencies = {}) {
-  const task = normalizeTask(input, { allowWorldAdjudication: dependencies.allowWorldAdjudication === true });
+  const task = normalizeTask(input, {
+    allowWorldAdjudication: dependencies.allowWorldAdjudication === true,
+    allowAutonomousPlanning: dependencies.allowAutonomousPlanning === true,
+  });
   const fetchImpl = dependencies.fetchImpl ?? globalThis.fetch;
   const getCredential = dependencies.getCredential ?? (async () => "");
   if (typeof fetchImpl !== "function") throw new Error("model-fetch-unavailable");
