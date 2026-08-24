@@ -1,5 +1,5 @@
 import type { ActionResult, ChronicleChapter, GameState } from "./game-model";
-import { callModel, type AiConfig, type ModelCallOptions } from "./ai-client";
+import { callModel, userFacingModelError, type AiConfig, type ModelCallOptions } from "./ai-client";
 import { actionTextBoundaryIssue } from "./action-boundaries";
 import { extractJson, textSimilarity } from "./model-output";
 import type { RuntimeTraceContext } from "./runtime-trace.ts";
@@ -85,7 +85,7 @@ export async function requestWorldEnvelope(config: AiConfig, system: string, pro
   if (worldRequest) {
     if (typeof window === "undefined" || typeof window.mistInference?.prepareWorld !== "function") throw new Error("WORLD_INFERENCE_PREPARE_UNAVAILABLE");
     const prepared = await window.mistInference.prepareWorld(worldRequest);
-    if (!prepared.ok || typeof prepared.ticket !== "string" || !prepared.ticket || typeof prepared.payloadHash !== "string" || !/^[0-9a-f]{64}$/.test(prepared.payloadHash) || !Number.isInteger(prepared.attempt) || Number(prepared.attempt) < 0 || Number(prepared.attempt) > 1) throw new Error(prepared.error ?? "WORLD_INFERENCE_PREPARE_FAILED");
+    if (!prepared.ok || typeof prepared.ticket !== "string" || !prepared.ticket || typeof prepared.payloadHash !== "string" || !/^[0-9a-f]{64}$/.test(prepared.payloadHash) || !Number.isInteger(prepared.attempt) || Number(prepared.attempt) < 0 || Number(prepared.attempt) > 1) throw new Error(userFacingModelError(prepared.error ?? "WORLD_INFERENCE_PREPARE_FAILED"));
     preparedWorldRequest = { ticket: prepared.ticket, payloadHash: prepared.payloadHash };
     durableAttempt = Number(prepared.attempt);
   }
@@ -126,7 +126,7 @@ export async function requestWorldEnvelope(config: AiConfig, system: string, pro
             if (synchronizedAttempt === attempt) preModelFailures += 1;
             durableAttempt = synchronizedAttempt;
           } catch (statusError) {
-            lastIssue = statusError instanceof Error ? statusError.message : "世界模型尝试状态无法确认";
+            lastIssue = statusError instanceof Error ? userFacingModelError(statusError.message) : "世界模型尝试状态无法确认";
             preModelFailures = 2;
             continue;
           }
@@ -136,7 +136,7 @@ export async function requestWorldEnvelope(config: AiConfig, system: string, pro
           else preModelFailures += 1;
         }
       }
-      lastIssue = error instanceof Error ? error.message : "世界模型输出无法解析";
+      lastIssue = error instanceof Error ? userFacingModelError(error.message) : "世界模型输出无法解析";
     }
     if (durableAttempt < 2 && preModelFailures < 2) onStage(`世界推演结果不完整（${lastIssue}），正在进行一次结构修复`);
   }

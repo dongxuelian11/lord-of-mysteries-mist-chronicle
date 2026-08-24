@@ -33,6 +33,11 @@ function loadPersistedGame(store) {
   return game;
 }
 
+function requirePersistenceStore(store) {
+  if (!store || typeof store !== "object") throw new Error("persistence-unavailable");
+  return store;
+}
+
 function uniqueStrings(values, maximum = 256) {
   return [...new Set((Array.isArray(values) ? values : []).filter((value) => typeof value === "string" && value.length > 0 && value.length <= 256))].slice(0, maximum);
 }
@@ -67,6 +72,7 @@ function authorityFor(payload, game) {
   const members = Array.isArray(game.members) ? game.members : [];
   const actors = Array.isArray(game.worldKernel?.actors) ? game.worldKernel.actors : [];
   const factions = Array.isArray(game.worldKernel?.factions) ? game.worldKernel.factions : [];
+  const activeAutonomousRefs = new Set(uniqueStrings(game.worldAgents?.activeAgentRefs));
 
   if (purpose === "world-simulation") {
     if (principalRef !== "world") throw new Error("rag-principal-not-authorized");
@@ -83,12 +89,16 @@ function authorityFor(payload, game) {
   }
   if (purpose === "autonomous-faction") {
     const factionId = principalRef.match(/^faction:(.+)$/)?.[1];
-    if (!factionId || !factions.some((faction) => faction?.id === factionId)) throw new Error("rag-principal-not-authorized");
+    if (!factionId || !activeAutonomousRefs.has(principalRef) || !factions.some((faction) => faction?.id === factionId)) throw new Error("rag-principal-not-authorized");
     return { kind: "faction-private", principalRef, knownLoreIds: loreIdsFor(game, principalRef), topicGrants: [] };
   }
   const actorId = principalRef.match(/^actor:(.+)$/)?.[1];
   const member = members.find((candidate) => candidate?.id === actorId);
-  if (!actorId || (!member && !actors.some((actor) => actor?.id === actorId))) throw new Error("rag-principal-not-authorized");
+  const actorExists = actors.some((actor) => actor?.id === actorId);
+  const authorizedActor = purpose === "autonomous-actor"
+    ? activeAutonomousRefs.has(principalRef) && actorExists
+    : Boolean(member);
+  if (!actorId || !authorizedActor) throw new Error("rag-principal-not-authorized");
   return {
     kind: "actor-private",
     principalRef,
@@ -158,4 +168,5 @@ module.exports = {
   deriveRagWorkerRequest,
   deriveWorldRagWorkerRequest,
   loadPersistedGame,
+  requirePersistenceStore,
 };

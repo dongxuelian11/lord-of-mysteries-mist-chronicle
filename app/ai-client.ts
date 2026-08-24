@@ -77,6 +77,30 @@ function normalizeEndpoint(endpoint: string) {
   return /\/chat\/completions$/i.test(trimmed) ? trimmed : `${trimmed}/chat/completions`;
 }
 
+export function userFacingModelError(code: string | undefined) {
+  const value = code?.trim() || "MODEL_REQUEST_FAILED";
+  const exact: Record<string, string> = {
+    MODEL_CONFIG_INCOMPLETE: "模型配置尚未填写完整",
+    MODEL_CREDENTIAL_UNAVAILABLE: "API Key 尚未配置",
+    MODEL_AUTH_REJECTED: "API Key 无效或没有调用权限",
+    MODEL_ENDPOINT_REJECTED: "接口地址或模型名称不可用",
+    "endpoint-not-allowed": "该接口地址不在桌面端允许范围内",
+    MODEL_RATE_LIMITED: "请求过于频繁或额度不足，请稍后重试",
+    MODEL_TIMEOUT: "模型请求超时，请检查网络后重试",
+    MODEL_EMPTY_RESPONSE: "模型返回了空内容，请重试",
+    MODEL_RESPONSE_INVALID: "模型返回了无法解析的内容",
+    MODEL_REQUEST_FAILED: "模型请求失败，请稍后重试",
+  };
+  if (exact[value]) return exact[value];
+  const httpStatus = value.match(/^MODEL_HTTP_(\d{3})$/)?.[1];
+  if (httpStatus) return `模型服务返回错误（HTTP ${httpStatus}）`;
+  if (/^(?:WORLD_|world-inference-)/.test(value)) return "本周世界回应未通过本机一致性校验，请从当前局面重试";
+  if (/^(?:RAG_|rag-)/.test(value)) return "设定资料暂时不可用；没有生成替代内容，请稍后重试";
+  if (/^persistence-/.test(value)) return "本机存档服务未就绪；世界回合没有开始，请检查本机存储后重试";
+  if (/^[A-Z][A-Z0-9_]+$/.test(value)) return "模型请求未能通过本机校验，请稍后重试";
+  return value;
+}
+
 function safeErrorMessage(status: number, payload: unknown) {
   const object = payload && typeof payload === "object" ? payload as Record<string, unknown> : undefined;
   const nested = object?.error && typeof object.error === "object" ? object.error as Record<string, unknown> : undefined;
@@ -174,7 +198,8 @@ async function requestModel(config: AiConfig, system: string, user: string, opti
       throw marked;
     }
     if (!response.ok || typeof response.content !== "string" || !response.content.trim()) {
-      const error = new Error(response.error ?? "MODEL_REQUEST_FAILED") as Error & { worldAttemptStarted?: boolean };
+      const errorCode = response.error ?? "MODEL_REQUEST_FAILED";
+      const error = new Error(userFacingModelError(errorCode), { cause: errorCode }) as Error & { worldAttemptStarted?: boolean };
       if (options.worldRequest && response.attemptStarted === true) error.worldAttemptStarted = true;
       throw error;
     }

@@ -68,7 +68,7 @@ test("persistence IPC exposes bounded save, durable turn, quarantine, and recove
   assert.equal((await handlers.get("persistence:commit-turn")(event, "mist-chronicle-complete-v21", "payload")).durable, true);
   assert.deepEqual(await handlers.get("persistence:list-quarantine")(event, "mist-chronicle-complete-v21"), { available: true, records: [] });
   assert.equal((await handlers.get("persistence:quarantine")(event, "mist-chronicle-complete-v21", "invalid-save")).quarantined, true);
-  assert.equal((await handlers.get("persistence:replace-with-recovery")(event, "mist-chronicle-complete-v21", "payload", "mist-chronicle-recovery-v21", { id: "r2" })).durable, true);
+  assert.equal((await handlers.get("persistence:replace-with-recovery")(event, "mist-chronicle-complete-v21", "payload", "mist-chronicle-recovery-v21", { id: "r2", game: { worldKernel: {} } })).durable, true);
   assert.equal((await handlers.get("persistence:runtime-traces")(event, "save-1:main", 10)).traces[0].traceInstanceId, "instance-1");
   assert.equal((await handlers.get("persistence:append-runtime-traces")(event, "mist-chronicle-complete-v21", [{ traceInstanceId: "instance-1" }])).saved, true);
   assert.deepEqual(await handlers.get("persistence:get")(event, "mist-chronicle-complete-v21"), {
@@ -81,6 +81,24 @@ test("persistence IPC exposes bounded save, durable turn, quarantine, and recove
     available: false,
     error: "invalid-request",
   });
+});
+
+test("persistence IPC rejects malformed recovery checkpoints before touching the store", async () => {
+  let writes = 0;
+  const handlers = harness({
+    appendRecoveryCheckpoint() { writes += 1; },
+    replaceWithRecovery() { writes += 1; },
+  });
+  const event = { senderFrame: { url: "http://127.0.0.1:43123/" } };
+  assert.deepEqual(await handlers.get("persistence:append-recovery")(event, "mist-chronicle-recovery-v21", { id: "invalid", game: {} }), {
+    available: false,
+    error: "invalid-request",
+  });
+  assert.deepEqual(await handlers.get("persistence:replace-with-recovery")(event, "mist-chronicle-complete-v21", "payload", "mist-chronicle-recovery-v21", { id: "invalid", game: {} }), {
+    available: false,
+    error: "invalid-request",
+  });
+  assert.equal(writes, 0);
 });
 
 test("persistence IPC preserves corrupt status instead of converting it to a missing value", async () => {

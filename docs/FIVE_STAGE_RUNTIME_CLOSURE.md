@@ -1,9 +1,9 @@
 # 五阶段运行时闭环执行账本
 
-状态：最终提交前审核重新打开的 durable authority journal 与 browser/legacy 迁移错误处理缺陷已完成代码修复；本地最终门禁与三路独立复审通过，具备本地提交条件，未提交、未推送
+状态：五阶段运行时闭环与合并前独立复审确认的缺陷均已进入运行代码；交付状态以 GitHub PR #3 为准，发行证据仍保持字面真值
 开始时间：2026-08-23
 当前阶段：最终独立代码级复核与精确 write-set — 完成
-远端边界：完成五阶段、全量回归与目标效果复核前，不推送、不开 PR、不合并。
+远端边界：仅在锁定 exact head 的计划效果复核、独立审查、必需 CI 与用户授权全部满足后合并；合并不得升级为 installer、clean-machine、production 或 human evidence。
 
 ## 任务目标
 
@@ -347,3 +347,12 @@
 - 远端与提交边界：2026-08-24 再次 fetch 后，`origin/main`、HEAD 与 merge-base 均为 `d54f8e0f6abade0c3682e63f5e735e3eae39775a`，分叉为 0 / 0。候选仍是 76 个 tracked 修改 + 11 个预期新文件，共 87 个路径；两份 `.qa-prodserver3.*.log` 继续排除，staged=0。没有执行 commit 或 push。
 - 独立复审：维护性、安全/数据完整性和测试覆盖三路审查先后重新打开 browser-only quarantine 与 unproven aged-out owner 反例；两项均按 RED → GREEN 修复并再次复审，最终三路均为 `NO_BLOCKING_FINDINGS`。
 - 压缩恢复断点：代码修复、计划效果对照、本地最终门禁、独立复审和 write-set 复核均已完成。当前结论仅为具备本地提交条件；等待用户决定是否提交，之后再单独考虑是否推送。不得自行 stage、commit 或 push。
+
+### 2026-08-24 · 用户授权后的合并前独立审查（历史记录）
+
+- 用户授权边界：只有再次确认五阶段计划效果与当前代码一致、独立审查无阻断、锁定 head 的必需 CI 通过时才合并；不得因已有测试或旧 head 绿色直接合并。
+- 审查起点：PR #3 的锁定 head 为 `e32d934ecdd3d891a6aade6e0e34d9670f474728`，相对 fresh `origin/main=d54f8e0f6abade0c3682e63f5e735e3eae39775a` 仍精确为原 87 路径，远端双平台 CI 绿色。
+- 代码级复核重新打开并修复：长设定短片段可绕过逐字泄露检测；renderer RAG 可冒充已存在但未授权的 NPC/势力；坏 recovery 在替换事务前被先行隔离；写入口接受无法读取的 malformed checkpoint；SQLite 不可用时 world IPC 解引用空 store；Main 机器错误码直出玩家；成功隔离的旧存档被误报为数据库打不开；受众投影存在重复全数组扫描；关键拒绝分支缺少直接回归。
+- 当前实现效果：隐藏设定按去空白/标点后的 8 字滑窗拒绝逐字摘录；议会/对话 RAG 只接受真实成员，自治 RAG 只接受 durable active principal 且实体存在；recovery 读取、隔离、替换与 active save 写入处于同一 SQLite 事务；checkpoint 由 IPC/store 共用结构谓词；所有 world IPC 在空 store 时稳定 fail closed；模型、world、RAG、persistence 错误在玩家边界映射；迁移隔离成功为可恢复 warning、隔离失败仍 fatal；投影改用事件/观察/地点索引。
+- 新增行为回归覆盖非法 TurnCommit candidate、缺失 RAG authority envelope、15 字/标点分段/多字段 lore 泄露、NPC/非 active autonomous 冒充、空 persistence store、坏 recovery 回滚、malformed checkpoint 拒绝、隔离 warning/fatal 分流与用户可读错误映射。
+- 本记录写入时的远端边界：上述合并前增量尚待新的本地完整门禁、精确提交、push 与 exact-head CI；该顺序是历史事实，不表示后续步骤已自动完成。

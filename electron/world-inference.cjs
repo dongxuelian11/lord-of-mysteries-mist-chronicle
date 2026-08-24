@@ -82,17 +82,22 @@ function receiptFor(derived, evidence, indexVersion) {
 
 function assertNoVerbatimLoreLeak(content, records) {
   if (typeof content !== "string") throw new Error("MODEL_RESPONSE_INVALID");
-  const normalized = content.replace(/\s+/g, " ");
+  const normalizeLeakText = (value) => value.replace(/[\s\p{P}\p{S}]+/gu, "");
+  const normalized = normalizeLeakText(content);
+  const minimumWindowSize = 8;
+  const responseWindows = new Set();
+  for (let offset = 0; offset + minimumWindowSize <= normalized.length; offset += 1) {
+    responseWindows.add(normalized.slice(offset, offset + minimumWindowSize));
+  }
   for (const record of records) {
-    const source = typeof record?.content === "string" ? record.content.replace(/\s+/g, " ").trim() : "";
+    const source = typeof record?.content === "string" ? normalizeLeakText(record.content) : "";
     if (!source) continue;
-    const windowSize = Math.min(64, source.length);
-    if (windowSize < 16) {
+    if (source.length < minimumWindowSize) {
       if (normalized.includes(source)) throw new Error("WORLD_LORE_VERBATIM_LEAK_REJECTED");
       continue;
     }
-    for (let offset = 0; offset + windowSize <= source.length; offset += Math.max(1, Math.floor(windowSize / 2))) {
-      if (normalized.includes(source.slice(offset, offset + windowSize))) throw new Error("WORLD_LORE_VERBATIM_LEAK_REJECTED");
+    for (let offset = 0; offset + minimumWindowSize <= source.length; offset += 1) {
+      if (responseWindows.has(source.slice(offset, offset + minimumWindowSize))) throw new Error("WORLD_LORE_VERBATIM_LEAK_REJECTED");
     }
   }
 }

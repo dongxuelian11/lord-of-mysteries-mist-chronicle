@@ -40,6 +40,10 @@ function assertPayload(payload, maxPayloadBytes) {
   if (Buffer.byteLength(payload, "utf8") > maxPayloadBytes) throw new Error("persistence-payload-too-large");
 }
 
+function isRecoveryCheckpoint(value) {
+  return Boolean(recordOf(value) && recordOf(value.game) && recordOf(value.game.worldKernel));
+}
+
 function readRecoveryPayload(raw) {
   if (raw === null) return [];
   let parsed;
@@ -49,7 +53,7 @@ function readRecoveryPayload(raw) {
     throw new Error("persistence-recovery-corrupt");
   }
   if (!Array.isArray(parsed)) throw new Error("persistence-recovery-corrupt");
-  if (!parsed.every((item) => recordOf(item) && recordOf(item.game) && recordOf(item.game.worldKernel))) {
+  if (!parsed.every(isRecoveryCheckpoint)) {
     throw new Error("persistence-recovery-corrupt");
   }
   return parsed;
@@ -795,17 +799,34 @@ class SqlitePersistenceStore {
     assertKey(activeKey);
     assertKey(recoveryKey);
     assertPayload(activePayload, this.maxPayloadBytes);
-    if (!Number.isInteger(maxEntries) || maxEntries < 1 || maxEntries > 32 || !checkpoint || typeof checkpoint !== "object") throw new Error("invalid-recovery-replacement");
+    if (!Number.isInteger(maxEntries) || maxEntries < 1 || maxEntries > 32 || !isRecoveryCheckpoint(checkpoint)) throw new Error("invalid-recovery-replacement");
     const journal = turnJournalFromPayload(activePayload);
     const saveChecksum = checksumPayload(activePayload);
-    const existingRecovery = this.readItem(recoveryKey);
-    const current = existingRecovery.corrupt ? [] : readRecoveryPayload(existingRecovery.value);
-    const recoveryPayload = JSON.stringify([checkpoint, ...current].slice(0, maxEntries));
-    assertPayload(recoveryPayload, this.maxPayloadBytes);
     let inTransaction = false;
     try {
       this.db.exec("BEGIN IMMEDIATE");
       inTransaction = true;
+      const recoveryRow = this.select.get(recoveryKey);
+      let current = [];
+      if (recoveryRow) {
+        try {
+          current = readRecoveryPayload(payloadFromRow(recoveryRow));
+        } catch (error) {
+          this.insertQuarantine.run(
+            `quarantine:${crypto.randomUUID()}`,
+            recoveryKey,
+            String(recoveryRow.kind),
+            Number(recoveryRow.schema_version),
+            String(recoveryRow.payload),
+            String(recoveryRow.checksum),
+            checksumPayload(String(recoveryRow.payload)),
+            String(error?.message ?? error),
+            this.clock(),
+          );
+        }
+      }
+      const recoveryPayload = JSON.stringify([checkpoint, ...current].slice(0, maxEntries));
+      assertPayload(recoveryPayload, this.maxPayloadBytes);
       this.upsert.run(recoveryKey, RECORD_KIND, RECORD_SCHEMA_VERSION, recoveryPayload, checksumPayload(recoveryPayload), this.clock());
       const written = journal
         ? this.writeTurnJournal(journal, activePayload, saveChecksum, activeKey)
@@ -884,6 +905,7 @@ class SqlitePersistenceStore {
   appendRecoveryCheckpoint(key, checkpoint, maxEntries = 3, options = {}) {
     assertKey(key);
     if (!Number.isInteger(maxEntries) || maxEntries < 1 || maxEntries > 32) throw new Error("invalid-recovery-limit");
+    if (!isRecoveryCheckpoint(checkpoint)) throw new Error("invalid-recovery-checkpoint");
     const rawCheckpoint = JSON.stringify(checkpoint);
     assertPayload(rawCheckpoint, this.maxPayloadBytes);
     let inTransaction = false;
@@ -923,4 +945,5 @@ module.exports = {
   SqlitePersistenceStore,
   checksumPayload,
   createSqlitePersistenceStore,
+  isRecoveryCheckpoint,
 };

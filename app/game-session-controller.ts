@@ -22,6 +22,7 @@ export type LoadedGameSession = {
   secureStorageAvailable: boolean;
   credentialConfigured: boolean;
   persistenceError?: string;
+  persistenceWarning?: string;
 };
 
 type PersistentActiveSave = {
@@ -40,7 +41,11 @@ function quarantineBrowserSave(stored: { key: string; raw: string }, reason: str
     window.localStorage.setItem(quarantineKey, stored.raw);
     window.localStorage.setItem(`${quarantineKey}:reason`, reason);
     window.localStorage.removeItem(stored.key);
-  } catch { /* Keep the source record when local quarantine cannot be written. */ }
+    return true;
+  } catch {
+    // Keep the source record when local quarantine cannot be written.
+    return false;
+  }
 }
 
 function persistenceFatalError(error?: string) {
@@ -121,6 +126,7 @@ async function writePersistentActiveSave(raw: string) {
 export async function loadGameSession(): Promise<LoadedGameSession> {
   let game: GameState | undefined;
   let hasSave = false;
+  let persistenceWarning: string | undefined;
   const activeSaveAuthority = getActiveSaveAuthority();
   let persistent: PersistentActiveSave;
   try {
@@ -143,10 +149,19 @@ export async function loadGameSession(): Promise<LoadedGameSession> {
       hasSave = migrated.hasSave;
     } catch {
       const reason = "active-save-migration-rejected";
+      let quarantined = false;
       if (storedInPersistence) {
-        if (window.mistPersistence?.quarantine) await window.mistPersistence.quarantine(stored.key, reason).catch(() => undefined);
-      } else quarantineBrowserSave(stored, reason);
-      persistent = { ...persistent, error: reason };
+        if (window.mistPersistence?.quarantine) {
+          const result = await window.mistPersistence.quarantine(stored.key, reason).catch(() => undefined);
+          quarantined = Boolean(result?.available && result.quarantined);
+        }
+      } else quarantined = quarantineBrowserSave(stored, reason);
+      if (quarantined) {
+        persistenceWarning = reason;
+        persistent = { ...persistent, error: undefined };
+      } else {
+        persistent = { ...persistent, error: "active-save-quarantine-failed" };
+      }
     }
   }
 
@@ -195,6 +210,7 @@ export async function loadGameSession(): Promise<LoadedGameSession> {
     secureStorageAvailable,
     credentialConfigured,
     ...(persistent.error ? { persistenceError: persistent.error } : {}),
+    ...(persistenceWarning ? { persistenceWarning } : {}),
   };
 }
 

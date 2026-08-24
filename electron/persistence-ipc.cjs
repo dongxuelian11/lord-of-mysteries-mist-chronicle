@@ -1,5 +1,7 @@
 "use strict";
 
+const { isRecoveryCheckpoint } = require("./persistence-sqlite.cjs");
+
 const MAX_PERSISTENCE_PAYLOAD_BYTES = 24 * 1024 * 1024;
 
 function isAllowedPersistenceKey(key) {
@@ -65,7 +67,7 @@ function registerPersistenceIpc({ ipcMain, store, isTrustedSender = () => false,
   });
 
   ipcMain.handle("persistence:append-recovery", (_event, key, checkpoint, maxEntries = 3) => {
-    if (!isAllowedPersistenceKey(key) || !key.includes("-recovery-") || !checkpoint || typeof checkpoint !== "object") return invalidRequest();
+    if (!isAllowedPersistenceKey(key) || !key.includes("-recovery-") || !isRecoveryCheckpoint(checkpoint)) return invalidRequest();
     try {
       guard(_event);
       store.appendRecoveryCheckpoint(key, checkpoint, maxEntries);
@@ -127,7 +129,7 @@ function registerPersistenceIpc({ ipcMain, store, isTrustedSender = () => false,
   });
 
   ipcMain.handle("persistence:replace-with-recovery", (_event, activeKey, payload, recoveryKey, checkpoint, maxEntries = 3) => {
-    if (!isAllowedPersistenceKey(activeKey) || !activeKey.includes("-complete-") || !isAllowedPersistenceKey(recoveryKey) || !recoveryKey.includes("-recovery-") || typeof payload !== "string" || Buffer.byteLength(payload, "utf8") > MAX_PERSISTENCE_PAYLOAD_BYTES || !checkpoint || typeof checkpoint !== "object") return invalidRequest();
+    if (!isAllowedPersistenceKey(activeKey) || !activeKey.includes("-complete-") || !isAllowedPersistenceKey(recoveryKey) || !recoveryKey.includes("-recovery-") || typeof payload !== "string" || Buffer.byteLength(payload, "utf8") > MAX_PERSISTENCE_PAYLOAD_BYTES || !isRecoveryCheckpoint(checkpoint)) return invalidRequest();
     try {
       guard(_event);
       const acknowledgement = store.replaceWithRecovery(activeKey, payload, recoveryKey, checkpoint, maxEntries);

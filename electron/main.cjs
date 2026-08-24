@@ -12,7 +12,7 @@ const { createRagIpc } = require("./rag-ipc.cjs");
 const { deploySeed } = require("./knowledge-seed.cjs");
 const { registerPersistenceIpc } = require("./persistence-ipc.cjs");
 const { resolveServerPort } = require("./server-port.cjs");
-const { ACTIVE_SAVE_KEY, deriveRagWorkerRequest } = require("./runtime-authority.cjs");
+const { ACTIVE_SAVE_KEY, deriveRagWorkerRequest, requirePersistenceStore } = require("./runtime-authority.cjs");
 const { requestInference } = require("./inference-gateway.cjs");
 const { requestWorldInference } = require("./world-inference.cjs");
 
@@ -208,8 +208,9 @@ function registerInferenceIpc() {
   ipcMain.handle("inference:prepare-world", async (event, request) => {
     if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
     try {
+      const store = requirePersistenceStore(persistenceStore);
       if (!request || typeof request !== "object" || !request.payload || typeof request.payload !== "object" || Array.isArray(request.payload)) throw new Error("world-inference-prepare-invalid");
-      const prepared = persistenceStore.prepareWorldInference(
+      const prepared = store.prepareWorldInference(
         ACTIVE_SAVE_KEY,
         JSON.stringify({ payload: request.payload, maxChars: request.maxChars }),
         request.turnId,
@@ -223,8 +224,9 @@ function registerInferenceIpc() {
   ipcMain.handle("inference:world-status", async (event, request) => {
     if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
     try {
+      const store = requirePersistenceStore(persistenceStore);
       if (!request || typeof request !== "object" || typeof request.ticket !== "string") throw new Error("world-inference-status-invalid");
-      const status = persistenceStore.worldInferenceStatus(ACTIVE_SAVE_KEY, request.ticket);
+      const status = store.worldInferenceStatus(ACTIVE_SAVE_KEY, request.ticket);
       return { ok: true, ...status };
     } catch (error) {
       return { ok: false, error: String(error?.message ?? error) };
@@ -233,8 +235,9 @@ function registerInferenceIpc() {
   ipcMain.handle("inference:lock-world", async (event, request) => {
     if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
     try {
+      const store = requirePersistenceStore(persistenceStore);
       if (!request || typeof request !== "object") throw new Error("world-inference-lock-invalid");
-      const locked = persistenceStore.lockWorldInference(ACTIVE_SAVE_KEY, request.turnId, request.baseRevision);
+      const locked = store.lockWorldInference(ACTIVE_SAVE_KEY, request.turnId, request.baseRevision);
       return { ok: true, ...locked };
     } catch (error) {
       return { ok: false, error: String(error?.message ?? error) };
@@ -243,8 +246,9 @@ function registerInferenceIpc() {
   ipcMain.handle("inference:finalize-world", async (event, request) => {
     if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
     try {
+      const store = requirePersistenceStore(persistenceStore);
       if (!request || typeof request !== "object" || !request.manifest || typeof request.manifest !== "object" || Array.isArray(request.manifest)) throw new Error("world-inference-manifest-invalid");
-      const finalized = persistenceStore.finalizeWorldInference(ACTIVE_SAVE_KEY, request.turnId, request.baseRevision, request.manifest);
+      const finalized = store.finalizeWorldInference(ACTIVE_SAVE_KEY, request.turnId, request.baseRevision, request.manifest);
       return { ok: true, ...finalized };
     } catch (error) {
       return { ok: false, error: String(error?.message ?? error) };
@@ -253,8 +257,9 @@ function registerInferenceIpc() {
   ipcMain.handle("inference:stage-world", async (event, request) => {
     if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
     try {
+      const store = requirePersistenceStore(persistenceStore);
       if (!request || typeof request !== "object" || !request.resolution || typeof request.resolution !== "object" || Array.isArray(request.resolution)) throw new Error("world-inference-resolution-invalid");
-      const staged = persistenceStore.stageWorldInference(ACTIVE_SAVE_KEY, request.turnId, request.baseRevision, request.resolution);
+      const staged = store.stageWorldInference(ACTIVE_SAVE_KEY, request.turnId, request.baseRevision, request.resolution);
       return { ok: true, ...staged };
     } catch (error) {
       return { ok: false, error: String(error?.message ?? error) };
@@ -263,10 +268,11 @@ function registerInferenceIpc() {
   ipcMain.handle("inference:world", async (event, task) => {
     if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
     try {
+      const store = requirePersistenceStore(persistenceStore);
       const result = await requestWorldInference(task, {
-        store: persistenceStore,
-        consumeWorldRequest: (ticket, attempt) => persistenceStore.consumeWorldInference(ACTIVE_SAVE_KEY, ticket, attempt),
-        beginWorldAttempt: (ticket, attempt) => persistenceStore.beginWorldInferenceAttempt(ticket, attempt),
+        store,
+        consumeWorldRequest: (ticket, attempt) => store.consumeWorldInference(ACTIVE_SAVE_KEY, ticket, attempt),
+        beginWorldAttempt: (ticket, attempt) => store.beginWorldInferenceAttempt(ticket, attempt),
         callRag,
         infer: (boundTask) => requestInference(boundTask, { getCredential: inferenceCredential, allowWorldAdjudication: true }),
       });

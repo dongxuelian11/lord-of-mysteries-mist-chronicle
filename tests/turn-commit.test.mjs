@@ -72,3 +72,52 @@ test("TurnCommit returns one candidate bound to the kernel transaction it commit
     delete globalThis.window;
   }
 });
+
+test("TurnCommit rejects every candidate that is not bound to its exact committed kernel receipt", async () => {
+  const { createInitialGame } = await loadRuntimeModule("app/game-model.ts");
+  const { commitWorldTurn } = await loadRuntimeModule("app/turn-commit.ts");
+  const { clearRuntimeTraces, recentRuntimeTraces } = await loadRuntimeModule("app/runtime-trace.ts");
+  const cases = [
+    {
+      name: "missing candidate",
+      deriveNextGame: () => null,
+    },
+    {
+      name: "caller-owned candidate",
+      deriveNextGame: (_context, original) => original,
+    },
+    {
+      name: "foreign kernel",
+      deriveNextGame: ({ baseGame, worldKernel }) => ({ ...baseGame, worldKernel: structuredClone(worldKernel) }),
+    },
+    {
+      name: "missing committed receipt",
+      deriveNextGame: ({ baseGame, worldKernel }) => {
+        worldKernel.committedTransactions = [];
+        return { ...baseGame, worldKernel };
+      },
+    },
+    {
+      name: "mismatched committed receipt",
+      deriveNextGame: ({ baseGame, worldKernel }) => {
+        worldKernel.committedTransactions = worldKernel.committedTransactions.map((item) => ({ ...item, inputHash: "0".repeat(64) }));
+        return { ...baseGame, worldKernel };
+      },
+    },
+  ];
+
+  for (const item of cases) {
+    const game = createInitialGame("seer");
+    const before = structuredClone(game);
+    const turnId = `world:${game.worldKernel.lastResolvedWeek + 1}`;
+    clearRuntimeTraces();
+    await assert.rejects(commitWorldTurn({
+      baseGame: game,
+      delta: emptyDelta(game),
+      turnId,
+      deriveNextGame: (context) => item.deriveNextGame(context, game),
+    }), /TURN_COMMIT_CANDIDATE_REJECTED/, item.name);
+    assert.deepEqual(game, before, item.name);
+    assert.equal(recentRuntimeTraces().findLast((trace) => trace.turnId === turnId)?.commitStatus, "REJECTED", item.name);
+  }
+});
