@@ -6,6 +6,7 @@ directories:
 files:
   - dist/**
   - electron/**
+  - shared/**
   - scripts/rag/lib/**
   - package.json
 extraResources:
@@ -22,7 +23,9 @@ asarUnpack:
   - electron/rag-worker.mjs
   - scripts/rag/lib/**
 win:
-  icon: build/icon.png
+  # Keep the source icon in ICO form so electron-builder does not invoke its
+  # CommonJS icon helper from the ESM project root under Node 22+.
+  icon: build/icon.ico
   signAndEditExecutable: true
   verifyUpdateCodeSignature: true
   target:

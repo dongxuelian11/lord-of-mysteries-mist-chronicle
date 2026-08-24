@@ -3,6 +3,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 
+const gh = process.env.GH_CLI_PATH || "gh";
+
 const targetDir = path.join("private", "rag", "sources", "canon-zh", "lotm");
 fs.mkdirSync(targetDir, { recursive: true });
 
@@ -24,7 +26,7 @@ const sources = [
 let token = "";
 try {
   token = execFileSync(
-    "C:\\Program Files\\GitHub CLI\\gh.exe",
+    gh,
     ["auth", "token"],
     { encoding: "utf8", windowsHide: true }
   ).trim();
@@ -67,7 +69,7 @@ for (const source of sources) {
         .map((segment) => encodeURIComponent(segment))
         .join("/");
       const buffer = execFileSync(
-        "C:\\Program Files\\GitHub CLI\\gh.exe",
+        gh,
         [
           "api",
           `repos/${source.repo}/contents/${encodedPath}`,

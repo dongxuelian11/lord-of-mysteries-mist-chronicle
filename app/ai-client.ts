@@ -1,9 +1,11 @@
 import {
   deriveRuntimeTraceId,
   tryRecordRuntimeTrace,
+  type TokenAccountingAccuracy,
   type RuntimeTraceContext,
 } from "./runtime-trace.ts";
 import type { RetrievalReceipt } from "./world-authority-closure.ts";
+import { assertTaskCapability, estimateTokenBudget, getProviderCapability, getTaskCapability, inferProviderId } from "./ai-provider-capabilities.ts";
 
 export type AiProviderId = "deepseek" | "compatible";
 export type AiQuality = "balanced" | "literary";
@@ -45,6 +47,18 @@ export type ModelCallOptions = {
   trace?: RuntimeTraceContext;
   worldRequest?: { ticket: string; attempt: number };
   onRetrieval?: (value: { receipt: RetrievalReceipt; selectedCount: number; rejectedCount: number; authority: { turnId: string; baseRevision: number; week?: number; gameDate?: string; payloadHash?: string } }) => void;
+};
+
+type ModelUsage = {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  inputTokenAccuracy: TokenAccountingAccuracy | null;
+  outputTokenAccuracy: TokenAccountingAccuracy | null;
+};
+
+type ModelResponse = {
+  content: string;
+  usage: ModelUsage;
 };
 
 export const WORLD_LORE_CONTEXT_MARKER = "__MIST_MAIN_WORLD_LORE_CONTEXT__";
@@ -89,6 +103,7 @@ export function userFacingModelError(code: string | undefined) {
     MODEL_TIMEOUT: "模型请求超时，请检查网络后重试",
     MODEL_EMPTY_RESPONSE: "模型返回了空内容，请重试",
     MODEL_RESPONSE_INVALID: "模型返回了无法解析的内容",
+    MODEL_PROMPT_TOO_LARGE: "模型上下文超过当前能力上限",
     MODEL_REQUEST_FAILED: "模型请求失败，请稍后重试",
   };
   if (exact[value]) return exact[value];
@@ -112,6 +127,29 @@ function safeErrorMessage(status: number, payload: unknown) {
 }
 
 function delay(ms: number) { return new Promise((resolve) => window.setTimeout(resolve, ms)); }
+
+function reportedToken(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
+}
+
+function usageFor(config: AiConfig, system: string, user: string, content: string, raw?: { inputTokens?: unknown; outputTokens?: unknown } | null): ModelUsage {
+  let provider: AiProviderId;
+  try {
+    provider = inferProviderId(config);
+  } catch {
+    provider = "compatible";
+  }
+  const inputTokens = reportedToken(raw?.inputTokens);
+  const outputTokens = reportedToken(raw?.outputTokens);
+  const inputEstimate = estimateTokenBudget(`${system}\n${user}`, provider);
+  const outputEstimate = estimateTokenBudget(content, provider);
+  return {
+    inputTokens: inputTokens ?? inputEstimate.tokens,
+    outputTokens: outputTokens ?? outputEstimate.tokens,
+    inputTokenAccuracy: inputTokens === null ? "estimated" : "provider-reported",
+    outputTokenAccuracy: outputTokens === null ? "estimated" : "provider-reported",
+  };
+}
 
 async function readStreamedContent(response: Response, onToken?: (text: string) => void) {
   const reader = response.body?.getReader();
@@ -168,6 +206,11 @@ async function readStreamedContent(response: Response, onToken?: (text: string) 
 }
 
 async function requestModel(config: AiConfig, system: string, user: string, options: ModelCallOptions) {
+  assertTaskCapability(options.task, { json: options.json, stream: options.stream });
+  const provider = inferProviderId(config);
+  const providerCapability = getProviderCapability(provider);
+  const taskCapability = getTaskCapability(options.task);
+  if (system.length + user.length > Math.min(providerCapability.maxContextChars, taskCapability.promptMaxChars)) throw new Error("MODEL_PROMPT_TOO_LARGE");
   if (typeof window !== "undefined" && window.mistInference) {
     if (!options.task) throw new Error("MODEL_TASK_REQUIRED");
     const requestBase = {
@@ -219,16 +262,21 @@ async function requestModel(config: AiConfig, system: string, user: string, opti
       }
     }
     if (options.stream) options.onToken?.(content);
-    return content;
+    return { content, usage: usageFor(config, system, user, content, response.usage) } satisfies ModelResponse;
   }
-  const provider = config.provider ?? (config.endpoint.includes("api.deepseek.com") ? "deepseek" : "compatible");
   const stream = Boolean(options.stream);
   const userPrompt = options.json && !/json/i.test(`${system} ${user}`) ? `${user}\n\n只返回严格 JSON 对象。` : user;
+  const requestedMaxTokens = Number(options.maxTokens);
+  const maxTokens = Math.max(1, Math.min(
+    providerCapability.maxOutputTokens,
+    taskCapability.maxOutputTokens,
+    Number.isFinite(requestedMaxTokens) && requestedMaxTokens > 0 ? Math.round(requestedMaxTokens) : (options.json ? 4200 : 1800),
+  ));
   const body: Record<string, unknown> = {
     model: config.model.trim(),
     messages: [{ role: "system", content: system }, { role: "user", content: userPrompt }],
     stream,
-    max_tokens: options.maxTokens ?? (options.json ? 4200 : 1800),
+    max_tokens: maxTokens,
   };
   if (provider === "deepseek" || /api\.deepseek\.com/i.test(config.endpoint)) {
     // DeepSeek V4 系列默认会输出 reasoning_content 并挤占正文额度；
@@ -257,7 +305,7 @@ async function requestModel(config: AiConfig, system: string, user: string, opti
         let payload: Record<string, unknown> = {};
         try { payload = raw ? JSON.parse(raw) as Record<string, unknown> : {}; } catch { payload = { message: raw }; }
         const error = new Error(safeErrorMessage(response.status, payload));
-        if ((response.status === 408 || response.status === 429 || response.status >= 500) && attempt === 0) { lastError = error; await delay(700); continue; }
+        if (providerCapability.retryableStatusCodes.includes(response.status) && attempt === 0) { lastError = error; await delay(700); continue; }
         throw error;
       }
       if (stream && response.body) {
@@ -267,7 +315,7 @@ async function requestModel(config: AiConfig, system: string, user: string, opti
           if (attempt === 0) { lastError = error; await delay(500); continue; }
           throw error;
         }
-        return content;
+        return { content, usage: usageFor(config, system, user, content) } satisfies ModelResponse;
       }
       const raw = await response.text();
       let payload: Record<string, unknown> = {};
@@ -279,7 +327,7 @@ async function requestModel(config: AiConfig, system: string, user: string, opti
         if (attempt === 0) { lastError = error; await delay(500); continue; }
         throw error;
       }
-      return content;
+      return { content, usage: usageFor(config, system, user, content) } satisfies ModelResponse;
     } catch (error) {
       const value = error instanceof Error ? error : new Error("模型请求失败");
       if (value.name === "AbortError") throw new Error(`模型在 ${Math.round(timeoutMs / 1000)} 秒内没有回应`);
@@ -295,6 +343,7 @@ async function requestModel(config: AiConfig, system: string, user: string, opti
 function modelFailureCode(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   if (/配置尚未填写完整/.test(message)) return "MODEL_CONFIG_INCOMPLETE";
+  if (/上下文超过/.test(message)) return "MODEL_PROMPT_TOO_LARGE";
   if (/没有回应|超时/.test(message)) return "MODEL_TIMEOUT";
   if (/API Key|权限/.test(message)) return "MODEL_AUTH_REJECTED";
   if (/接口地址|模型名称/.test(message)) return "MODEL_ENDPOINT_REJECTED";
@@ -303,20 +352,18 @@ function modelFailureCode(error: unknown): string {
   return "MODEL_REQUEST_FAILED";
 }
 
-/**
- * Model calls keep their existing transport semantics while emitting one
- * bounded trace. Provider usage fields are null until the provider supplies
- * tokenizer-backed usage; this is deliberate and not an estimate.
- */
+/** Model calls keep their transport semantics while emitting one bounded trace. */
 export async function callModel(config: AiConfig, system: string, user: string, options: ModelCallOptions) {
   const startedAt = Date.now();
   const traceId = options.trace?.traceId ?? deriveRuntimeTraceId("model", `${config.model}\n${system}\n${user}`);
   let outcome: "PASS" | "FAILED" = "FAILED";
   let rejectionReasons: string[] = [];
+  let usage: ModelUsage | null = null;
   try {
-    const content = await requestModel(config, system, user, options);
+    const response = await requestModel(config, system, user, options);
+    usage = response.usage;
     outcome = "PASS";
-    return content;
+    return response.content;
   } catch (error) {
     rejectionReasons = [modelFailureCode(error)];
     throw error;
@@ -332,8 +379,10 @@ export async function callModel(config: AiConfig, system: string, user: string, 
       modelQuantization: options.trace?.modelQuantization,
       promptVersion: options.trace?.promptVersion,
       responseSchemaVersion: options.trace?.responseSchemaVersion ?? (options.json ? "json-object" : undefined),
-      inputTokens: null,
-      outputTokens: null,
+      inputTokens: usage?.inputTokens ?? null,
+      outputTokens: usage?.outputTokens ?? null,
+      inputTokenAccuracy: usage?.inputTokenAccuracy ?? null,
+      outputTokenAccuracy: usage?.outputTokenAccuracy ?? null,
       firstTokenLatencyMs: null,
       latencyMs: Date.now() - startedAt,
       repairCount: options.trace?.repairCount,

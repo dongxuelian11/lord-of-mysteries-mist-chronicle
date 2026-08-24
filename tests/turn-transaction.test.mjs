@@ -57,6 +57,29 @@ function worldEnvelope(game, chapter) {
   };
 }
 
+function bindPublicSignalsForFixture(envelope) {
+  const kernel = envelope.kernelDelta && typeof envelope.kernelDelta === "object" ? envelope.kernelDelta : {};
+  const events = Array.isArray(kernel.events) ? kernel.events : [];
+  const signals = Array.isArray(envelope.publicSignals) ? envelope.publicSignals : [];
+  kernel.observations = Array.isArray(kernel.observations) ? kernel.observations : [];
+  kernel.mutationClaims = Array.isArray(kernel.mutationClaims) ? kernel.mutationClaims : [];
+  for (const [index, signal] of signals.entries()) {
+    if (!signal || typeof signal !== "object" || !events.length) continue;
+    const event = events[index % events.length];
+    const proposalId = Array.isArray(event.sourceProposalIds) ? event.sourceProposalIds.map(String).find(Boolean) : "";
+    if (!proposalId || !event.id) continue;
+    signal.sourceProposalId ??= proposalId;
+    signal.sourceEventId ??= event.id;
+    signal.sourceObservation ??= signal.body;
+    if (event.locationId) signal.districtId = event.locationId;
+    if (!kernel.observations.some((observation) => observation.eventId === event.id && observation.text === signal.body)) {
+      kernel.observations.push({ eventId: event.id, channel: signal.channel, text: signal.body, visibility: "public", holderIds: [], perceivedRefs: [], acquisitionKind: "propagation" });
+    }
+  }
+  envelope.kernelDelta = kernel;
+  return envelope;
+}
+
 function worldModelFetch(envelope) {
   return async (_url, init) => {
     const body = JSON.parse(String(init?.body ?? "{}"));
@@ -81,6 +104,7 @@ function worldModelFetch(envelope) {
       };
       return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify({ proposal }) } }] }) };
     }
+    bindPublicSignalsForFixture(envelope);
     return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(envelope) } }] }) };
   };
 }
@@ -220,6 +244,7 @@ test("a quiet week commits with a fixed newspaper and no fabricated world events
   envelope.kernelDelta.projectUpdates = [];
   envelope.kernelDelta.locationUpdates = [];
   envelope.kernelDelta.events = [];
+  envelope.publicSignals = [];
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   globalThis.window = globalThis;
@@ -227,7 +252,7 @@ test("a quiet week commits with a fixed newspaper and no fabricated world events
   try {
     const committed = await generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {});
     assert.equal(committed.worldSnapshots[0].eventIds.length, 0);
-    assert.equal(committed.worldSignals.length, 2);
+    assert.equal(committed.worldSignals.length, 0, "quiet week must not fabricate world signals for a local newspaper surface");
     assert.ok(committed.worldLedger.events.some((event) => event.kind === "week-committed"));
   } finally {
     globalThis.fetch = originalFetch;
@@ -261,7 +286,12 @@ test("repeated public news is repaired locally without rerunning world adjudicat
     const user = body.messages?.at(-1)?.content ?? "";
     if (user.includes("本周世界事实已经完成裁决并被冻结")) {
       publicSignalRepairCalls += 1;
-      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify({ publicSignals: repairedSignals }) } }] }) };
+      const repaired = bindPublicSignalsForFixture({
+        ...envelope,
+        publicSignals: structuredClone(repairedSignals),
+        kernelDelta: structuredClone(envelope.kernelDelta),
+      });
+      return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify({ publicSignals: repaired.publicSignals }) } }] }) };
     }
     if (!user.includes("为这个主体独立形成同一周起点上的提案")) adjudicatorCalls += 1;
     return baseFetch(url, init);
@@ -306,6 +336,7 @@ test("one agent failing twice degrades privately while peers and the week still 
     const user = body.messages?.at(-1)?.content ?? "";
     if (!user.includes("为这个主体独立形成同一周起点上的提案")) {
       adjudicatorCalls += 1;
+      bindPublicSignalsForFixture(envelope);
       return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(envelope) } }] }) };
     }
     const agentRef = user.match(/"ref":"([^"]+)"/)?.[1] ?? "actor:unknown";

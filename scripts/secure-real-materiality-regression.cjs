@@ -3,12 +3,27 @@ const { app, safeStorage } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { resolveRuntimePaths } = require("../electron/runtime-paths.cjs");
 
 const root = path.resolve(__dirname, "..");
-const userData = process.env.GMZZ_USER_DATA
-  ? path.resolve(process.env.GMZZ_USER_DATA)
-  : path.join(app.getPath("appData"), "mist-chronicle-prototype");
+const runtimeEnv = {
+  ...process.env,
+  GMZZ_REQUIRE_D_DRIVE: process.env.GMZZ_REQUIRE_D_DRIVE ?? "1",
+};
+const runtimePaths = resolveRuntimePaths({ repoRoot: root, env: runtimeEnv });
+const userData = runtimePaths.userDataRoot;
 app.setPath("userData", userData);
+const childEnv = {
+  ...runtimeEnv,
+  GMZZ_STORAGE_ROOT: runtimePaths.root,
+  GMZZ_USER_DATA: userData,
+  TEMP: runtimePaths.tempRoot,
+  TMP: runtimePaths.tempRoot,
+  npm_config_cache: runtimePaths.npmCacheRoot,
+  ELECTRON_CACHE: runtimePaths.electronCacheRoot,
+  ELECTRON_BUILDER_CACHE: runtimePaths.electronCacheRoot,
+  PLAYWRIGHT_BROWSERS_PATH: runtimePaths.playwrightRoot,
+};
 
 async function decryptCredential() {
   const credentialPath = path.join(userData, "ai-credentials.json");
@@ -29,7 +44,7 @@ app.whenReady().then(async () => {
     if (!apiKey) throw new Error("安全凭据中没有可用的 API Key");
     const child = spawn(process.execPath, [path.join(root, "scripts", "real-materiality-regression.mjs")], {
       cwd: root,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", DEEPSEEK_API_KEY: apiKey },
+      env: { ...childEnv, ELECTRON_RUN_AS_NODE: "1", DEEPSEEK_API_KEY: apiKey },
       stdio: "inherit",
       windowsHide: true,
     });

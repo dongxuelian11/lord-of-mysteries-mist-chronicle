@@ -5,6 +5,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
 const { stablePersistenceOriginId } = require("./persistence-origin.cjs");
+const { summarizeProvenance } = require("./persistence-provenance.cjs");
 const runtimeLimits = require("../shared/runtime-limits.json");
 
 const RECORD_SCHEMA_VERSION = 1;
@@ -13,7 +14,7 @@ const DEFAULT_MAX_PAYLOAD_BYTES = 24 * 1024 * 1024;
 const WORLD_INFERENCE_MANIFEST_MAX_BYTES = 1024 * 1024;
 const WORLD_INFERENCE_REQUEST_MAX_BYTES = 256 * 1024;
 const MAX_RETAINED_WORLD_TRANSACTIONS = runtimeLimits.maxCommittedWorldTransactions;
-const AUTONOMOUS_PROPOSAL_KEYS = new Set(["version", "planningWeek", "agentRef", "disposition", "intent", "rationale", "locationId", "targetRefs", "requiredKnowledgeIds", "usedMemoryIds", "planningSource", "planningIssue", "conditionalOn"]);
+const AUTONOMOUS_PROPOSAL_KEYS = new Set(["version", "planningWeek", "agentRef", "disposition", "intent", "rationale", "locationId", "targetRefs", "requiredKnowledgeIds", "usedMemoryIds", "projectionHash", "planningSource", "planningIssue", "conditionalOn"]);
 const AUTONOMOUS_DISPOSITIONS = new Set(["act", "continue", "observe", "hide", "rest", "wait"]);
 
 function checksumPayload(payload) {
@@ -122,6 +123,7 @@ function validateStoredAutonomousProposal(value) {
     || typeof proposal.rationale !== "string" || !proposal.rationale.trim() || proposal.rationale.length > 480
     || !validStrings(proposal.targetRefs, 12) || !validStrings(proposal.requiredKnowledgeIds, 16) || !validStrings(proposal.usedMemoryIds, 12)
     || !["model", "deterministic-fallback"].includes(proposal.planningSource)
+    || (proposal.projectionHash !== undefined && (typeof proposal.projectionHash !== "string" || !/^[a-f0-9]{64}$/.test(proposal.projectionHash)))
     || (proposal.locationId !== undefined && (typeof proposal.locationId !== "string" || !proposal.locationId.trim() || proposal.locationId.length > 80))
     || (proposal.conditionalOn !== undefined && (typeof proposal.conditionalOn !== "string" || !proposal.conditionalOn.trim() || proposal.conditionalOn.length > 300))
     || (proposal.planningIssue !== undefined && (typeof proposal.planningIssue !== "string" || !proposal.planningIssue.trim() || proposal.planningIssue.length > 300))) {
@@ -304,6 +306,7 @@ class SqlitePersistenceStore {
     this.insertTrace = this.db.prepare("INSERT OR IGNORE INTO runtime_traces(origin_id, trace_id, operation, turn_id, payload, checksum, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
     this.selectTrace = this.db.prepare("SELECT checksum FROM runtime_traces WHERE origin_id = ? AND trace_id = ?");
     this.listTraces = this.db.prepare("SELECT trace_id, payload, checksum FROM runtime_traces WHERE origin_id = ? ORDER BY recorded_at DESC, trace_id DESC LIMIT ?");
+    this.listWorldTurns = this.db.prepare("SELECT turn_id AS turnId, resolving_week AS resolvingWeek, base_revision AS baseRevision, input_hash AS inputHash FROM world_turns WHERE origin_id = ? ORDER BY resolving_week ASC");
     this.insertWorldInferenceLock = this.db.prepare("INSERT INTO world_inference_locks(origin_id, turn_id, base_revision, snapshot, snapshot_checksum, manifest, manifest_checksum, created_at) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)");
     this.selectWorldInferenceLock = this.db.prepare("SELECT origin_id, turn_id, base_revision, snapshot, snapshot_checksum, resolution, resolution_checksum, manifest, manifest_checksum FROM world_inference_locks WHERE origin_id = ? AND turn_id = ?");
     this.updateWorldInferenceResolution = this.db.prepare("UPDATE world_inference_locks SET resolution = ?, resolution_checksum = ? WHERE origin_id = ? AND turn_id = ? AND resolution IS NULL");
@@ -408,7 +411,7 @@ class SqlitePersistenceStore {
       if (trace.operation === "turn" && ["COMMITTED", "REPLAYED"].includes(trace.commitStatus) && options.allowFinalTurnStatuses !== true) {
         throw new Error("runtime-trace-final-status-main-owned");
       }
-      const allowed = ["schemaVersion","traceInstanceId","recordedAt","traceId","operation","requestId","turnId","retrievalId","modelTraceId","modelId","modelQuantization","promptVersion","responseSchemaVersion","retrievalMode","retrievalSelectedCount","retrievalRejectedCount","inputTokens","outputTokens","firstTokenLatencyMs","latencyMs","repairCount","rejectionReasons","outcome","commitStatus"];
+      const allowed = ["schemaVersion","traceInstanceId","recordedAt","traceId","operation","requestId","turnId","retrievalId","modelTraceId","modelId","modelQuantization","promptVersion","responseSchemaVersion","retrievalMode","retrievalSelectedCount","retrievalRejectedCount","inputTokens","outputTokens","inputTokenAccuracy","outputTokenAccuracy","firstTokenLatencyMs","latencyMs","repairCount","rejectionReasons","outcome","commitStatus"];
       const sanitized = Object.fromEntries(allowed.map((field) => [field, trace[field]]));
       const raw = JSON.stringify(sanitized);
       if (Buffer.byteLength(raw, "utf8") > 16 * 1024) throw new Error("runtime-trace-too-large");
@@ -524,6 +527,28 @@ class SqlitePersistenceStore {
       if (!recordOf(parsed) || parsed.traceInstanceId !== row.trace_id) throw new Error("runtime-trace-corrupt");
       return parsed;
     }).reverse();
+  }
+
+  readProvenance(activeKey, options = {}) {
+    assertKey(activeKey);
+    if (!recordOf(options)) throw new Error("persistence-provenance-options-invalid");
+    const currentTurnId = options.currentTurnId === undefined ? null : requiredText(options.currentTurnId, "persistence-provenance-turn-invalid");
+    const payload = payloadFromRow(this.select.get(activeKey));
+    if (!payload) throw new Error("persistence-provenance-active-save-missing");
+    const journal = turnJournalFromPayload(payload);
+    if (!journal) {
+      return summarizeProvenance({ originId: null, legacyImport: true });
+    }
+    const durableTurns = this.listWorldTurns.all(journal.originId);
+    return summarizeProvenance({
+      originId: journal.originId,
+      transactions: journal.transactions,
+      durableTurns,
+      receipts: journal.retrievalReceipts,
+      claims: journal.mutationClaims,
+      currentTurnId,
+      legacyImport: journal.transactions.length === 0,
+    });
   }
 
   appendRuntimeTraces(activeKey, traces) {

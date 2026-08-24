@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { resolveRuntimePaths } from "../lib/runtime-paths.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const runner = path.join(root, "scripts", "release", "electron-persistence-lifecycle-runner.cjs");
@@ -45,7 +45,7 @@ function runPhase(electron, phase, userData, marker) {
   return new Promise((resolve, reject) => {
     const child = spawn(electron, [runner, phase, userData, marker], {
       cwd: root,
-      env: { ...process.env, GMZZ_USER_DATA: userData },
+      env: { ...runtimeEnv, GMZZ_USER_DATA: userData },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
@@ -110,8 +110,39 @@ function verifyDatabase(databasePath) {
 const suppliedUserData = option("--user-data");
 const outputPath = option("--output");
 const createdTemp = !suppliedUserData;
-const userData = path.resolve(suppliedUserData || fs.mkdtempSync(path.join(os.tmpdir(), "gmzz-pr4-lifecycle-")));
+const pathEnv = {
+  ...process.env,
+  GMZZ_REQUIRE_D_DRIVE: process.env.GMZZ_REQUIRE_D_DRIVE ?? "1",
+  ...(suppliedUserData ? { GMZZ_USER_DATA: suppliedUserData } : {}),
+};
+const runtimePaths = resolveRuntimePaths({ repoRoot: root, env: pathEnv });
+const runtimeEnv = {
+  ...pathEnv,
+  GMZZ_STORAGE_ROOT: runtimePaths.root,
+  GMZZ_USER_DATA: runtimePaths.userDataRoot,
+  RAG_INDEX_DIR: runtimePaths.ragRoot,
+  TEMP: runtimePaths.tempRoot,
+  TMP: runtimePaths.tempRoot,
+  npm_config_cache: runtimePaths.npmCacheRoot,
+  ELECTRON_CACHE: runtimePaths.electronCacheRoot,
+  ELECTRON_BUILDER_CACHE: runtimePaths.electronCacheRoot,
+  PLAYWRIGHT_BROWSERS_PATH: runtimePaths.playwrightRoot,
+};
+fs.mkdirSync(runtimePaths.tempRoot, { recursive: true });
+const userData = path.resolve(
+  suppliedUserData || fs.mkdtempSync(path.join(runtimePaths.tempRoot, "gmzz-pr4-lifecycle-")),
+);
 const marker = `pr4-${Date.now()}-${crypto.randomUUID()}`;
+
+function resolveOutputPath(value) {
+  if (!value) return null;
+  const target = path.resolve(value);
+  const relative = path.relative(runtimePaths.root, target);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error("PROJECT_RUNTIME_PATH_OUTSIDE_ROOT");
+  }
+  return target;
+}
 
 let report;
 try {
@@ -140,8 +171,9 @@ try {
     ],
     generatedAt: new Date().toISOString(),
   };
-  if (outputPath) {
-    const target = path.resolve(outputPath);
+  const resolvedOutputPath = resolveOutputPath(outputPath);
+  if (resolvedOutputPath) {
+    const target = resolvedOutputPath;
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   }

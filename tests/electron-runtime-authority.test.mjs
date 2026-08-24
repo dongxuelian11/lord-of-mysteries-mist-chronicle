@@ -36,6 +36,9 @@ test("Main preserves the frozen autonomous intent semantics while omitting the r
   assert.equal("runtimeAutonomousProposals" in bound, false);
   assert.equal(bound.adjudicatorWorld.proposals[0].autonomousIntent.intent, "调查东区钟楼");
   assert.equal(bound.adjudicatorWorld.proposals[0].autonomousIntent.disposition, "observe");
+  assert.equal(bound.worldContext.executionPlans[0].proposalId, "proposal:agent:4:actor:agent-a");
+  assert.ok(bound.worldContext.adjudicatorWorld.actors.some((actor) => actor.id === "agent-a"));
+  assert.equal(bound.worldContext.omissionReceipt.mustIncludeTruncation, 0);
 });
 
 function authorityRecord(store, marker, record) {
@@ -590,6 +593,7 @@ test("Main owns autonomous prompt construction and returns no private lore to re
   let ragRequest;
   let inferenceTask;
   let recordedProposal;
+  const materiality = [];
   const result = await requestAutonomousInference({
     task: "autonomous-planning",
     config: { provider: "deepseek", endpoint: "https://attacker.invalid", model: "world-model" },
@@ -598,6 +602,7 @@ test("Main owns autonomous prompt construction and returns no private lore to re
     loadAuthorityGame: () => game,
     readRecordedProposal: () => null,
     recordProposal: (_turnId, _baseRevision, proposal) => { recordedProposal = proposal; return proposal; },
+    recordMateriality: (event) => materiality.push(event.outcome),
     callRag: async (_type, request) => {
       ragRequest = request;
       return { available: true, indexVersion: "index-v1", records: [{ id: "lore:archive", title: "旧档案", content: privateLore, sourceId: "canon", sourceGrade: "A" }] };
@@ -617,6 +622,8 @@ test("Main owns autonomous prompt construction and returns no private lore to re
   assert.deepEqual(JSON.parse(result.content).proposal.targetRefs, ["location:north"]);
   assert.deepEqual(JSON.parse(result.content).proposal.usedMemoryIds, ["memory:promise"]);
   assert.deepEqual(recordedProposal, JSON.parse(result.content).proposal);
+  assert.equal(result.materiality, "model");
+  assert.deepEqual(materiality, ["attempted", "model"]);
 });
 
 test("Main rejects renderer-owned autonomous prompts and verbatim lore echoes", async () => {
@@ -699,6 +706,7 @@ test("Main replays an already-recorded autonomous proposal without another RAG o
     worldKernel: { actors: [{ id: "a" }], factions: [], projects: [], locations: [], events: [], observations: [], knowledge: [] },
   };
   let calls = 0;
+  const materiality = [];
   const result = await requestAutonomousInference({
     task: "autonomous-planning",
     config: { provider: "deepseek", model: "m" },
@@ -707,11 +715,14 @@ test("Main replays an already-recorded autonomous proposal without another RAG o
     loadAuthorityGame: () => game,
     readRecordedProposal: () => proposal,
     recordProposal: () => { throw new Error("must-not-record-again"); },
+    recordMateriality: (event) => materiality.push(event.outcome),
     callRag: async () => { calls += 1; },
     infer: async () => { calls += 1; },
   });
   assert.equal(calls, 0);
   assert.deepEqual(JSON.parse(result.content).proposal, proposal);
+  assert.equal(result.materiality, "reused");
+  assert.deepEqual(materiality, ["reused"]);
 });
 
 test("Main bounds every durable autonomous projection field before prompt construction", () => {
@@ -735,6 +746,48 @@ test("Main bounds every durable autonomous projection field before prompt constr
   const projection = autonomousProjection(game, "actor:a", 2);
   assert.ok(Buffer.byteLength(JSON.stringify(projection), "utf8") < 64 * 1024);
   assert.equal(JSON.stringify(projection).includes(huge), false);
+});
+
+test("Main autonomous projection uses one selected knowledge set and only observed locations", () => {
+  const { autonomousProjection } = require("../electron/autonomous-inference.cjs");
+  const knowledge = Array.from({ length: 20 }, (_, index) => ({
+    id: `knowledge:${index}`,
+    subject: "a",
+    statement: `主体已知事实 ${index}`,
+    visibility: "public",
+    acquiredWeek: 1,
+  }));
+  const game = {
+    week: 2,
+    memory: { events: [], beliefs: [], relationshipCauses: [], commitments: [], plans: [] },
+    worldAgents: {
+      activeAgentRefs: ["actor:a"],
+      profiles: [{ ref: "actor:a", displayName: "A", currentObjective: "观察", nextAction: "等待", riskTolerance: 20 }],
+      socialTies: [],
+    },
+    worldKernel: {
+      actors: [{ id: "a", locationId: "known" }],
+      factions: [],
+      projects: [],
+      locations: [
+        { id: "known", name: "已知地点", risk: 10, stability: 80, publicMood: "平静", conditions: [] },
+        { id: "hidden", name: "未观察地点", risk: 99, stability: 1, publicMood: "恐慌", conditions: ["危险"] },
+      ],
+      events: [{ id: "event:known", week: 2, title: "公开消息", detail: "已知地点的公开消息", locationId: "known", visibility: "public" }],
+      observations: [{ id: "observation:known", eventId: "event:known", holderRefs: ["actor:a"], perceivedRefs: [], visibility: "private", text: "已观察" }],
+      knowledge,
+    },
+  };
+
+  const projection = autonomousProjection(game, "actor:a", 2);
+  assert.deepEqual(
+    projection.agent.knownKnowledgeIds,
+    projection.visibleKnowledge.map((item) => item.id),
+  );
+  assert.equal(projection.agent.allowedLocationIds.includes("known"), true);
+  assert.equal(projection.agent.allowedLocationIds.includes("hidden"), false);
+  assert.match(projection.projectionHash, /^[a-f0-9]{64}$/);
+  assert.equal(JSON.stringify(projection).includes("未观察地点"), false);
 });
 
 test("Main records a deterministic autonomous fallback only after the bounded retry", async () => {
@@ -763,6 +816,7 @@ test("Main records a deterministic autonomous fallback only after the bounded re
     autonomousRequest: { principalRef: "actor:a", planningWeek: 2, baseRevision: 4, attempt: 1 },
   }, dependencies);
   assert.equal(recorded.planningSource, "deterministic-fallback");
+  assert.match(recorded.projectionHash, /^[a-f0-9]{64}$/);
   assert.deepEqual(JSON.parse(result.content).proposal, recorded);
 });
 

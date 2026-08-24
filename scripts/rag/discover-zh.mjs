@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 
-const gh = "C:\\Program Files\\GitHub CLI\\gh.exe";
+const gh = process.env.GH_CLI_PATH || "gh";
 
 function apiTree(repo, branch) {
   const out = execFileSync(

@@ -7,6 +7,15 @@ import type {
 } from "./world-authority-closure.ts";
 import { tryRecordRuntimeTrace } from "./runtime-trace.ts";
 import { sha256Hex } from "./sha256.ts";
+import "../shared/audience-projection.cjs";
+
+type AudienceProjectionCore = {
+  projectWorldForAudience(kernel: unknown, audience: unknown, hashFn?: (value: string) => string): unknown;
+};
+
+const audienceProjectionCore = (globalThis as typeof globalThis & {
+  __GMZZ_AUDIENCE_PROJECTION__?: AudienceProjectionCore;
+}).__GMZZ_AUDIENCE_PROJECTION__;
 
 export type WorldVisibility = "world" | "public" | "player" | "actors";
 
@@ -636,15 +645,6 @@ function holderIncludes(holderIds: string[], holderRefs: string[] | undefined, r
     : holderIds.includes(legacyId);
 }
 
-function canSee(visibility: WorldVisibility, holderIds: string[], holderRefs: string[] | undefined, audience: WorldAudience) {
-  if (audience.kind === "world") return true;
-  if (visibility === "public") return true;
-  const directlyHeld = holderIncludes(holderIds, holderRefs, audienceRef(audience), audience.holderId);
-  if (visibility === "player") return audience.kind === "player" || directlyHeld;
-  if (visibility === "actors") return directlyHeld;
-  return false;
-}
-
 export type AudienceLocationProjection = {
   id: string;
   name: string;
@@ -682,136 +682,12 @@ export type AudienceWorldProjection = {
   projectionHash: string;
 };
 
-function projectLocationForAudience(
-  location: PersistentWorldLocation,
-  audience: WorldAudience,
-  eventsByLocationId: ReadonlyMap<string, AudienceWorldEvent[]>,
-  observationsByEventId: ReadonlyMap<string, WorldObservation[]>,
-): AudienceLocationProjection {
-  const locationEvents = eventsByLocationId.get(location.id) ?? [];
-  const locationObservations = locationEvents.flatMap((event) => observationsByEventId.get(event.id) ?? []);
-  const knownActorIds = new Set<string>();
-  const knownFactionIds = new Set<string>();
-  for (const event of locationEvents) {
-    for (const actorId of event.knownActorIds) knownActorIds.add(actorId);
-    for (const factionId of event.knownFactionIds) knownFactionIds.add(factionId);
-  }
-  for (const observation of locationObservations) {
-    for (const perceivedRef of observation.perceivedRefs ?? []) {
-      const actor = perceivedRef.match(/^actor:(.+)$/)?.[1];
-      const faction = perceivedRef.match(/^faction:(.+)$/)?.[1];
-      if (actor) knownActorIds.add(actor);
-      if (faction) knownFactionIds.add(faction);
-    }
-  }
-  if (audience.kind === "actor" && location.actorIds.includes(audience.holderId)) knownActorIds.add(audience.holderId);
-  if (audience.kind === "faction" && location.factionIds.includes(audience.holderId)) knownFactionIds.add(audience.holderId);
-  const visibleText = [
-    ...locationEvents.flatMap((event) => [event.title, event.detail]),
-    ...locationObservations.map((observation) => observation.text),
-  ].join("\n");
-  const knownConditions = location.conditions.filter((condition) => condition.trim() && visibleText.includes(condition));
-  const riskText = visibleText.match(/(?:致命|极度危险|高度危险|危机|危险|风险上升|不安全|警戒|安全|平静)/)?.[0] ?? "";
-  const stabilityText = visibleText.match(/(?:完全失控|混乱|动荡|不稳|秩序恢复|秩序稳定|平静)/)?.[0] ?? "";
-  const perceivedRisk = !riskText ? null : /致命|极度危险/.test(riskText) ? 90 : /高度危险|危机/.test(riskText) ? 75 : /危险|风险上升|不安全|警戒/.test(riskText) ? 60 : 20;
-  const stability = !stabilityText ? null : /完全失控/.test(stabilityText) ? 10 : /混乱|动荡/.test(stabilityText) ? 30 : /不稳/.test(stabilityText) ? 45 : /秩序恢复/.test(stabilityText) ? 65 : 80;
-  const observedWeeks = [...locationEvents.map((event) => event.week), ...locationObservations.map((observation) => observation.week)];
-  return {
-    id: location.id,
-    name: location.name,
-    knownConditions: [...new Set(knownConditions)].slice(-8),
-    knownActorIds: [...knownActorIds].sort(),
-    knownFactionIds: [...knownFactionIds].sort(),
-    perceivedRisk,
-    publicMood: location.publicMood.trim() && visibleText.includes(location.publicMood) ? location.publicMood : null,
-    stability,
-    observedWeek: observedWeeks.length ? Math.max(...observedWeeks) : null,
-  };
-}
-
 export function projectWorldForAudience(kernel: WorldKernel, audience: Extract<WorldAudience, { kind: "world" }>): WorldKernel;
 export function projectWorldForAudience(kernel: WorldKernel, audience: Exclude<WorldAudience, { kind: "world" }>): AudienceWorldProjection;
 export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudience): WorldKernel | AudienceWorldProjection;
 export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudience): WorldKernel | AudienceWorldProjection {
-  if (audience.kind === "world") return kernel;
-  const visibleObservations = kernel.observations.filter((observation) => canSee(observation.visibility, observation.holderIds, observation.holderRefs, audience));
-  const observableEventIds = new Set(visibleObservations.map((observation) => observation.eventId));
-  const reference = audienceRef(audience);
-  const visibleEvents = kernel.events.filter((event) => event.visibility === "public" || observableEventIds.has(event.id));
-  const visibleKnowledge = kernel.knowledge.filter((node) => canSee(node.visibility, node.holderIds, node.holderRefs, audience));
-  const visibleKnowledgeGrants = (kernel.knowledgeGrants ?? []).filter((grant) => grant.holderRef === reference);
-  const observationsByEventId = new Map<string, WorldObservation[]>();
-  for (const observation of visibleObservations) {
-    const eventObservations = observationsByEventId.get(observation.eventId) ?? [];
-    eventObservations.push(observation);
-    observationsByEventId.set(observation.eventId, eventObservations);
-  }
-  const locationById = new Map(kernel.locations.map((location) => [location.id, location]));
-  const audienceEvents: AudienceWorldEvent[] = visibleEvents.map((event) => {
-    const eventObservations = observationsByEventId.get(event.id) ?? [];
-    const perceivedRefs = eventObservations.flatMap((observation) => observation.perceivedRefs ?? []);
-    const knownActorIds = new Set(perceivedRefs.flatMap((item) => item.startsWith("actor:") ? [item.slice("actor:".length)] : []));
-    const knownFactionIds = new Set(perceivedRefs.flatMap((item) => item.startsWith("faction:") ? [item.slice("faction:".length)] : []));
-    if (audience.kind === "actor" && event.actorIds.includes(audience.holderId)) knownActorIds.add(audience.holderId);
-    if (audience.kind === "faction" && event.factionIds.includes(audience.holderId)) knownFactionIds.add(audience.holderId);
-    const observationText = eventObservations.map((observation) => observation.text).filter(Boolean).join("；");
-    const eventLocation = event.locationId ? locationById.get(event.locationId) : undefined;
-    const observedLocationId = event.visibility === "public"
-      || Boolean(eventLocation && eventObservations.some((observation) => observation.text.includes(eventLocation.id) || observation.text.includes(eventLocation.name)))
-      ? event.locationId
-      : undefined;
-    return {
-      id: event.id,
-      week: event.week,
-      title: event.visibility === "public" ? event.title : eventObservations[0]?.channel ?? "可见变化",
-      detail: event.visibility === "public" ? event.detail : observationText,
-      locationId: observedLocationId,
-      visibility: event.visibility,
-      knownActorIds: [...knownActorIds].sort(),
-      knownFactionIds: [...knownFactionIds].sort(),
-      observationIds: eventObservations.map((observation) => observation.id).sort(),
-    };
-  });
-  const eventsByLocationId = new Map<string, AudienceWorldEvent[]>();
-  for (const event of audienceEvents) {
-    if (!event.locationId) continue;
-    const locationEvents = eventsByLocationId.get(event.locationId) ?? [];
-    locationEvents.push(event);
-    eventsByLocationId.set(event.locationId, locationEvents);
-  }
-  const locations = kernel.locations.map((location) => projectLocationForAudience(location, audience, eventsByLocationId, observationsByEventId));
-  const audienceObservations: AudienceWorldObservation[] = visibleObservations.map(({ id, week, eventId, channel, text, visibility, perceivedRefs, acquisitionKind }) => ({ id, week, eventId, channel, text, visibility, perceivedRefs, acquisitionKind }));
-  const grantByKnowledgeId = new Map(visibleKnowledgeGrants.map((grant) => [grant.knowledgeId, grant.kind]));
-  const audienceKnowledge: AudienceWorldKnowledge[] = visibleKnowledge.map(({ id, subject, statement, visibility, acquiredWeek }) => {
-    const grantKind = grantByKnowledgeId.get(id);
-    const epistemicStatus = grantKind === "witness" ? "witnessed"
-      : grantKind === "communication" ? "communicated"
-        : grantKind === "investigation" ? "investigated"
-          : grantKind === "propagation" ? "propagated"
-            : visibility === "public" ? "public-report" : "held";
-    return { id, subject, statement, visibility, acquiredWeek, epistemicStatus };
-  });
-  const audienceKnowledgeGrants: AudienceKnowledgeGrant[] = visibleKnowledgeGrants.map(({ knowledgeId, kind }) => ({ knowledgeId, kind }));
-  const projectionHash = hashText(stableSerialize({
-    audience: reference,
-    currentWeek: kernel.currentWeek,
-    currentDate: kernel.currentDate,
-    locations,
-    events: audienceEvents,
-    observations: audienceObservations,
-    knowledge: audienceKnowledge,
-    knowledgeGrants: audienceKnowledgeGrants,
-  }));
-  return {
-    currentWeek: kernel.currentWeek,
-    currentDate: kernel.currentDate,
-    locations,
-    events: audienceEvents,
-    observations: audienceObservations,
-    knowledge: audienceKnowledge,
-    knowledgeGrants: audienceKnowledgeGrants,
-    projectionHash,
-  };
+  if (!audienceProjectionCore) throw new Error("AUDIENCE_PROJECTION_CORE_UNAVAILABLE");
+  return audienceProjectionCore.projectWorldForAudience(kernel, audience, sha256Hex) as WorldKernel | AudienceWorldProjection;
 }
 
 export function deliverWorldPerceptions(kernel: WorldKernel, audiences: WorldAudience[]) {

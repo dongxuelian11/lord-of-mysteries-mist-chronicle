@@ -1,15 +1,24 @@
-// 把 private/rag/index 原子导出到 Electron 用户数据目录（%APPDATA%/灰雾纪事/rag/index）。
+// 把 private/rag/index 原子导出到显式项目运行根的 Electron userData/rag/index。
 // 渲染端不再加载完整索引；检索由 Electron RAG Worker 读取此目录。
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { indexDir, readJson } from "./lib/paths.mjs";
+import { resolveRuntimePaths } from "../lib/runtime-paths.mjs";
 
-export function userDataRagDirs() {
-  const appData = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
+function pathFor(platform) {
+  return platform === "win32" ? path.win32 : path.posix;
+}
+
+export function userDataRagDirs({ env = process.env, platform = process.platform } = {}) {
+  const runtimeEnv = {
+    ...env,
+    GMZZ_REQUIRE_D_DRIVE: env?.GMZZ_REQUIRE_D_DRIVE ?? "1",
+  };
+  const runtimePaths = resolveRuntimePaths({ env: runtimeEnv, platform });
+  const pathApi = pathFor(platform);
+  const configuredIndex = typeof env?.RAG_INDEX_DIR === "string" ? env.RAG_INDEX_DIR.trim() : "";
   return [
-    path.join(appData, "灰雾纪事", "rag", "index"),
-    path.join(appData, "mist-chronicle-prototype", "rag", "index"),
+    configuredIndex ? runtimePaths.ragRoot : pathApi.join(runtimePaths.userDataRoot, "rag", "index"),
   ];
 }
 

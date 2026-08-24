@@ -24,6 +24,14 @@ type MistPersistenceResult = {
   checksum?: string;
   records?: Array<{ quarantineId: string; originalKey: string; error: string; quarantinedAt: string; storedChecksum: string; calculatedChecksum: string }>;
   traces?: Array<Record<string, unknown>>;
+  provenanceStatus?: "current-turn" | "durable-turn" | "legacy-import" | "unproven-import";
+  oldestReplayableWeek?: number | null;
+  oldestDurablyOwnedWeek?: number | null;
+  replayability?: { status: "replayable" | "partial" | "unreplayable"; reason: string | null };
+  unreplayableReason?: string | null;
+  authority?: Array<{ kind: string; id: string | null; turnId: string | null; resolvingWeek: number | null; provenanceStatus: "current-turn" | "durable-turn" | "legacy-import" | "unproven-import" }>;
+  retainedTurnCount?: number;
+  durableTurnCount?: number;
   quarantined?: boolean;
   error?: string;
 };
@@ -65,6 +73,7 @@ declare global {
       appendRecovery(key: string, checkpoint: unknown, maxEntries?: number): Promise<MistPersistenceResult>;
       commitTurn(key: string, payload: string, traces?: Array<Record<string, unknown>>): Promise<MistPersistenceResult>;
       runtimeTraces(originId: string, limit?: number): Promise<MistPersistenceResult>;
+      provenance(key: string, options?: { currentTurnId?: string }): Promise<MistPersistenceResult>;
       listQuarantine(key: string): Promise<MistPersistenceResult>;
       replaceWithRecovery(activeKey: string, payload: string, recoveryKey: string, checkpoint: unknown, maxEntries?: number): Promise<MistPersistenceResult>;
       quarantine(key: string, reason: string): Promise<MistPersistenceResult>;

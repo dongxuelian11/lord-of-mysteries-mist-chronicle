@@ -419,6 +419,7 @@ export function adaptWorldAdjudication(
     proposalBoundaries: ReadonlyMap<string, ExecutableProposalBoundary>;
     formulaProposalAuthorizations?: ReadonlyMap<string, FormulaProposalAuthorization>;
     retrievalReceipt?: RetrievalReceipt;
+    requireSourcedPublicSignals?: boolean;
   },
 ) {
   const basics = parseWorldAdjudicationBasics(raw, options.game, options.resolvingWeek);
@@ -432,11 +433,46 @@ export function adaptWorldAdjudication(
     proposalBoundaries: options.proposalBoundaries,
     retrievalReceipt: options.retrievalReceipt,
   });
+  if (options.requireSourcedPublicSignals) assertSourcedPublicSignals(raw, kernelDelta, basics.publicSignals, options.resolvingWeek, options.allowedProposalIds);
   const sidecarAuthority = validatePersistentSidecars(raw, kernelDelta, options.game, options.resolvingWeek, options.allowedProposalIds, options.proposalBoundaries, options.formulaProposalAuthorizations ?? new Map(), basics.publicSignals);
   return {
     ...basics,
     ...sidecarAuthority,
   };
+}
+
+function assertSourcedPublicSignals(raw: Record<string, unknown>, kernelDelta: WorldTurnDelta, publicSignals: WorldSignal[], resolvingWeek: number, allowedProposalIds: ReadonlySet<string>) {
+  if (publicSignals.length === 0) return;
+  const rawSignals = Array.isArray(raw.publicSignals) ? raw.publicSignals : [];
+  const rawKernel = raw.kernelDelta && typeof raw.kernelDelta === "object" && !Array.isArray(raw.kernelDelta) ? raw.kernelDelta as Record<string, unknown> : {};
+  const rawEvents = Array.isArray(rawKernel.events) ? rawKernel.events.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))) : [];
+  const normalizedEventId = (requested: string) => {
+    if (kernelDelta.events.some((event) => event.id === requested)) return requested;
+    const source = rawEvents.find((event) => String(event.id ?? "").trim() === requested);
+    if (!source) return "";
+    const title = typeof source.title === "string" ? source.title.trim().slice(0, 80) : "";
+    const detail = typeof source.detail === "string" ? source.detail.trim().slice(0, 520) : "";
+    const sources = Array.isArray(source.sourceProposalIds) ? [...new Set(source.sourceProposalIds.map(String).filter((id) => allowedProposalIds.has(id)))].slice(0, 8) : [];
+    if (!title || !detail || !sources.length) return "";
+    const normalized = stableEntityId("world-event", resolvingWeek, requested, title, detail, sources);
+    return kernelDelta.events.some((event) => event.id === normalized) ? normalized : "";
+  };
+  const missing = publicSignals.some((signal, index) => {
+    const source = rawSignals[index] && typeof rawSignals[index] === "object" && !Array.isArray(rawSignals[index]) ? rawSignals[index] as Record<string, unknown> : null;
+    const proposalId = typeof source?.sourceProposalId === "string" ? source.sourceProposalId.trim() : "";
+    const requestedEventId = typeof source?.sourceEventId === "string" ? source.sourceEventId.trim() : "";
+    const sourceObservation = typeof source?.sourceObservation === "string" ? source.sourceObservation.trim() : "";
+    const event = kernelDelta.events.find((candidate) => candidate.id === normalizedEventId(requestedEventId));
+    const claim = event && kernelDelta.mutationClaims?.some((candidate) => candidate.proposalId === proposalId
+      && candidate.effectKind === "event"
+      && candidate.subjectRef === `event:${event.id}`
+      && (!candidate.sourceEventId || candidate.sourceEventId === event.id));
+    const observation = event && kernelDelta.observations.some((candidate) => candidate.eventId === event.id
+      && candidate.text === sourceObservation
+      && ["public", "player"].includes(candidate.visibility));
+    return !proposalId || !requestedEventId || sourceObservation !== signal.body || !event || !claim || !observation;
+  });
+  if (missing) throw new Error("PUBLIC_SIGNAL_PROVENANCE_REJECTED: 每条非空公开消息必须绑定本轮事件、可见观察与 event mutation claim");
 }
 
 function validatePersistentSidecars(
@@ -652,6 +688,9 @@ function parseWorldAdjudicationBasics(
   game: Pick<GameState, "week" | "factions" | "campaignWorld">,
   resolvingWeek: number,
 ) {
+  if (Array.isArray(raw.publicSignals) && raw.publicSignals.length > 4) {
+    throw new Error("PUBLIC_SIGNAL_LIMIT_REJECTED: 公开消息最多4条");
+  }
   const moves = Array.isArray(raw.factionMoves) ? raw.factionMoves.slice(0, 5) : [];
   const worldMoves: WorldMove[] = [];
   for (const [index, move] of moves.entries()) {
@@ -710,8 +749,6 @@ function parseWorldAdjudicationBasics(
         }];
       })
     : [];
-  if (publicSignals.length < 2) throw new Error("世界模型没有生成固定报纸所需的2条公开消息，本周拒绝结算");
-
   const summary = raw.worldSummary && typeof raw.worldSummary === "object" && !Array.isArray(raw.worldSummary)
     ? raw.worldSummary as Record<string, unknown>
     : {};

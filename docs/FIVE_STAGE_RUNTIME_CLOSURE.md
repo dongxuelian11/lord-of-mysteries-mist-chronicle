@@ -1,8 +1,8 @@
 # 五阶段运行时闭环执行账本
 
-状态：五阶段运行时闭环与合并前独立复审确认的缺陷均已进入运行代码；交付状态以 GitHub PR #3 为准，发行证据仍保持字面真值
+状态：五阶段运行时闭环与合并前独立复审确认的缺陷均已进入运行代码；最新已合并交付为 GitHub PR #4（source `1aed3d8`，merge `c75eb6b`，tree 相同），发行证据仍保持字面真值
 开始时间：2026-08-23
-当前阶段：最终独立代码级复核与精确 write-set — 完成
+当前阶段：DSK-01B、AUTH-01、SEC-01、COV-01、ARCH-01、GATE-01、SCHED-01 与 PROV-01 代码闭环完成；REL-01 的 source-stage 校验完成，但授权 seed、installer、clean-machine、production 与 human evidence 仍按字面真值保持 BLOCKED/NOT_AVAILABLE。SEC-01 的 Electron 主流程 smoke 被本机 Chromium GPU 在 ready 前阻断，同构建生产服务器已在 D 盘环境返回 HTTP 200，不能升级为 Electron smoke。
 远端边界：仅在锁定 exact head 的计划效果复核、独立审查、必需 CI 与用户授权全部满足后合并；合并不得升级为 installer、clean-machine、production 或 human evidence。
 
 ## 任务目标
@@ -72,6 +72,20 @@
 - final Prompt 对 lore 正文独立截断，ID/receipt 仍可能授权未展示全文。
 - 持久化读错误可能被折叠成“无记录”，恢复点写入但没有产品恢复入口。
 - FNV 碰撞和有限窗口允许权威身份或旧 ID 复用。
+
+### 2026-08-24 · SEC-01 CSP 代码闭环
+
+- 先写红测：`script-src` 切片观察到 `4 pass / 1 fail` 后移除 `script-src 'unsafe-inline'`；`style-src` 切片在迁移前保持失败。
+- 4 个 React 组件的 8 处动态 style 属性改为受限 SVG/CSS/data attribute 表现；`style={{` 生产源扫描为 0；CSP 不含 `unsafe-inline`，SSR bootstrap 改由每响应 nonce 授权，保留 `object-src 'none'`、`base-uri`、`frame-ancestors` 与 sender 门禁。
+- 定向安全回归 `7/7`，全量 `npm test` `507/502/5/0`，typecheck、lint、build、bundle budget、D storage preflight 均通过；手工 D-runtime SSR nonce 检查为两次不同 nonce、每次 7/7 scripts 匹配。
+- `node electron/server.mjs` 在 D 盘环境端口 3222 返回 HTTP 200（9359 bytes）；Electron 主流程 smoke 仍是 `BLOCKED`：本机 Chromium GPU 在 ready 前退出，不能把服务器结果升级为 Electron smoke。
+- 下一动作回到 `COV-01`；依赖安装授权仍为 `NO`，不安装、不伪造覆盖率。
+
+### 2026-08-24 · COV-01 反假绿验证器准备
+
+- 新增 provider-independent `verify-code-coverage.mjs`：没有 source entries、executable counters、权威源文件、commit 绑定、report digest 或 manifest 时均 fail closed。
+- 6 个 verifier 行为测试通过；完整 D 盘回归更新为 `513/508/5/0`。这只证明验证器行为，不证明真实 source coverage。
+- `vitest`、`@vitest/coverage-v8`、`c8` 仍不在 node_modules、D 盘 npm cache 或 lockfile；下一动作仍是等待明确依赖安装授权。
 
 ## 压缩恢复规则
 
@@ -368,3 +382,17 @@
 - 本地门禁：生产 build 与全量测试通过，485 项中 480 通过、5 项条件跳过、0 失败；typecheck、lint（0 warning）、202 个 CJS/MJS syntax、`git diff --check`、source release verify 与 bundle budget 均通过，最大 chunk 188.0 KiB / 450 KiB。
 - 发行真值：`release:verify:seed` 仍以退出码 1 报 `seed-manifest-missing`；installer smoke 为 `BLOCKED / NOT_RUN`，clean-machine、production 与 human evidence 为 `NOT_AVAILABLE`。
 - 合并门禁状态：本地实现、代码级复核与门禁已完成；fresh remote CURRENT、精确 write-set、锁定提交、exact-head CI、合并和 resulting-main CI 仍须以后续实际执行结果为准，不预先升级。
+
+### 2026-08-24 · 当前计划效果复核与发行证据边界
+
+- PROV-01 已完成：只读 `persistence:provenance` 从 Main SQLite 暴露 `current-turn`、`durable-turn`、`legacy-import`、`unproven-import`，保留 durable replay range 并明确 aged-out/unreplayable 原因；定向集合 `17/17 PASS`，不改历史 `turnId` 或玩家投影。
+- 代码级目标复核：`game-engine.ts` façade `355` 行 / `25,733` bytes；world-turn owner `927` 行 / `61,395` bytes；真实执行路径检查确认 provider capability、scheduler、provenance、中文 contract parser 和 leak policy 都有 owner 与 fail-closed 边界。NLP 对抗审计新增 colloquial negation 与 alternative-target hardening，生产 façade 对 ambiguous target 使用 `待确认目标`。
+- 最终本地 D 盘门禁：full `npm test` `571 total / 566 pass / 5 skipped / 0 fail`；coverage `14 sources / 8,921 counters / 35.67% statements / 24.02% branches / 28.67% functions / 41.02% lines`，manifest SHA-256=`81e317c590ce9337116d25d89f1c1a4550971b9f889e6714e5986532176ff2f0`；typecheck/lint/build/strict NLP/strict leak/leak benchmark/bundle/storage 全部通过。
+- REL-01 保持 `BLOCKED`：`release:verify` source PASS；seed/artifact 阶段明确返回 `seed-manifest-missing`；installer smoke 为 `NOT_RUN`，clean-machine、production、human evidence 为 `NOT_AVAILABLE`。没有用户明确授权，不 stage、commit、push 或 merge；远端只读 CURRENT 为 `c75eb6b03c6529d3eb14d536cb4a73e086f12e40`，本轮未 fetch 或比较 tree。
+- 本轮源代码与文件系统复核确认：façade→owner 无反向依赖；Main 在 runtime path 失败时先退出；provenance IPC/SQLite 只读；`private/rag/index` 与 `release` 均不存在，seed/artifact 在写入发行物前 fail closed。剩余阻塞是授权 seed 与独立外部证据，不是已定位的本地业务代码缺陷。
+
+### 2026-08-24 · REL-01.1 本地 seed 输入路径修复
+
+- `scripts/release/verify-release.mjs` 现在支持绝对 D 盘 `KNOWLEDGE_SEED_DIR`：显式目录先完整校验，再按 manifest 暂存到 `GMZZ_STORAGE_ROOT\release-seed`；C 盘、相对路径、缺失目录和哈希不匹配均 fail-closed，不再静默回退到 `private/rag/index`。
+- `tests/release-evidence.test.mjs` 的 RED→GREEN 定向回归为 `9/9 PASS`；可选 manifest 文件也被验证为实际暂存。该修复没有创造任何 seed 或发行证据。
+- 发行外部门禁仍未改变：没有合法授权 seed 时 seed/artifact 继续 `BLOCKED`，installer smoke 为 `NOT_RUN`，clean-machine、production、human evidence 为 `NOT_AVAILABLE`。

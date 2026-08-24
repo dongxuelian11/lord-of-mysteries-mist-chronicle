@@ -13,9 +13,12 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import http from "node:http";
 import net from "node:net";
+import { prepareQaEnvironment, resolveQaPaths } from "./lib/qa-paths.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const runtimeDir = join(root, ".runtime");
+const qaPaths = resolveQaPaths({ env: process.env });
+const qaEnv = prepareQaEnvironment({ env: process.env, runtimePaths: qaPaths });
+const runtimeDir = qaPaths.qaRoot;
 mkdirSync(runtimeDir, { recursive: true });
 const devLogPath = join(runtimeDir, "dev.log");
 const devErrLogPath = join(runtimeDir, "dev-error.log");
@@ -39,6 +42,8 @@ const comSpec = process.env.ComSpec || "cmd.exe";
 
 let serverProc = null;
 let browserProc = null;
+let devLogStream = null;
+let devErrLogStream = null;
 let cleaned = false;
 
 function freePort(start) {
@@ -108,6 +113,12 @@ function cleanup() {
   cleaned = true;
   if (browserProc) killTree(browserProc.pid);
   if (serverProc) killTree(serverProc.pid);
+  serverProc?.stdout?.unpipe(devLogStream);
+  serverProc?.stderr?.unpipe(devErrLogStream);
+  devLogStream?.destroy();
+  devErrLogStream?.destroy();
+  devLogStream = null;
+  devErrLogStream = null;
 }
 
 process.on("SIGINT", () => {
@@ -136,8 +147,7 @@ function findBrowser() {
 function openGameWindow(url) {
   const browser = findBrowser();
   if (!browser) return null;
-  const profileBase = process.env.LOCALAPPDATA || runtimeDir;
-  const profile = join(profileBase, "mist-chronicle-game-profile");
+  const profile = join(qaPaths.tempRoot, "mist-chronicle-game-profile");
   mkdirSync(profile, { recursive: true });
   const args = [
     `--app=${url}`,
@@ -147,7 +157,7 @@ function openGameWindow(url) {
     "--disable-background-mode",
     "--new-window",
   ];
-  const proc = spawn(browser, args, { stdio: "ignore", windowsHide: false });
+  const proc = spawn(browser, args, { env: qaEnv, stdio: "ignore", windowsHide: false });
   proc.on("error", () => {});
   return proc;
 }
@@ -162,6 +172,7 @@ async function main() {
     const code = await new Promise((resolve) => {
       const child = spawn(comSpec, ["/d", "/s", "/c", "npm install"], {
         cwd: root,
+        env: qaEnv,
         stdio: "inherit",
         windowsHide: true,
       });
@@ -180,16 +191,17 @@ async function main() {
     warn(`端口 ${port} 已有服务在运行，直接打开该地址。`);
   } else {
     log(`正在启动开发服务（端口 ${port}）…`);
-    const out = createWriteStream(devLogPath, { flags: "a" });
-    const err = createWriteStream(devErrLogPath, { flags: "a" });
-    out.write(`\n[${new Date().toISOString()}] launcher: starting dev server on ${port}\n`);
+    devLogStream = createWriteStream(devLogPath, { flags: "a" });
+    devErrLogStream = createWriteStream(devErrLogPath, { flags: "a" });
+    devLogStream.write(`\n[${new Date().toISOString()}] launcher: starting dev server on ${port}\n`);
     serverProc = spawn(comSpec, ["/d", "/s", "/c", `npm run dev -- --port ${port}`], {
       cwd: root,
+      env: qaEnv,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
-    serverProc.stdout.pipe(out);
-    serverProc.stderr.pipe(err);
+    serverProc.stdout.pipe(devLogStream);
+    serverProc.stderr.pipe(devErrLogStream);
     serverProc.on("exit", (code) => {
       if (cleaned) return;
       error(`开发服务意外退出（exit code=${code}）。`);
@@ -242,4 +254,5 @@ main()
   .finally(() => {
     cleanup();
     log("服务已停止，后台进程已清理。");
+    if (waitSeconds > 0) process.exit(process.exitCode ?? 0);
   });

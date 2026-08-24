@@ -18,6 +18,36 @@ seed ZIP 内必须且只能有一个 `seed-manifest.json` 所在目录；该目�
 构建前由 `electron/knowledge-seed.cjs` 重新校验 schema、逐文件大小与 SHA-256。
 原始 TXT、EPUB、仓库缓存与可执行文件不得进入 seed。
 
+### 本机受控 C-grade 构建说明
+
+本轮由项目负责人明确授权 `D:\gmzz\app\generated-lore-compendium.ts` 作为
+本版本知识源，并接受 `generated/C-grade` provenance。该文件当前是公开占位版，
+`LORE_RECORDS` 为 0；本机 seed 因而只包含占位 compendium 加项目自有文档切片，
+不能标记为原著 canonical 知识库，也不能替代正式发布所需的官方 seed ZIP。
+构建产物可以作为本机 C-grade unsigned prerelease candidate，正式签名发布仍需
+代码签名证书和独立 clean-machine/production/human evidence。
+本次工作树仍为 `DIRTY_UNCOMMITTED`，所以 `release/provenance.json` 中的
+`sourceCommit` 仅是 HEAD 锚点，不代表 clean exact-main 或正式 tag 证明。
+
+## 本机受控 seed 资格验证
+
+本机不会根据 URL 自动下载 seed，也不会在没有明确授权时从生成的 lore 或空壳
+索引重建 seed。若负责人已明确授权一个本地 C-grade 来源，或已有合法授权 seed
+目录，可在 D 盘设置绝对路径：
+
+```powershell
+$env:GMZZ_STORAGE_ROOT = 'D:\gmzz\.runtime'
+$env:GMZZ_REQUIRE_D_DRIVE = '1'
+$env:KNOWLEDGE_SEED_DIR = 'D:\authorized\mist-chronicle-seed'
+npm run release:verify:seed
+```
+
+`KNOWLEDGE_SEED_DIR` 存在时，验证器不会回退到仓库目录；它先校验来源
+manifest 与逐文件哈希，再把 manifest 声明的文件暂存到
+`<GMZZ_STORAGE_ROOT>\release-seed`。Windows 下来源和运行目录必须解析到 D 盘，
+路径非法、seed 缺失或哈希不匹配都会保持 fail-closed。CI 的 URL/SHA 下载仍只
+由受保护的 release workflow 执行。
+
 ## 发布门禁
 
 发布任务依次执行：版本/tag 校验、seed 下载与哈希校验、TypeScript、ESLint、

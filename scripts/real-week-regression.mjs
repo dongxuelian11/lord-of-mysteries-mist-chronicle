@@ -5,21 +5,28 @@
 //   DEEPSEEK_ENDPOINT=https://api.deepseek.com
 //   DEEPSEEK_MODEL=deepseek-v4-flash
 import { createServer } from "vite";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { JsHybridRetriever } from "./rag/lib/search.mjs";
+import { resolveRuntimePaths } from "./lib/runtime-paths.mjs";
 
 const argumentsList = process.argv.slice(2);
 const weeks = Math.max(1, Math.min(20, Number(argumentsList.find((item) => /^\d+$/.test(item)) || 3)));
 const resume = argumentsList.includes("--resume");
 const requirePrivateKnowledge = argumentsList.includes("--require-private-knowledge");
-const checkpointPath = join(tmpdir(), "mist-chronicle-real-week-regression.json");
 const apiKey = process.env.DEEPSEEK_API_KEY || "";
 if (!apiKey) {
   console.error("缺少 DEEPSEEK_API_KEY 环境变量");
   process.exit(1);
 }
+
+const runtimeEnv = {
+  ...process.env,
+  GMZZ_REQUIRE_D_DRIVE: process.env.GMZZ_REQUIRE_D_DRIVE ?? "1",
+};
+const runtimePaths = resolveRuntimePaths({ env: runtimeEnv });
+mkdirSync(runtimePaths.tempRoot, { recursive: true });
+const checkpointPath = join(runtimePaths.tempRoot, "mist-chronicle-real-week-regression.json");
 
 globalThis.window = globalThis;
 
@@ -39,7 +46,7 @@ function mergeCounts(entries, field) {
   }, {});
 }
 
-const ragIndexDir = process.env.RAG_INDEX_DIR || join(process.env.APPDATA || "", "mist-chronicle-prototype", "rag", "index");
+const ragIndexDir = process.env.RAG_INDEX_DIR?.trim() || runtimePaths.ragRoot;
 const ragMetrics = [];
 let ragChunkCount = 0;
 if (existsSync(join(ragIndexDir, "index.meta.json"))) {

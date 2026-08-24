@@ -55,6 +55,7 @@ test("persistence IPC exposes bounded save, durable turn, quarantine, and recove
     quarantineItem() { return { quarantined: true, quarantineId: "quarantine:1" }; },
     replaceWithRecovery() { return { durable: true, recoverySaved: true }; },
     readRuntimeTraces() { return [{ traceInstanceId: "instance-1" }]; },
+    readProvenance() { return { provenanceStatus: "durable-turn", oldestReplayableWeek: 1, oldestDurablyOwnedWeek: 1, replayability: { status: "replayable", reason: null }, authority: [] }; },
     appendRuntimeTraces() { return { saved: true, originId: "save-1:main", count: 1 }; },
   };
   const handlers = harness(store);
@@ -70,6 +71,8 @@ test("persistence IPC exposes bounded save, durable turn, quarantine, and recove
   assert.equal((await handlers.get("persistence:quarantine")(event, "mist-chronicle-complete-v21", "invalid-save")).quarantined, true);
   assert.equal((await handlers.get("persistence:replace-with-recovery")(event, "mist-chronicle-complete-v21", "payload", "mist-chronicle-recovery-v21", { id: "r2", game: { worldKernel: {} } })).durable, true);
   assert.equal((await handlers.get("persistence:runtime-traces")(event, "save-1:main", 10)).traces[0].traceInstanceId, "instance-1");
+  assert.equal((await handlers.get("persistence:provenance")(event, "mist-chronicle-complete-v21", { currentTurnId: "world:2" })).provenanceStatus, "durable-turn");
+  assert.deepEqual(await handlers.get("persistence:provenance")(event, "mist-chronicle-recovery-v21", { unsupported: true }), { available: false, error: "invalid-request" });
   assert.equal((await handlers.get("persistence:append-runtime-traces")(event, "mist-chronicle-complete-v21", [{ traceInstanceId: "instance-1" }])).saved, true);
   assert.deepEqual(await handlers.get("persistence:get")(event, "mist-chronicle-complete-v21"), {
     available: true,

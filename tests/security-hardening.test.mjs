@@ -28,6 +28,47 @@ test("AI API Key is bridged through Electron safeStorage, not persisted in local
   assert.match(main, /Content-Security-Policy/);
 });
 
+test("Electron CSP does not permit inline script execution", () => {
+  const main = source("electron/main.cjs");
+
+  assert.doesNotMatch(main, /script-src 'self'[^;]*'unsafe-inline'/);
+});
+
+test("Electron CSP does not permit inline style execution", () => {
+  const main = source("electron/main.cjs");
+
+  assert.doesNotMatch(main, /style-src 'self'[^;]*'unsafe-inline'/);
+});
+
+test("CSP creates a per-response nonce shared by SSR scripts and styles", async () => {
+  const main = source("electron/main.cjs");
+  const csp = await import("../electron/content-security-policy.cjs");
+  const first = csp.default.createContentSecurityPolicy();
+  const second = csp.default.createContentSecurityPolicy();
+
+  assert.match(main, /onBeforeSendHeaders/);
+  assert.match(main, /const appUrlPatterns = \[`\$\{url\}\/\*`\]/);
+  assert.doesNotMatch(main, /const appUrlPatterns = \[url, `\$\{url\}\/\*`\]/);
+  assert.match(main, /urls: appUrlPatterns/);
+  assert.match(main, /contentSecurityPolicy\.value/);
+  assert.notEqual(first.nonce, second.nonce);
+  assert.equal(first.value, csp.default.contentSecurityPolicyForNonce(first.nonce));
+  assert.match(first.value, /script-src 'self' 'nonce-[^']+'/);
+  assert.match(first.value, /style-src 'self' 'nonce-[^']+'/);
+  assert.doesNotMatch(first.value, /unsafe-inline/);
+});
+
+test("renderer keeps dynamic presentation out of inline style attributes", () => {
+  for (const file of [
+    "app/opening-prologue.tsx",
+    "app/backlund-control-map.tsx",
+    "app/ability-console.tsx",
+    "app/complete-game.tsx",
+  ]) {
+    assert.doesNotMatch(source(file), /style=\{\{/);
+  }
+});
+
 test("persistence uses a Main-process SQLite bridge instead of renderer filesystem access", () => {
   const main = source("electron/main.cjs");
   const serverPort = source("electron/server-port.cjs");

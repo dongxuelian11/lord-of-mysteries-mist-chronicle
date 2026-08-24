@@ -1,8 +1,9 @@
 # 《灰雾纪事》核心玩法构建总账
 
-状态：核心玩法与五阶段运行时闭环已完成；合并前独立复审确认的缺陷已进入运行代码，交付状态以 GitHub PR #3 为准
+状态：核心玩法与五阶段运行时闭环已完成；合并前独立复审确认的缺陷已进入运行代码；最新已合并交付为 GitHub PR #4（source `1aed3d8`，merge `c75eb6b`，tree 相同）
 最后更新：2026-08-24
 维护规则：每完成一个工作包，必须更新本文件的状态、证据与下一步。后续会话先读本文件，再读 `git status --short`，不得依赖聊天上下文恢复目标。
+当前后续计划：`docs/CURRENT_DEVELOPMENT_PLAN.md`，状态 `IMPLEMENTING / REL-01 BLOCKED_BY_AUTHORIZED_SEED_AND_EXTERNAL_EVIDENCE`；DSK-01A、DSK-01B、AUTH-01、SEC-01、COV-01、CTX-01、PROMPT-01、NLP-01、LEAK-01、ARCH-01A、ARCH-01B、ARCH-01C、ARCH-01D、GATE-01、SCHED-01 与 PROV-01 已完成，REL-01 代码校验已完成但发行外部证据阻塞。Electron 主流程 smoke 仍被本机 Chromium GPU 在 ready 前阻断；同构建生产服务器已在 D 盘环境返回 HTTP 200，不能升级为 Electron smoke 通过。
 
 ## 北极星体验
 
@@ -59,6 +60,20 @@ CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话�
 ### 运行时闭环状态（2026-08-23）
 
 五阶段运行时闭环已完成：单一 TurnCommit、ExactPromptEvidence/Main 权威、逐受众观察投影、DurableTurnStore/隔离恢复、永久归档/持久 trace/发行证据门禁均已进入运行代码。最终生产 build 通过；419 项测试中 414 通过、5 项条件跳过、0 失败。安装包 seed 仍缺失，因此 installer smoke 保持 `BLOCKED / NOT_RUN`，clean-machine、production、human 证据保持 `NOT_AVAILABLE`。完整逐阶段证据、压缩恢复规则与推送建议见 `docs/FIVE_STAGE_RUNTIME_CLOSURE.md`。
+
+### 2026-08-24 · SEC-01 CSP 代码闭环
+
+- 8 处 React 动态 style 属性已从 `opening-prologue`、Backlund 地图、能力场景和推进面板迁移到 SVG/CSS/data attribute；生产 TSX `style={{` 扫描为 0。
+- Electron CSP 已移除 `script-src` 与 `style-src` 的 `unsafe-inline`；SSR bootstrap 使用每响应 nonce（根 URL 与子路径均覆盖）；安全定向回归 `7/7`，全量回归 `507 total / 502 pass / 5 skip / 0 fail`。
+- D 盘生产服务器手工验证两次不同 request nonce 均使 7/7 SSR inline scripts 获得匹配 nonce，并返回 `Cache-Control: no-store`；这不是 Electron 主流程 smoke 证据。
+- Electron 主流程 smoke 受本机 Chromium GPU 在 ready 前退出阻断；同构建 Vinext 生产服务器在 D 盘环境返回 HTTP 200，状态保持 `BLOCKED`，不升级为桌面 smoke 证据。
+- 下一工作包为 `COV-01`，但 vitest/coverage-v8 安装授权仍未提供，保持 `BLOCKED_DEPENDENCY_INSTALL`。
+
+### 2026-08-24 · COV-01 反假绿验证器准备
+
+- 新增 `scripts/verify-code-coverage.mjs` 与 `npm run verify:coverage`；验证器要求 source entries、非零 executable counters、六个权威源、commit、report SHA-256 manifest 全部匹配。
+- 新增 6 个 fail-closed 行为测试；空报告、零 counters、缺少 `game-engine.ts`、非有限计数、错误 commit/digest、缺失 manifest 均被拒绝。
+- D 盘完整回归为 `513 total / 508 pass / 5 skip / 0 fail`；真实 Vitest/coverage-v8 仍未安装，不能把 verifier fixture 当成真实覆盖率。
 
 ## 当前迭代：核心循环竖切 A
 
@@ -676,3 +691,59 @@ PR2 不再拆分后续实现包。下一阶段若继续，应另立 PR3 目标�
 - 本批同时消除了 renderer/Main 保留上限常量漂移，并把语义 receipt/claim 与持久 owner 类型拆开；`turnId` 继续只属于事务与持久层，不进入角色或玩家投影。
 - 明确不升级的证据：browser preview 不是 packaged Electron 权威证明；installer、clean-machine、production 与 human evidence 继续按发行门禁的字面结果报告。
 - 本地回归：生产 build 与 485 项全量测试通过（480 通过、5 项条件跳过、0 失败）；typecheck、lint 0 warning、202 个 CJS/MJS syntax、source release verify、bundle budget 与 diff whitespace 检查通过。授权 seed 仍缺失，因此没有运行或声称 installer smoke。
+
+### 2026-08-24 · ARCH-01B NPC 对话编排绞杀式提取（已完成）
+
+- 本包只移动 `generateNpcDialogue`、`NpcDialogueResult`、`loreForActor` 及其共享 lore helper 到 `app/game-engine/dialogue-orchestration.ts`；`app/game-engine.ts` 保留兼容 façade/re-export。`app/council-ai.ts` 仍是议会 replies/summary/decision-draft 的唯一实现，本包没有复制或改写其模型、RAG、prompt、memory 或 UI 契约。
+- 先行 characterization RED 为 `2 fail / 1 pass`（模块缺失的 `ENOENT`/`ERR_LOAD_URL`，未知成员 fail-closed 已通过），提取后 NPC/议会相邻回归为 `19 total / 18 pass / 1 skip / 0 fail`；同一输入的响应裁剪、私有/议会语境、最近记忆/关系、授权 world view 与 memory receipt 均由 façade 和新模块共同锁定。
+- 完整 D 盘门禁为 `542 total / 537 pass / 5 skip / 0 fail`；typecheck、lint、build、bundle budget、D-storage preflight、NLP strict `160/160`、LEAK strict `120/120`、source-aware coverage/manifest/verify 均通过。覆盖报告共 9 个源文件、8275 counters，整体 `32.83% statements / 21.46% branches / 25.10% functions / 38.10% lines`；新对话模块在 Vitest-only report 中为真实 `0%`，不冒充高覆盖率，行为由 Node characterization 覆盖。
+- B 完成时 `game-engine.ts` 为 `2,119` 行 / `153,124` bytes；该历史断点已由 ARCH-01C 继续收缩。Electron smoke、clean-machine、production、真实 seed soak 和 hosted CI 仍按 `BLOCKED/NOT_AVAILABLE/NOT_RUN` 保持原等级；未 stage、commit 或 push。
+
+### 2026-08-24 · ARCH-01C 周结算绞杀式提取（已完成）
+
+- 本包只移动 `resolveWeek`、周结算私有 helper、`hash`、`actionDomain`、`availableAbilities` 到 `app/game-engine/week-resolution.ts`；`app/game-engine.ts` 保留 façade import/re-export，`generateAiWorldDelta`、TurnCommit、模型网关、RAG、受众投影、记忆语义和 UI 调用签名未改。新模块没有反向 import façade，源码扫描确认不存在第二个 `resolveWeek` 实现。
+- 先行 characterization RED 为 `4 fail / 0 pass`（1 个 `ENOENT`、3 个 `ERR_LOAD_URL`，仅缺失新模块）；提取后周结算 characterization `4/4`，周结算/事务/记忆/三周等相邻集合 `81 total / 80 pass / 1 skip / 0 fail`。两个旧源码位置断言已改为同时审计 façade 与 owner 模块，针对性复跑 `11/11` 全绿。
+- 最终 D 盘全量 `npm test` 为 `546 total / 541 pass / 5 skip / 0 fail`；typecheck、lint、build、bundle budget、D-storage preflight、严格 NLP `160/160`、严格 leak `120/120`、leak benchmark、source-aware coverage/manifest/verify 和覆盖率/存储策略 `24/24` 全部通过。覆盖报告为 10 个源文件、8,275 counters，整体 `32.83% statements / 21.46% branches / 25.10% functions / 38.10% lines`；`week-resolution.ts` Vitest-only 为 `1.95% / 2.35% / 0.54% / 2.56%`，Node characterization 单独证明行为，不混算。
+- 当前 façade 为 `1,261` 行 / `87,350` bytes；`week-resolution.ts` 为 `886` 行 / `65,803` bytes。最终 façade `<=600` 行 / `<=50,000` bytes 仍未达到，下一包为 `ARCH-01D`，先写 `world-turn-orchestrator` characterization 再移动 `generateAiWorldDelta`。Electron smoke、clean-machine、production、真实 seed soak、hosted CI 仍保持原证据等级；未 stage、commit 或 push。
+
+### 2026-08-24 · ARCH-01D 世界回合编排绞杀式提取（已完成）
+
+- 先行 characterization RED 为 `3 fail / 0 pass`：1 个新 owner 源文件读取 `ENOENT`，2 个 owner 模块加载 `ERR_LOAD_URL`；未先改生产实现。提取后 `world-turn-orchestrator.ts` 成为 `generateAiWorldDelta` 与 D-only helper 的唯一 owner，`game-engine.ts` 只保留 façade re-export，owner 无反向 import。
+- D characterization 为 `3/3 PASS`：facade 与 owner 的 world snapshot、ledger、worldAgents、factionStrategy 和 week-commit 结果等价；unsupported provider 在 durable kernel commit 前 fail-closed。相邻目标集合首次 `58/57/1/0` 的唯一失败是旧源码位置断言，改为 façade + owner 联合审计后目标集合 `31/31 PASS`，没有改运行语义。
+- 最终 D 盘全量 `npm test` 为 `549 total / 544 pass / 5 skip / 0 fail`，typecheck、lint、build、bundle budget、D-storage preflight、严格 NLP/leak、leak benchmark、source-aware coverage/manifest/verify 全部通过。覆盖 `11 sources / 8,275 counters / SHA-256=163f354afbb53f86ea14e27f6db52f811dc57b4e73d94cd21fdc42761fea65dd`；整体 `32.83% statements / 21.46% branches / 25.10% functions / 38.10% lines`，新 owner 在 Vitest-only report 中诚实为 `0%`，行为由 characterization 证明。
+- 当前结构为 façade `355` 行 / `25,733` bytes、`week-resolution.ts` `886` 行 / `65,803` bytes、`world-turn-orchestrator.ts` `927` 行 / `61,395` bytes。ARCH-01D 已关闭；下一工作包为 `GATE-01`，先做 provider capability registry 的 RED characterization，再实现能力边界。Electron smoke、clean-machine、production、真实 seed soak、hosted CI 仍保持原证据等级；未 stage、commit 或 push。
+
+### 2026-08-24 · GATE-01 provider 能力、token 精度与结构化边界（已完成）
+
+- `shared/ai-provider-capabilities.json` 是 Main/renderer 共用的唯一能力数据源；TS owner 与 CJS gateway 均从它读取。DeepSeek 固定官方地址，compatible 的桌面端仍只接受 loopback；未知 provider/task fail-closed。
+- world-adjudication、world-repair、autonomous-planning 统一为严格 JSON object、非流式；Main response boundary 做本地 JSON object 校验。provider 不回 usage 时 trace 写保守估算并标记 `estimated`，Main 返回 usage 时标记 `provider-reported`；token 数不再以 null 伪装“未知即无计量”。
+- GATE characterization 首轮 `7/0` 与 `3/7` 红证据均已保留，最终能力/renderer/trace 集合 `10/10 PASS`；typecheck、lint 与既有 runtime-trace/streaming/electron authority 回归保持通过。
+
+### 2026-08-24 · SCHED-01 provider-aware Main 调度（已完成）
+
+- 新增 `electron/inference-scheduler.cjs`：按 provider 隔离队列，默认并发从 capability registry 读取；稳定输入哈希作为 idempotency key，同 key 合并 in-flight/completed 调用并限制缓存；retry 只接受连接/timeout/429/明确 5xx，schema、authority、leak、durable identity 错误不重试。
+- 429/高延迟降低并发，连续成功渐进恢复；circuit open/half-open/closed、retry、materiality 状态通过受限 model trace 记录，diagnostic failure 不阻断世界权威路径。Main generic/autonomous/world 三条模型入口均经过 scheduler。
+- Main autonomous inference 明确记录 `attempted/model/reused/fallback/avoided`，已冻结 proposal 在相同 durable turn/baseRevision 下直接复用；`AgentPlanningService` 不再写死并发 `8`。scheduler characterization `4 fail/0 pass` RED 后 `4/4 PASS`。
+- 新增 `tests/inference-scheduler-integration.test.mjs`，不依赖 Electron GUI，以真实 SQLite origin 验证 world retry 后同键复用、deepseek/compatible 同可见 key 不互相命中、scheduler trace 落 durable runtime trace 且不含 prompt；scheduler 集合 `73/73 PASS`。
+- 完整 D 盘门禁：`npm test` 为 `567 total / 562 pass / 5 skipped / 0 fail`；typecheck/lint/build/bundle、D-storage、严格 NLP `160/160`、严格 leak `120/120`、leak benchmark 均通过。coverage 纳入 scheduler/provenance 两个 CJS owner 后为 `14 sources / 8,880 counters / 35.22% statements / 23.24% branches / 28.42% functions / 40.61% lines`，manifest SHA-256=`dc0b5391cea5c9080f5c9e607c5e650220e5b3b0fe68bc393a8fa4fe8dae5c0f`。
+- 首次完整回归真实暴露 SSR capability JSON 的循环初始化问题；JSON import attribute + 延迟 registry 读取后 build、SSR rendered HTML 与全量回归重新通过。本批未 stage、commit 或 push。
+
+### 2026-08-24 · PROV-01 provenance/readability 边界（已完成）
+
+- 新增只读 `persistence:provenance` IPC/preload contract 与 `electron/persistence-provenance.cjs`；逐条输出 `current-turn|durable-turn|legacy-import|unproven-import`，并提供 `oldestReplayableWeek`、`oldestDurablyOwnedWeek`、`replayability.reason`/`unreplayableReason`，不改历史 `turnId`、不写玩家投影。
+- SQLite/provenance/evidence 定向集合 `17/17 tests PASS`：retained durable journal、fresh import 缺 owner、256 回合 aged-out explicit owner、current-turn 纯函数边界、IPC 参数 fail-closed 与 seed 缺失诊断均通过；完整 D 盘回归随后以 `569 total / 564 pass / 5 skipped / 0 fail` 通过。
+
+### 2026-08-24 · 当前计划效果复核与 REL-01 阻塞
+
+- 代码级目标对照通过：`game-engine.ts` 已收敛为 355 行 / 25,733 bytes façade，world-turn owner 为 927 行 / 61,395 bytes；provider capability、Main scheduler、provenance/readability、中文 NLP 与逐字泄漏边界均有真实执行路径和 fail-closed 回归，不再只依赖测试结果。NLP 对抗审计新增 `别/请勿/暂时不/不想/未` 否定与 `A 或 B` 多目标边界，已接入 production façade。
+- 最终本地 D 盘门禁：typecheck、lint、build、full `npm test` `571/566/5/0`、source-aware coverage `14 sources / 8,921 counters / 35.67% statements / 24.02% branches / 28.67% functions / 41.02% lines`、strict NLP、strict leak、leak benchmark 重测（p50 21.546ms / p95 28.307ms / max 29.724ms）、bundle budget 与 storage preflight 均通过；覆盖 manifest SHA-256=`81e317c590ce9337116d25d89f1c1a4550971b9f889e6714e5986532176ff2f0`。benchmark 为单次本机重测，未触发升级条件，不构成固定延迟承诺。
+- REL-01 只完成代码级门禁：`release:verify` source PASS；`release:verify:seed` 与 `release:provenance` 明确以 `seed-manifest-missing` 失败。授权 seed、installer smoke、无 checkout clean-machine Job B、production 与 human evidence 仍为 `NOT_AVAILABLE/NOT_RUN`，因此 REL-01 保持 `BLOCKED`，不伪造发行完成。
+- 收尾源码复核通过：façade→owner 无反向依赖；Main 在 runtime path 失败时先退出再触碰 userData/server/RAG；provenance 通过 SQLite 只读读取与受限 IPC 暴露；release seed/artifact 在缺输入时 fail closed。远端 `main` 只读 `git ls-remote` 当前为 `c75eb6b03c6529d3eb14d536cb4a73e086f12e40`，未 fetch，故不宣称远端 tree 与本地相同。
+- REL-01 阻塞复核已落到文件系统和发行校验源代码：`private/rag/index` 与 `release` 均不存在；`release:verify` 的 source stage 通过，seed/artifact stage 均在写入发行物前以 `seed-manifest-missing` 失败。因此剩余阻塞是授权 seed 与独立外部环境证据，不是未发现的本地业务代码缺陷。
+- 当前不得推送：工作树仍为用户既有的脏工作树，受保护 `.qa-prodserver3.*.log` 未读取/未改写，未获 commit/push 授权；远端 CURRENT 仍不可用。
+
+### 2026-08-24 · REL-01.1 本地 seed 输入路径修复
+
+- 发行验证器已补上受控本地输入：设置绝对 D 盘 `KNOWLEDGE_SEED_DIR` 后，先校验授权 manifest 与逐文件哈希，再把 manifest 声明文件暂存到 `GMZZ_STORAGE_ROOT\release-seed`；显式路径非法时不回退到仓库目录，暂存根不再写死到可能的 C 盘。
+- 真实 RED→GREEN 定向回归 `9/9` 通过，覆盖有效 D 盘目录、可选 seed 文件暂存、C 盘路径拒绝和无 seed 时可诊断失败。没有生成、下载或伪造 seed。
+- 这只消除了本地 release 输入代码缺口；没有授权 seed 时 `release:verify:seed`、installer、clean-machine、production 与 human evidence 仍保持原有 `BLOCKED/NOT_RUN/NOT_AVAILABLE` 真值。
