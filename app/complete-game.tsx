@@ -40,6 +40,7 @@ import { stableEntityId, stableTextHash } from "./stable-id";
 import { branchRecoveredGame, clearAiSessionKey, loadGameSession, persistActiveGame, persistActiveGameAsync, replaceActiveGameWithRecoveryAsync, saveAiSessionSettings, stageAiCredential } from "./game-session-controller";
 import { appendPlayerDialogue, applyDialogueDecision, applyDialogueModelResult, chooseDialogueScreeningAction, ensureDialogueThread } from "./dialogue-session-controller";
 import type { AttentionSimulationState } from "./attention-simulation.ts";
+import { ensureAutonomousWorldState } from "./autonomous-agents.ts";
 
 const DEV_MODE = typeof window !== "undefined" && window.localStorage.getItem("mist-chronicle-dev-mode") === "1";
 
@@ -84,7 +85,11 @@ async function lockDesktopWorldTurn(game: GameState, resolvingWeek: number) {
 async function stageDesktopWorldTurn(game: GameState, resolvingWeek: number) {
   if (typeof window === "undefined" || typeof window.mistInference?.requestWorld !== "function") return;
   if (typeof window.mistInference.stageWorld !== "function") throw new Error("WORLD_INFERENCE_RESOLUTION_UNAVAILABLE");
-  const staged = await window.mistInference.stageWorld({ turnId: `world:${resolvingWeek}`, baseRevision: game.worldKernel.revision, resolution: game });
+  const authorityGame = {
+    ...game,
+    worldAgents: ensureAutonomousWorldState(game.worldAgents, game.worldKernel, game.memory),
+  };
+  const staged = await window.mistInference.stageWorld({ turnId: `world:${resolvingWeek}`, baseRevision: game.worldKernel.revision, resolution: authorityGame });
   if (!staged.ok || typeof staged.resolutionHash !== "string" || !/^[0-9a-f]{64}$/.test(staged.resolutionHash)) throw new Error(staged.error ?? "WORLD_INFERENCE_RESOLUTION_FAILED");
 }
 

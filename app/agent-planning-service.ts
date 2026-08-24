@@ -45,7 +45,7 @@ export async function planAutonomousAgentsForWeek(input: AgentPlanningServiceInp
       input.config,
       input.loreRecords,
       projection,
-      { week: input.game.week, date: input.game.date, horizon: input.horizon },
+      { week: input.game.week, date: input.game.date, horizon: input.horizon, baseRevision: input.game.worldKernel.revision },
       context,
     ),
     {
@@ -53,7 +53,7 @@ export async function planAutonomousAgentsForWeek(input: AgentPlanningServiceInp
       concurrency: 8,
       proposalCache,
       memory,
-      materialityGate: true,
+      materialityGate: !(typeof window !== "undefined" && typeof window.mistInference?.requestAutonomous === "function"),
       failurePolicy: "fallback-wait",
       onAgentStage: ({ state }) => {
         if (state === "ready" || state === "degraded") readyAgents += 1;

@@ -515,7 +515,7 @@ test("Main world inference rejects a model response that echoes private lore ver
   }), /WORLD_LORE_VERBATIM_LEAK_REJECTED/);
 });
 
-test("renderer RAG cannot impersonate persisted NPCs or inactive autonomous factions", () => {
+test("renderer RAG cannot impersonate persisted NPCs or access autonomous principals", () => {
   const { deriveRagWorkerRequest } = require("../electron/runtime-authority.cjs");
   const store = { getItem: () => JSON.stringify({
     week: 1,
@@ -533,25 +533,237 @@ test("renderer RAG cannot impersonate persisted NPCs or inactive autonomous fact
     },
   }) };
   assert.throws(() => deriveRagWorkerRequest({ query: "steal", purpose: "actor-council", principalRef: "actor:hidden" }, store), /rag-principal-not-authorized/);
-  assert.throws(() => deriveRagWorkerRequest({ query: "steal", purpose: "autonomous-faction", principalRef: "faction:shadow" }, store), /rag-principal-not-authorized/);
+  assert.throws(() => deriveRagWorkerRequest({ query: "steal", purpose: "autonomous-faction", principalRef: "faction:shadow" }, store), /rag-autonomous-purpose-internal-only/);
 });
 
-test("Main permits RAG only for the exact durable active autonomous principal", () => {
-  const { deriveRagWorkerRequest } = require("../electron/runtime-authority.cjs");
+test("Main derives autonomous RAG only from the exact durable active principal", () => {
+  const { deriveAutonomousRagWorkerRequest, deriveRagWorkerRequest } = require("../electron/runtime-authority.cjs");
   const store = { getItem: () => JSON.stringify({
     week: 1,
     date: "d",
     members: [],
-    worldAgents: { activeAgentRefs: ["actor:active"] },
+    worldAgents: {
+      activeAgentRefs: ["actor:active"],
+      profiles: [{ ref: "actor:active", displayName: "活跃主体", currentObjective: "守住秘密", nextAction: "检查旧档案" }],
+    },
     worldKernel: {
       knowledge: [{ visibility: "actors", holderRefs: ["actor:active"], loreRecordIds: ["active-secret"] }],
       actors: [{ id: "active" }],
       factions: [],
+      projects: [{ id: "active-project", ownerId: "active", title: "旧档案复核", status: "active", updatedWeek: 1 }],
       canon: {},
     },
   }) };
-  const request = deriveRagWorkerRequest({ query: "plan", purpose: "autonomous-actor", principalRef: "actor:active" }, store);
+  assert.throws(() => deriveRagWorkerRequest({ query: "steal", purpose: "autonomous-actor", principalRef: "actor:active" }, store), /rag-autonomous-purpose-internal-only/);
+  assert.throws(() => deriveAutonomousRagWorkerRequest({ principalRef: "actor:active", planningWeek: 1, query: "steal" }, store), /invalid-autonomous-rag-request/);
+  const request = deriveAutonomousRagWorkerRequest({ principalRef: "actor:active", planningWeek: 1 }, store);
   assert.deepEqual(request.audience.knownLoreIds, ["active-secret"]);
+  assert.match(request.query, /活跃主体 守住秘密 检查旧档案 旧档案复核/);
+});
+
+test("Main owns autonomous prompt construction and returns no private lore to renderer", async () => {
+  const { requestAutonomousInference } = require("../electron/autonomous-inference.cjs");
+  const privateLore = "北区旧档案记载了只有该主体知晓的隐秘仪式代价与联络暗号。";
+  const game = {
+    week: 3,
+    date: "1349年1月22日",
+    memory: {
+      events: [], beliefs: [], relationshipCauses: [], plans: [],
+      commitments: [{ id: "memory:promise", type: "promise", participantIds: ["actor:planner"], summary: "规划者答应核验北区档案", createdWeek: 2, dueWeek: 3, status: "active", sourceEventId: "event:promise", importance: 0.9 }],
+    },
+    worldAgents: {
+      activeAgentRefs: ["actor:planner"],
+      profiles: [{ ref: "actor:planner", kind: "actor", entityId: "planner", displayName: "规划者", drives: ["保密"], currentObjective: "核验北区档案", nextAction: "前往档案馆", riskTolerance: 45, planningHorizonWeeks: 3, reflection: { driveSignals: [] } }],
+      socialTies: [],
+    },
+    worldKernel: {
+      canon: {},
+      actors: [{ id: "planner", locationId: "north" }],
+      factions: [],
+      projects: [],
+      locations: [{ id: "north", name: "北区" }],
+      events: [],
+      observations: [],
+      knowledge: [{ id: "knowledge:archive", subject: "north", statement: "旧档案仍在", visibility: "actors", holderRefs: ["actor:planner"], loreRecordIds: ["lore:archive"], acquiredWeek: 2 }],
+    },
+  };
+  let ragRequest;
+  let inferenceTask;
+  let recordedProposal;
+  const result = await requestAutonomousInference({
+    task: "autonomous-planning",
+    config: { provider: "deepseek", endpoint: "https://attacker.invalid", model: "world-model" },
+    autonomousRequest: { principalRef: "actor:planner", planningWeek: 3, baseRevision: 0, attempt: 0 },
+  }, {
+    loadAuthorityGame: () => game,
+    readRecordedProposal: () => null,
+    recordProposal: (_turnId, _baseRevision, proposal) => { recordedProposal = proposal; return proposal; },
+    callRag: async (_type, request) => {
+      ragRequest = request;
+      return { available: true, indexVersion: "index-v1", records: [{ id: "lore:archive", title: "旧档案", content: privateLore, sourceId: "canon", sourceGrade: "A" }] };
+    },
+    infer: async (task) => {
+      inferenceTask = task;
+      return { content: JSON.stringify({ proposal: { planningWeek: 3, agentRef: "actor:planner", disposition: "observe", intent: "核验档案馆入口", rationale: "自身目标要求先观察", locationId: "north", targetRefs: ["location:north"], requiredKnowledgeIds: ["knowledge:archive"], usedMemoryIds: ["memory:promise"] } }), usage: { inputTokens: 10, outputTokens: 8 } };
+    },
+  });
+  assert.match(ragRequest.query, /规划者 核验北区档案 前往档案馆/);
+  assert.match(inferenceTask.user, new RegExp(privateLore));
+  assert.match(inferenceTask.user, /规划者答应核验北区档案/);
+  assert.equal(inferenceTask.system.includes("renderer"), false);
+  assert.equal(JSON.stringify(result).includes(privateLore), false);
+  assert.equal("records" in result.retrieval, false);
+  assert.equal("context" in result.retrieval, false);
+  assert.deepEqual(JSON.parse(result.content).proposal.targetRefs, ["location:north"]);
+  assert.deepEqual(JSON.parse(result.content).proposal.usedMemoryIds, ["memory:promise"]);
+  assert.deepEqual(recordedProposal, JSON.parse(result.content).proposal);
+});
+
+test("Main rejects renderer-owned autonomous prompts and verbatim lore echoes", async () => {
+  const { requestAutonomousInference } = require("../electron/autonomous-inference.cjs");
+  const { normalizeTask } = require("../electron/inference-gateway.cjs");
+  assert.throws(() => normalizeTask({ task: "autonomous-planning", config: { provider: "deepseek", model: "m" }, system: "forged", user: "forged" }), /invalid-model-task/);
+  const game = {
+    week: 1,
+    date: "d",
+    worldAgents: { activeAgentRefs: ["actor:a"], profiles: [{ ref: "actor:a", displayName: "A", currentObjective: "观察", nextAction: "等待", riskTolerance: 1 }] },
+    worldKernel: { canon: {}, actors: [{ id: "a", locationId: "x" }], factions: [], projects: [], locations: [{ id: "x" }], events: [], observations: [], knowledge: [] },
+  };
+  await assert.rejects(requestAutonomousInference({
+    task: "autonomous-planning",
+    config: { provider: "deepseek", model: "m" },
+    system: "renderer-forged",
+    autonomousRequest: { principalRef: "actor:a", planningWeek: 1, baseRevision: 0, attempt: 0 },
+  }, {
+    loadAuthorityGame: () => game,
+    readRecordedProposal: () => null,
+    recordProposal: (_turnId, _baseRevision, proposal) => proposal,
+    callRag: async () => ({ available: true, records: [] }),
+    infer: async () => ({ content: "{}" }),
+  }), /invalid-autonomous-inference-task/);
+
+  const privateLore = "这是一个足够长且不允许返回渲染进程的主体私有设定片段。";
+  await assert.rejects(requestAutonomousInference({
+    task: "autonomous-planning",
+    config: { provider: "deepseek", model: "m" },
+    autonomousRequest: { principalRef: "actor:a", planningWeek: 1, baseRevision: 0, attempt: 0 },
+  }, {
+    loadAuthorityGame: () => game,
+    readRecordedProposal: () => null,
+    recordProposal: (_turnId, _baseRevision, proposal) => proposal,
+    callRag: async () => ({ available: true, records: [{ id: "secret", title: "秘密", content: privateLore }] }),
+    infer: async () => ({ content: JSON.stringify({ proposal: { planningWeek: 1, agentRef: "actor:a", disposition: "wait", intent: privateLore.slice(0, 15), rationale: "继续等待", targetRefs: [], requiredKnowledgeIds: [], usedMemoryIds: [] } }) }),
+  }), /WORLD_LORE_VERBATIM_LEAK_REJECTED/);
+});
+
+test("renderer autonomous planner sends only the dedicated Main contract", async () => {
+  const { requestAutonomousAgentProposal } = await loadRuntimeModule("app/autonomous-planning.ts");
+  const originalWindow = globalThis.window;
+  let captured;
+  globalThis.window = {
+    mistInference: {
+      request: async () => { throw new Error("generic inference must not be used"); },
+      requestAutonomous: async (task) => {
+        captured = task;
+        return { ok: true, content: JSON.stringify({ proposal: { planningWeek: 4, agentRef: "actor:dedicated", disposition: "wait", intent: "保持观察", rationale: "当前没有新变化", targetRefs: [], requiredKnowledgeIds: [], usedMemoryIds: [], planningSource: "model" } }) };
+      },
+    },
+    mistRag: { search: async () => { throw new Error("renderer RAG must not be used"); } },
+  };
+  try {
+    const proposal = await requestAutonomousAgentProposal(
+      { provider: "deepseek", endpoint: "https://api.deepseek.com", apiKey: "renderer-secret", model: "world-model" },
+      [{ id: "renderer-lore", title: "不得上传", content: "renderer must not build autonomous prompt" }],
+      { week: 4, agent: { ref: "actor:dedicated" } },
+      { week: 4, date: "d", horizon: {}, baseRevision: 7 },
+      { attempt: 0, previousIssue: "renderer-controlled repair text" },
+    );
+    assert.equal(proposal.agentRef, "actor:dedicated");
+    assert.deepEqual(Object.keys(captured).sort(), ["autonomousRequest", "config", "task"]);
+    assert.deepEqual(captured.autonomousRequest, { principalRef: "actor:dedicated", planningWeek: 4, baseRevision: 7, attempt: 0 });
+    assert.equal(JSON.stringify(captured).includes("renderer-secret"), false);
+    assert.equal(JSON.stringify(captured).includes("renderer-lore"), false);
+    assert.equal(JSON.stringify(captured).includes("renderer-controlled repair text"), false);
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("Main replays an already-recorded autonomous proposal without another RAG or model call", async () => {
+  const { requestAutonomousInference } = require("../electron/autonomous-inference.cjs");
+  const proposal = { version: 1, planningWeek: 2, agentRef: "actor:a", disposition: "wait", intent: "保持观察", rationale: "已由主进程锁定", targetRefs: [], requiredKnowledgeIds: [], usedMemoryIds: [], planningSource: "model" };
+  const game = {
+    week: 2,
+    worldAgents: { activeAgentRefs: ["actor:a"], profiles: [{ ref: "actor:a", displayName: "A", currentObjective: "观察", nextAction: "等待" }] },
+    worldKernel: { actors: [{ id: "a" }], factions: [], projects: [], locations: [], events: [], observations: [], knowledge: [] },
+  };
+  let calls = 0;
+  const result = await requestAutonomousInference({
+    task: "autonomous-planning",
+    config: { provider: "deepseek", model: "m" },
+    autonomousRequest: { principalRef: "actor:a", planningWeek: 2, baseRevision: 4, attempt: 1 },
+  }, {
+    loadAuthorityGame: () => game,
+    readRecordedProposal: () => proposal,
+    recordProposal: () => { throw new Error("must-not-record-again"); },
+    callRag: async () => { calls += 1; },
+    infer: async () => { calls += 1; },
+  });
+  assert.equal(calls, 0);
+  assert.deepEqual(JSON.parse(result.content).proposal, proposal);
+});
+
+test("Main bounds every durable autonomous projection field before prompt construction", () => {
+  const { autonomousProjection } = require("../electron/autonomous-inference.cjs");
+  const huge = "膨".repeat(100_000);
+  const game = {
+    week: 2,
+    memory: { events: [], beliefs: [], relationshipCauses: [], commitments: [], plans: [] },
+    worldAgents: {
+      activeAgentRefs: ["actor:a"],
+      profiles: [{ ref: "actor:a", displayName: "A", currentObjective: huge, nextAction: huge, drives: [huge], reflection: { summary: huge, conclusions: [{ text: huge, sourceRefs: [huge], sourceEventIds: [huge] }], driveSignals: [huge] } }],
+      socialTies: [],
+    },
+    worldKernel: {
+      actors: [{ id: "a", locationId: "x" }], factions: [], projects: [],
+      locations: [{ id: "x", name: huge, publicMood: huge, conditions: [huge] }],
+      events: [{ id: "event:1", week: 2, title: huge, detail: huge, visibility: "public" }],
+      observations: [], knowledge: [],
+    },
+  };
+  const projection = autonomousProjection(game, "actor:a", 2);
+  assert.ok(Buffer.byteLength(JSON.stringify(projection), "utf8") < 64 * 1024);
+  assert.equal(JSON.stringify(projection).includes(huge), false);
+});
+
+test("Main records a deterministic autonomous fallback only after the bounded retry", async () => {
+  const { requestAutonomousInference } = require("../electron/autonomous-inference.cjs");
+  const game = {
+    week: 2,
+    worldAgents: { activeAgentRefs: ["actor:a"], profiles: [{ ref: "actor:a", displayName: "A", currentObjective: "观察", nextAction: "等待", riskTolerance: 1 }] },
+    worldKernel: { actors: [{ id: "a" }], factions: [], projects: [], locations: [], events: [], observations: [], knowledge: [] },
+  };
+  let recorded;
+  const dependencies = {
+    loadAuthorityGame: () => game,
+    readRecordedProposal: () => null,
+    recordProposal: (_turnId, _baseRevision, proposal) => { recorded = proposal; return proposal; },
+    callRag: async () => { throw new Error("RAG_GATEWAY_UNAVAILABLE"); },
+    infer: async () => { throw new Error("must-not-infer"); },
+  };
+  await assert.rejects(requestAutonomousInference({
+    task: "autonomous-planning",
+    config: { provider: "deepseek", model: "m" },
+    autonomousRequest: { principalRef: "actor:a", planningWeek: 2, baseRevision: 4, attempt: 0 },
+  }, dependencies), /RAG_GATEWAY_UNAVAILABLE/);
+  const result = await requestAutonomousInference({
+    task: "autonomous-planning",
+    config: { provider: "deepseek", model: "m" },
+    autonomousRequest: { principalRef: "actor:a", planningWeek: 2, baseRevision: 4, attempt: 1 },
+  }, dependencies);
+  assert.equal(recorded.planningSource, "deterministic-fallback");
+  assert.deepEqual(JSON.parse(result.content).proposal, recorded);
 });
 
 test("Main world inference leak guard rejects a short excerpt copied from long private lore", () => {

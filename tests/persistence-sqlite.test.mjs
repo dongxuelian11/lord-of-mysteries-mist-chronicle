@@ -47,17 +47,29 @@ test("SQLite locks an exact world payload to the durable origin and meters two i
       week: 4,
       date: "1349年1月29日",
       worldLedger: { branchId: "main" },
-      worldKernel: { revision: 9, committedTransactions: [], events: [], retrievalReceipts: [], mutationClaims: [] },
+      worldAgents: {
+        activeAgentRefs: ["actor:long-running"],
+        profiles: [{ ref: "actor:long-running", displayName: "长期主体", currentObjective: "保持观察", nextAction: "等待" }],
+      },
+      worldKernel: { revision: 9, committedTransactions: [], actors: [{ id: "long-running" }], events: [], retrievalReceipts: [], mutationClaims: [] },
     };
     store.commitTurn(key, JSON.stringify(game));
-    const runtimeAutonomousProposals = [{ agentRef: "actor:long-running", intent: "世".repeat(50_000) }];
-    const manifest = { currentWeek: 4, chapter: [{ contract: "锁定正文" }], runtimeAutonomousProposals };
-    const inferenceManifest = { currentWeek: 4, chapter: [{ contract: "锁定正文" }] };
+    const runtimeAutonomousProposals = [{ version: 1, planningWeek: 4, agentRef: "actor:long-running", disposition: "wait", intent: "保持观察", rationale: "没有足以改变方向的新状态", targetRefs: [], requiredKnowledgeIds: [], usedMemoryIds: [], planningSource: "model" }];
+    const autonomousPlan = {
+      source: "autonomous-agent",
+      proposalId: "proposal:agent:4:actor:long-running",
+      agentRef: "actor:long-running",
+      executionPlan: { proposalId: "proposal:agent:4:actor:long-running", participantRefs: ["actor:long-running"], targetRefs: [], commitments: { money: 0, manpower: 0, extraordinaryMaterials: 0, spirituality: 0 } },
+    };
+    const manifest = { currentWeek: 4, chapter: [{ contract: "锁定正文" }], unifiedActionPlans: [autonomousPlan], runtimeAutonomousProposals };
+    const inferenceManifest = { currentWeek: 4, chapter: [{ contract: "锁定正文" }], unifiedActionPlans: [autonomousPlan] };
     const locked = JSON.stringify({ payload: inferenceManifest, maxChars: 4_000 });
     assert.throws(() => store.prepareWorldInference(key, locked, "world:4", 9), /world-inference-lock-missing/);
     store.lockWorldInference(key, "world:4", 9);
     store.stageWorldInference(key, "world:4", 9, game);
-    const reorderedGame = { worldKernel: game.worldKernel, worldLedger: game.worldLedger, date: game.date, week: game.week, saveId: game.saveId, version: game.version };
+    store.recordAutonomousProposal(key, "world:4", 9, runtimeAutonomousProposals[0]);
+    assert.deepEqual(store.readWorldInferenceAuthority(key, "world:4", 9), game, "Main-owned autonomous planning reads the staged authority, not mutable active payload input");
+    const reorderedGame = { worldKernel: game.worldKernel, worldAgents: game.worldAgents, worldLedger: game.worldLedger, date: game.date, week: game.week, saveId: game.saveId, version: game.version };
     assert.equal(store.stageWorldInference(key, "world:4", 9, reorderedGame).replayed, true, "resolution replay compares canonical state instead of JSON property order");
     store.finalizeWorldInference(key, "world:4", 9, manifest);
     const refusedRewrite = store.finalizeWorldInference(key, "world:4", 9, { currentWeek: 4, chapter: [{ contract: "ATTACKER_REPLACEMENT" }] });
@@ -93,11 +105,16 @@ test("SQLite locks an exact world payload to the durable origin and meters two i
     assert.equal(store.consumeWorldInference(key, retryEpoch.ticket, 0).payloadHash, prepared.payloadHash);
 
     const nextGame = { ...game, week: 5, worldKernel: { ...game.worldKernel, revision: 10 } };
+    const nextProposal = { ...runtimeAutonomousProposals[0], planningWeek: 5 };
+    const nextPlan = { ...autonomousPlan, proposalId: "proposal:agent:5:actor:long-running", executionPlan: { ...autonomousPlan.executionPlan, proposalId: "proposal:agent:5:actor:long-running" } };
+    const nextManifest = { currentWeek: 5, chapter: [{ contract: "锁定正文" }], unifiedActionPlans: [nextPlan], runtimeAutonomousProposals: [nextProposal] };
+    const nextLocked = JSON.stringify({ payload: { currentWeek: 5, chapter: [{ contract: "锁定正文" }], unifiedActionPlans: [nextPlan] }, maxChars: 4_000 });
     store.commitTurn(key, JSON.stringify(nextGame));
     store.lockWorldInference(key, "world:5", 10);
     store.stageWorldInference(key, "world:5", 10, nextGame);
-    store.finalizeWorldInference(key, "world:5", 10, manifest);
-    const replacement = store.prepareWorldInference(key, locked, "world:5", 10);
+    store.recordAutonomousProposal(key, "world:5", 10, nextProposal);
+    store.finalizeWorldInference(key, "world:5", 10, nextManifest);
+    const replacement = store.prepareWorldInference(key, nextLocked, "world:5", 10);
     store.commitTurn(key, JSON.stringify({ ...nextGame, date: "1349年2月5日" }));
     assert.throws(() => store.consumeWorldInference(key, replacement.ticket, 0), /world-inference-authority-changed/);
   });
@@ -279,6 +296,44 @@ test("SQLite turn commit atomically journals the save, transaction, events, rece
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM mutation_claims").get().count, 1);
     db.close();
     assert.equal(store.getItem("mist-chronicle-complete-v21"), payload);
+  });
+});
+
+test("SQLite freezes only Main-recorded autonomous proposals and their bounded execution plans", () => {
+  withTempStore((store) => {
+    const key = "mist-chronicle-complete-v21";
+    const game = {
+      version: 21,
+      saveId: "autonomous-authority-save",
+      week: 7,
+      date: "d",
+      worldLedger: { branchId: "main" },
+      worldAgents: { activeAgentRefs: ["actor:a"], profiles: [{ ref: "actor:a", displayName: "A", nextAction: "观察" }] },
+      worldKernel: { revision: 12, committedTransactions: [], actors: [{ id: "a" }], events: [], retrievalReceipts: [], mutationClaims: [] },
+    };
+    const proposal = { version: 1, planningWeek: 7, agentRef: "actor:a", disposition: "observe", intent: "观察入口", rationale: "依据自身目标", targetRefs: [], requiredKnowledgeIds: [], usedMemoryIds: [], planningSource: "model" };
+    const plan = {
+      source: "autonomous-agent",
+      proposalId: "proposal:agent:7:actor:a",
+      agentRef: "actor:a",
+      executionPlan: { proposalId: "proposal:agent:7:actor:a", participantRefs: ["actor:a"], targetRefs: [], commitments: { money: 0, manpower: 0, extraordinaryMaterials: 0, spirituality: 0 } },
+    };
+    store.commitTurn(key, JSON.stringify(game));
+    store.lockWorldInference(key, "world:7", 12);
+    store.stageWorldInference(key, "world:7", 12, game);
+    assert.equal(store.readAutonomousProposal(key, "world:7", 12, "actor:a"), null);
+    assert.deepEqual(store.recordAutonomousProposal(key, "world:7", 12, proposal), proposal);
+    assert.deepEqual(store.readAutonomousProposal(key, "world:7", 12, "actor:a"), proposal);
+    assert.throws(() => store.finalizeWorldInference(key, "world:7", 12, {
+      runtimeAutonomousProposals: [{ ...proposal, intent: "渲染进程替换意图" }],
+      unifiedActionPlans: [plan],
+    }), /autonomous-proposal-manifest-mismatch/);
+    assert.throws(() => store.finalizeWorldInference(key, "world:7", 12, {
+      runtimeAutonomousProposals: [proposal],
+      unifiedActionPlans: [{ ...plan, executionPlan: { ...plan.executionPlan, targetRefs: ["actor:forged"] } }],
+    }), /autonomous-plan-manifest-mismatch/);
+    const finalized = store.finalizeWorldInference(key, "world:7", 12, { runtimeAutonomousProposals: [proposal], unifiedActionPlans: [plan] });
+    assert.deepEqual(finalized.manifest.runtimeAutonomousProposals, [proposal]);
   });
 });
 

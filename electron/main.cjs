@@ -14,6 +14,7 @@ const { registerPersistenceIpc } = require("./persistence-ipc.cjs");
 const { resolveServerPort } = require("./server-port.cjs");
 const { ACTIVE_SAVE_KEY, deriveRagWorkerRequest, requirePersistenceStore } = require("./runtime-authority.cjs");
 const { requestInference } = require("./inference-gateway.cjs");
+const { requestAutonomousInference } = require("./autonomous-inference.cjs");
 const { requestWorldInference } = require("./world-inference.cjs");
 
 const isWindows = process.platform === "win32";
@@ -199,7 +200,25 @@ function registerInferenceIpc() {
     if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
     try {
       if (task?.task === "world-adjudication" || task?.worldRequest !== undefined || task?.worldRag !== undefined) throw new Error("world-inference-dedicated-channel-required");
+      if (task?.task === "autonomous-planning" || task?.autonomousRequest !== undefined) throw new Error("autonomous-inference-dedicated-channel-required");
       const result = await requestInference(task, { getCredential: inferenceCredential });
+      return { ok: true, ...result };
+    } catch (error) {
+      return { ok: false, error: String(error?.message ?? error) };
+    }
+  });
+  ipcMain.handle("inference:autonomous", async (event, task) => {
+    if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
+    try {
+      const store = requirePersistenceStore(persistenceStore);
+      const result = await requestAutonomousInference(task, {
+        store,
+        loadAuthorityGame: (turnId, baseRevision) => store.readWorldInferenceAuthority(ACTIVE_SAVE_KEY, turnId, baseRevision),
+        readRecordedProposal: (turnId, baseRevision, agentRef) => store.readAutonomousProposal(ACTIVE_SAVE_KEY, turnId, baseRevision, agentRef),
+        recordProposal: (turnId, baseRevision, proposal) => store.recordAutonomousProposal(ACTIVE_SAVE_KEY, turnId, baseRevision, proposal),
+        callRag,
+        infer: (boundTask) => requestInference(boundTask, { getCredential: inferenceCredential, allowAutonomousPlanning: true }),
+      });
       return { ok: true, ...result };
     } catch (error) {
       return { ok: false, error: String(error?.message ?? error) };

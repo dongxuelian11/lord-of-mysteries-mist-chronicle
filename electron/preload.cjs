@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("mistCredentials", {
 
 contextBridge.exposeInMainWorld("mistInference", {
   request: (task) => ipcRenderer.invoke("inference:request", task),
+  requestAutonomous: (task) => ipcRenderer.invoke("inference:autonomous", task),
   lockWorld: (request) => ipcRenderer.invoke("inference:lock-world", request),
   stageWorld: (request) => ipcRenderer.invoke("inference:stage-world", request),
   finalizeWorld: (request) => ipcRenderer.invoke("inference:finalize-world", request),

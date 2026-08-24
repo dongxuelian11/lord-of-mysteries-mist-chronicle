@@ -356,3 +356,15 @@
 - 当前实现效果：隐藏设定按去空白/标点后的 8 字滑窗拒绝逐字摘录；议会/对话 RAG 只接受真实成员，自治 RAG 只接受 durable active principal 且实体存在；recovery 读取、隔离、替换与 active save 写入处于同一 SQLite 事务；checkpoint 由 IPC/store 共用结构谓词；所有 world IPC 在空 store 时稳定 fail closed；模型、world、RAG、persistence 错误在玩家边界映射；迁移隔离成功为可恢复 warning、隔离失败仍 fatal；投影改用事件/观察/地点索引。
 - 新增行为回归覆盖非法 TurnCommit candidate、缺失 RAG authority envelope、15 字/标点分段/多字段 lore 泄露、NPC/非 active autonomous 冒充、空 persistence store、坏 recovery 回滚、malformed checkpoint 拒绝、隔离 warning/fatal 分流与用户可读错误映射。
 - 本记录写入时的远端边界：上述合并前增量尚待新的本地完整门禁、精确提交、push 与 exact-head CI；该顺序是历史事实，不表示后续步骤已自动完成。
+
+### 2026-08-24 · 合并前技术债闭环
+
+- 单一保留策略：renderer `WorldKernel` 与 Main SQLite 不再各自硬编码 256；`shared/runtime-limits.json` 成为 committed transaction 与 authority receipt 上限的共同 owner，避免老化 owner 判断和内存裁剪发生漂移。
+- 语义 DTO 与 durable DTO 分离：模型/adapter 只生成没有 `turnId` 的 `RetrievalReceipt` / `MutationClaim`；事务成功后由 `WorldKernel` 生成必带 owner 的 durable 记录。旧存档只在唯一 retained transaction 时继承该 owner，否则明确记为 `state-import`。
+- Electron 自治规划迁入 Main：公开 RAG 不再接受 autonomous purpose，generic inference 不再接受 `autonomous-planning`。renderer 只提交 principal/week/baseRevision/attempt；Main 从 staged durable authority 派生主体投影、私有记忆、RAG query、固定 system/user prompt，校验模型提案和逐字 lore 泄漏后才返回有界 proposal。
+- 自治提案首次 authority 不再由 renderer 签发：Main 按 origin/turn/revision/agent 将 canonical proposal 写入 checksummed SQLite；重启与并发重入读取同一记录，第二次失败由 Main 生成固定的 deterministic fallback。最终 manifest 必须包含与 Main 记录精确相同的完整 active-agent proposal 集，且 autonomous ExecutionPlan 只能使用同一 agent、已记录 target 与全零资源承诺。
+- staged authority 与规划状态使用同一 `ensureAutonomousWorldState` 归一化，避免新唤醒/轮换主体在 renderer 规划集合与 Main 授权集合之间漂移。world turn 提交后，proposal、world lock 与 inference ticket 在同一事务路径清理。
+- 威胁边界：本批关闭 autonomous query/prompt/proposal/基础 execution scope 的 renderer 替换路径；不声称任意受信 IPC 与活动存档写入都已迁出 renderer，也不把 browser preview 路径当作 Electron 权威证据。
+- 本地门禁：生产 build 与全量测试通过，485 项中 480 通过、5 项条件跳过、0 失败；typecheck、lint（0 warning）、202 个 CJS/MJS syntax、`git diff --check`、source release verify 与 bundle budget 均通过，最大 chunk 188.0 KiB / 450 KiB。
+- 发行真值：`release:verify:seed` 仍以退出码 1 报 `seed-manifest-missing`；installer smoke 为 `BLOCKED / NOT_RUN`，clean-machine、production 与 human evidence 为 `NOT_AVAILABLE`。
+- 合并门禁状态：本地实现、代码级复核与门禁已完成；fresh remote CURRENT、精确 write-set、锁定提交、exact-head CI、合并和 resulting-main CI 仍须以后续实际执行结果为准，不预先升级。

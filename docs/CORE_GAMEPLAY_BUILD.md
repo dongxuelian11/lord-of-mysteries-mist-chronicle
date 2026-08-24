@@ -666,3 +666,13 @@ PR2 不再拆分后续实现包。下一阶段若继续，应另立 PR3 目标�
 - 最终本地证据：`npm.cmd test` 构建通过，466 项中 461 通过、5 项条件性跳过、0 失败；`typecheck`、`lint`、200 个 CJS/MJS syntax、`git diff --check origin/main` 与 bundle budget 通过，最大 chunk 188.0 KiB / 450 KiB；维护性、安全/数据完整性和测试覆盖三路独立复审最终均为 `NO_BLOCKING_FINDINGS`。
 - 发行边界：`release:verify:seed` 仍以退出码 1 报 `seed-manifest-missing`；installer smoke 保持 `BLOCKED / NOT_RUN`，clean-machine、production 与 human evidence 保持 `NOT_AVAILABLE`。
 - Git 边界：fresh `origin/main`、HEAD 与 merge-base 均为 `d54f8e0f6abade0c3682e63f5e735e3eae39775a`；候选仍限制为 87 个既定路径，排除两份受保护 QA 日志。当前没有 stage、commit 或 push；自动压缩后继续读取 `docs/FIVE_STAGE_RUNTIME_CLOSURE.md` 的最后一节恢复进度。
+
+### 2026-08-24 · 自治规划技术债闭环
+
+- 玩家循环没有增加后台页面或新操作：仍是“看局势 → 定目标 → 派人授权 → 世界回应 → 看见回响”。变化只发生在 Electron 后台权威链路。
+- 自治主体的知识投影、私有记忆选择、RAG query 和模型 prompt 改由 Main 从本周 staged authority 生成；renderer 不再能夹带自治 system/user/query，也不能通过公共 RAG 申请 autonomous audience。
+- 每个 active agent 的最终提案由 Main 校验并持久签发；失败重试、应用重启和世界 manifest 冻结都复用同一 proposal。renderer 替换 intent、目标、参与主体或资源承诺会在 Main finalize 前 fail closed。
+- unchanged-materiality 快速跳过仍保留在 browser preview；Electron 正式路径关闭 renderer 本地 skip，由 Main 模型或 Main deterministic fallback 为每个 active agent 形成可重放记录。该差异不改变玩家可见节奏。
+- 本批同时消除了 renderer/Main 保留上限常量漂移，并把语义 receipt/claim 与持久 owner 类型拆开；`turnId` 继续只属于事务与持久层，不进入角色或玩家投影。
+- 明确不升级的证据：browser preview 不是 packaged Electron 权威证明；installer、clean-machine、production 与 human evidence 继续按发行门禁的字面结果报告。
+- 本地回归：生产 build 与 485 项全量测试通过（480 通过、5 项条件跳过、0 失败）；typecheck、lint 0 warning、202 个 CJS/MJS syntax、source release verify、bundle budget 与 diff whitespace 检查通过。授权 seed 仍缺失，因此没有运行或声称 installer smoke。

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyWorldTurn as commitWorldTurn, createWorldKernel, createWorldTurnTransaction, projectWorldForAudience } from "../app/world-kernel.ts";
+import { applyWorldTurn as commitWorldTurn, createWorldKernel, createWorldTurnTransaction, ensureWorldKernelTransactionState, projectWorldForAudience } from "../app/world-kernel.ts";
 import { createInitialGame } from "../app/game-model.ts";
 
 function withKnowledgeAuthority(delta) {
@@ -112,6 +112,18 @@ test("world kernel binds new authority receipts and claims to the committed tran
 
   assert.equal(next.retrievalReceipts.at(-1)?.turnId, "world:1");
   assert.equal(next.mutationClaims.at(-1)?.turnId, "world:1");
+});
+
+test("world kernel migrates legacy unowned authority into durable owner records", () => {
+  const base = createWorldKernel({ week: 1, date: "d", factions: [], actors: [], locations: [], timeline: [] });
+  const normalized = ensureWorldKernelTransactionState({
+    ...base,
+    committedTransactions: [],
+    retrievalReceipts: [{ requestId: "legacy", indexVersion: "v1", audienceRef: "world", queryHash: "q", filterHash: "f", chunkIds: [], contextHash: "c" }],
+    mutationClaims: [{ proposalId: "legacy", effectKind: "event", subjectRef: "event:legacy", targetRefs: [] }],
+  });
+  assert.equal(normalized.retrievalReceipts[0].turnId, "state-import");
+  assert.equal(normalized.mutationClaims[0].turnId, "state-import");
 });
 
 test("an event updates its location footprint even without an explicit location update", () => {

@@ -7,8 +7,6 @@
  */
 
 export type RetrievalReceipt = {
-  /** Durable owner assigned by WorldKernel when the turn commits. */
-  turnId?: string;
   requestId: string;
   indexVersion: string;
   audienceRef: string;
@@ -16,6 +14,11 @@ export type RetrievalReceipt = {
   filterHash: string;
   chunkIds: string[];
   contextHash: string;
+};
+
+/** Persistence-only ownership added after a world turn is committed. */
+export type DurableRetrievalReceipt = RetrievalReceipt & {
+  turnId: string;
 };
 
 export type ResourceDelta = {
@@ -40,14 +43,17 @@ export type MutationCapability =
   | "MUTATE_AMBIENT_WORLD_STATE";
 
 export type MutationClaim = {
-  /** Durable owner assigned by WorldKernel when the turn commits. */
-  turnId?: string;
   proposalId: string;
   effectKind: MutationEffectKind;
   subjectRef: string;
   targetRefs: string[];
   resourceImpact?: ResourceDelta;
   sourceEventId?: string;
+};
+
+/** Persistence-only ownership added after a world turn is committed. */
+export type DurableMutationClaim = MutationClaim & {
+  turnId: string;
 };
 
 export type ExecutionPlanScope = {
