@@ -156,7 +156,8 @@ test("an invalid legacy SQLite save is quarantined and reported instead of silen
   const loaded = await loadGameSession();
   assert.equal(loaded.game, undefined);
   assert.equal(loaded.hasSave, false);
-  assert.match(loaded.persistenceError ?? "", /active-save-migration-rejected/);
+  assert.equal(loaded.persistenceError, undefined);
+  assert.equal(loaded.persistenceWarning, "active-save-migration-rejected");
   assert.deepEqual(quarantined, [["mist-chronicle-complete-v20", "active-save-migration-rejected"]]);
 });
 
@@ -167,7 +168,8 @@ test("an invalid legacy browser save is quarantined locally and reports the migr
   const loaded = await loadGameSession();
   assert.equal(loaded.game, undefined);
   assert.equal(loaded.hasSave, false);
-  assert.match(loaded.persistenceError ?? "", /active-save-migration-rejected/);
+  assert.equal(loaded.persistenceError, undefined);
+  assert.equal(loaded.persistenceWarning, "active-save-migration-rejected");
   assert.equal(local.getItem("mist-chronicle-complete-v20"), null);
   assert.equal(local.getItem("mist-chronicle-quarantine:mist-chronicle-complete-v20"), "{truncated");
   assert.equal(local.getItem("mist-chronicle-quarantine:mist-chronicle-complete-v20:reason"), "active-save-migration-rejected");
@@ -180,7 +182,8 @@ test("an invalid current browser save is quarantined locally before the active k
   const loaded = await loadGameSession();
   assert.equal(loaded.game, undefined);
   assert.equal(loaded.hasSave, false);
-  assert.match(loaded.persistenceError ?? "", /active-save-migration-rejected/);
+  assert.equal(loaded.persistenceError, undefined);
+  assert.equal(loaded.persistenceWarning, "active-save-migration-rejected");
   assert.equal(local.getItem("mist-chronicle-complete-v21"), null);
   assert.equal(local.getItem("mist-chronicle-quarantine:mist-chronicle-complete-v21"), "{truncated");
   assert.equal(local.getItem("mist-chronicle-quarantine:mist-chronicle-complete-v21:reason"), "active-save-migration-rejected");
@@ -198,7 +201,8 @@ test("a legacy browser save remains in place when local quarantine cannot be wri
   const loaded = await loadGameSession();
   assert.equal(loaded.game, undefined);
   assert.equal(loaded.hasSave, false);
-  assert.match(loaded.persistenceError ?? "", /active-save-migration-rejected/);
+  assert.match(loaded.persistenceError ?? "", /active-save-quarantine-failed/);
+  assert.equal(loaded.persistenceWarning, undefined);
   assert.equal(local.getItem("mist-chronicle-complete-v20"), "{truncated");
 });
 

@@ -670,12 +670,11 @@ export type AudienceWorldProjection = {
 function projectLocationForAudience(
   location: PersistentWorldLocation,
   audience: WorldAudience,
-  visibleEvents: AudienceWorldEvent[],
-  visibleObservations: WorldObservation[],
+  eventsByLocationId: ReadonlyMap<string, AudienceWorldEvent[]>,
+  observationsByEventId: ReadonlyMap<string, WorldObservation[]>,
 ): AudienceLocationProjection {
-  const locationEvents = visibleEvents.filter((event) => event.locationId === location.id);
-  const eventIds = new Set(locationEvents.map((event) => event.id));
-  const locationObservations = visibleObservations.filter((observation) => eventIds.has(observation.eventId));
+  const locationEvents = eventsByLocationId.get(location.id) ?? [];
+  const locationObservations = locationEvents.flatMap((event) => observationsByEventId.get(event.id) ?? []);
   const knownActorIds = new Set<string>();
   const knownFactionIds = new Set<string>();
   for (const event of locationEvents) {
@@ -726,15 +725,22 @@ export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudi
   const visibleEvents = kernel.events.filter((event) => event.visibility === "public" || observableEventIds.has(event.id));
   const visibleKnowledge = kernel.knowledge.filter((node) => canSee(node.visibility, node.holderIds, node.holderRefs, audience));
   const visibleKnowledgeGrants = (kernel.knowledgeGrants ?? []).filter((grant) => grant.holderRef === reference);
+  const observationsByEventId = new Map<string, WorldObservation[]>();
+  for (const observation of visibleObservations) {
+    const eventObservations = observationsByEventId.get(observation.eventId) ?? [];
+    eventObservations.push(observation);
+    observationsByEventId.set(observation.eventId, eventObservations);
+  }
+  const locationById = new Map(kernel.locations.map((location) => [location.id, location]));
   const audienceEvents: AudienceWorldEvent[] = visibleEvents.map((event) => {
-    const eventObservations = visibleObservations.filter((observation) => observation.eventId === event.id);
+    const eventObservations = observationsByEventId.get(event.id) ?? [];
     const perceivedRefs = eventObservations.flatMap((observation) => observation.perceivedRefs ?? []);
     const knownActorIds = new Set(perceivedRefs.flatMap((item) => item.startsWith("actor:") ? [item.slice("actor:".length)] : []));
     const knownFactionIds = new Set(perceivedRefs.flatMap((item) => item.startsWith("faction:") ? [item.slice("faction:".length)] : []));
     if (audience.kind === "actor" && event.actorIds.includes(audience.holderId)) knownActorIds.add(audience.holderId);
     if (audience.kind === "faction" && event.factionIds.includes(audience.holderId)) knownFactionIds.add(audience.holderId);
     const observationText = eventObservations.map((observation) => observation.text).filter(Boolean).join("；");
-    const eventLocation = event.locationId ? kernel.locations.find((location) => location.id === event.locationId) : undefined;
+    const eventLocation = event.locationId ? locationById.get(event.locationId) : undefined;
     const observedLocationId = event.visibility === "public"
       || Boolean(eventLocation && eventObservations.some((observation) => observation.text.includes(eventLocation.id) || observation.text.includes(eventLocation.name)))
       ? event.locationId
@@ -751,7 +757,14 @@ export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudi
       observationIds: eventObservations.map((observation) => observation.id).sort(),
     };
   });
-  const locations = kernel.locations.map((location) => projectLocationForAudience(location, audience, audienceEvents, visibleObservations));
+  const eventsByLocationId = new Map<string, AudienceWorldEvent[]>();
+  for (const event of audienceEvents) {
+    if (!event.locationId) continue;
+    const locationEvents = eventsByLocationId.get(event.locationId) ?? [];
+    locationEvents.push(event);
+    eventsByLocationId.set(event.locationId, locationEvents);
+  }
+  const locations = kernel.locations.map((location) => projectLocationForAudience(location, audience, eventsByLocationId, observationsByEventId));
   const audienceObservations: AudienceWorldObservation[] = visibleObservations.map(({ id, week, eventId, channel, text, visibility, perceivedRefs, acquisitionKind }) => ({ id, week, eventId, channel, text, visibility, perceivedRefs, acquisitionKind }));
   const grantByKnowledgeId = new Map(visibleKnowledgeGrants.map((grant) => [grant.knowledgeId, grant.kind]));
   const audienceKnowledge: AudienceWorldKnowledge[] = visibleKnowledge.map(({ id, subject, statement, visibility, acquiredWeek }) => {

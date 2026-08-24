@@ -23,7 +23,7 @@ import OrganizationManagementConsole from "./organization-management-console";
 import { advanceManagedBeyonder, promoteCandidate, recalculateBacklundControl, type OrganizationManagementState } from "./organization-management";
 import GreatSmogFinale from "./great-smog-finale";
 import AiSettings from "./ai-settings";
-import { AiConfig, DEEPSEEK_FLASH_PRESET, isLoopbackInferenceEndpoint, testModelConnection } from "./ai-client";
+import { AiConfig, DEEPSEEK_FLASH_PRESET, isLoopbackInferenceEndpoint, testModelConnection, userFacingModelError } from "./ai-client";
 import WeeklyCouncil from "./weekly-council";
 import OpeningPrologue from "./opening-prologue";
 import AbilityConsole from "./ability-console";
@@ -62,6 +62,17 @@ function authorizationLabel(contract: ActionContract) {
 }
 
 const PERSISTENCE_FATAL_MESSAGE = "本机存档数据库无法打开；为避免覆盖旧状态，已阻止需要持久化的推进。请修复数据库后重试。";
+const PERSISTENCE_QUARANTINE_MESSAGE = "旧存档无法升级，已安全隔离；你可以开始新局，并在恢复记录中查看旧状态。";
+
+function persistenceFailureMessage(code: string) {
+  if (code === "active-save-quarantine-failed") return "旧存档无法升级，且未能安全隔离；为避免覆盖原记录，已阻止推进。请先备份或修复本机存储。";
+  if (/persistence-(?:record|recovery)-corrupt/.test(code)) return "存档记录校验失败；为避免覆盖可恢复数据，已阻止推进。请检查隔离与恢复记录。";
+  return PERSISTENCE_FATAL_MESSAGE;
+}
+
+function displayError(error: unknown, fallback: string) {
+  return error instanceof Error ? userFacingModelError(error.message) : fallback;
+}
 
 async function lockDesktopWorldTurn(game: GameState, resolvingWeek: number) {
   if (typeof window === "undefined" || typeof window.mistInference?.requestWorld !== "function") return;
@@ -159,9 +170,11 @@ export default function CompleteGame() {
       if (loaded.aiConfig) setAiConfig(loaded.aiConfig);
       setRememberApiKey(loaded.rememberApiKey);
       if (loaded.persistenceError) {
-        setPersistenceError(PERSISTENCE_FATAL_MESSAGE);
-        setToast(PERSISTENCE_FATAL_MESSAGE);
+        const message = persistenceFailureMessage(loaded.persistenceError);
+        setPersistenceError(message);
+        setToast(message);
       }
+      if (loaded.persistenceWarning === "active-save-migration-rejected") setToast(PERSISTENCE_QUARANTINE_MESSAGE);
       try {
         const recoveries = await readRecoveryCheckpointsAsync();
         if (!cancelled) setRecoveryOptions(recoveries);
@@ -231,7 +244,7 @@ export default function CompleteGame() {
       const next = await interpretIntentWithAi(aiConfig, args);
       setContract(next);
     } catch (error) {
-      setGenerationError(`${error instanceof Error ? error.message : "模型解析失败"}；没有写入任何机械替代决议，请检查后重试。`);
+      setGenerationError(`${displayError(error, "模型解析失败")}；没有写入任何机械替代决议，请检查后重试。`);
     } finally { setContractLoading(false); }
   }
 
@@ -293,7 +306,7 @@ export default function CompleteGame() {
         setToast("书记员已根据讨论整理出决议草稿，请确认后拍板");
       }
     } catch (error) {
-      setGenerationError(`${error instanceof Error ? error.message : "决议整理失败"}；原始讨论没有改变。`);
+      setGenerationError(`${displayError(error, "决议整理失败")}；原始讨论没有改变。`);
     } finally { setDecisionLoading(false); }
   }
 
@@ -313,7 +326,7 @@ export default function CompleteGame() {
       setTurnStages([{ name: "世界推演", ms: Math.round(performance.now() - worldStartedAt), status: "ok" }]);
     } catch (error) {
       setTurnStages([{ name: "世界推演", ms: Math.round(performance.now() - worldStartedAt), status: "error" }]);
-      setGenerationError(`${error instanceof Error ? error.message : "世界回应中断"}；本周尚未走完，你可以检查连接后从同一局面继续，已经发生的事不会被重掷。`);
+      setGenerationError(`${displayError(error, "世界回应中断")}；本周尚未走完，你可以检查连接后从同一局面继续，已经发生的事不会被重掷。`);
       setGenerationStage("");
       setStreamPreview("");
       return;
@@ -345,7 +358,7 @@ export default function CompleteGame() {
       setGame((current) => ({ ...current, chronicle: current.chronicle.map((chapter) => chapter.id === literary.id ? literary : chapter) }));
     } catch (error) {
       setTurnStages((prev) => [...prev, { name: "文学章节", ms: Math.round(performance.now() - literaryStartedAt), status: "error" }]);
-      setGenerationError(`${error instanceof Error ? error.message : "文学章节生成失败"}；世界事实与本周结算已经安全保存，可稍后只重试文学章节。`);
+      setGenerationError(`${displayError(error, "文学章节生成失败")}；世界事实与本周结算已经安全保存，可稍后只重试文学章节。`);
     } finally { setGenerationStage(""); setStreamPreview(""); }
   }
 
@@ -375,7 +388,7 @@ export default function CompleteGame() {
       try {
         await lockDesktopWorldTurn(sourceGame, sourceGame.worldKernel.currentWeek);
       } catch (error) {
-        setGenerationError(`${error instanceof Error ? error.message : "世界权威快照锁定失败"}；本周尚未结算，当前局面没有改变。`);
+        setGenerationError(`${displayError(error, "世界权威快照锁定失败")}；本周尚未结算，当前局面没有改变。`);
         return;
       }
       const resolved = resolveWeek(sourceGame);
@@ -389,7 +402,7 @@ export default function CompleteGame() {
       try {
         await stageDesktopWorldTurn(councilState, resolved.chapter.week);
       } catch (error) {
-        setGenerationError(`${error instanceof Error ? error.message : "本周规则结果冻结失败"}；本周尚未进入世界推演，当前局面没有改变。`);
+        setGenerationError(`${displayError(error, "本周规则结果冻结失败")}；本周尚未进入世界推演，当前局面没有改变。`);
         return;
       }
       const playerResult = resolved.chapter.results.find((result) => ["executed", "limited", "partially-completed", "interrupted"].includes(result.executionStatus ?? "") && (result.contract.leaderId === "player" || result.contract.executionMode === "player-led"));
@@ -418,7 +431,7 @@ export default function CompleteGame() {
       if (!isCurrentGame(sourceGame, "亲历场景期间局面发生了变化；本次回应没有覆盖当前状态。")) return;
       setGame((current) => current.activeParticipationScene ? { ...current, activeParticipationScene: resolveParticipationSceneTurn(current.activeParticipationScene, intent, narrative) } : current);
     } catch (error) {
-      setParticipationError(`${error instanceof Error ? error.message : "亲历场景生成失败"}；这是模型接入错误，没有生成降级文本，也没有重掷事实。`);
+      setParticipationError(`${displayError(error, "亲历场景生成失败")}；这是模型接入错误，没有生成降级文本，也没有重掷事实。`);
     } finally { setParticipationLoading(false); }
   }
 
@@ -456,7 +469,7 @@ export default function CompleteGame() {
       setToast(`第${chapter.week}周文学章节已经补写并存档`);
     } catch (error) {
       setTurnStages([{ name: "文学章节补写", ms: Math.round(performance.now() - retryStartedAt), status: "error" }]);
-      setGenerationError(`${error instanceof Error ? error.message : "文学章节生成失败"}；世界事实没有回滚，也不会重复结算。`);
+      setGenerationError(`${displayError(error, "文学章节生成失败")}；世界事实没有回滚，也不会重复结算。`);
     } finally { setGenerationStage(""); setStreamPreview(""); }
   }
 
@@ -549,7 +562,7 @@ export default function CompleteGame() {
     } catch (error) {
       const stageMs = Math.round(performance.now() - (finaleWorldFailed ? finaleWorldStartedAt : finaleLiteraryStartedAt));
       setTurnStages((prev) => [...prev, { name: finaleWorldFailed ? "重大事件世界推演" : "重大事件文学章节", ms: stageMs, status: "error" }]);
-      setGenerationError(`${error instanceof Error ? error.message : "重大事件世界推演或文学模式失败"}；规则战报已经保留，失败阶段不会伪造本地替代世界。`);
+      setGenerationError(`${displayError(error, "重大事件世界推演或文学模式失败")}；规则战报已经保留，失败阶段不会伪造本地替代世界。`);
     } finally {
       worldTurnInFlight.current = false;
       setGenerationStage("");
@@ -692,7 +705,7 @@ export default function CompleteGame() {
     setSituationLoading(true);
     if (!aiReady) { setSituationLoading(false); setSituationBrief(null); setShowSettings(true); return; }
     try { const generated = await generateSituationBrief(aiConfig, next); if (!situationDismissed.current) setSituationBrief(generated); }
-    catch (error) { setSituationBrief(null); setGenerationError(`${error instanceof Error ? error.message : "AI 局势生成失败"}；请检查接口后重新进入。`); }
+    catch (error) { setSituationBrief(null); setGenerationError(`${displayError(error, "AI 局势生成失败")}；请检查接口后重新进入。`); }
     finally { setSituationLoading(false); }
   }
 

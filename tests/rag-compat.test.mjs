@@ -82,3 +82,30 @@ test("Electron 桥接失败时 fail closed，不允许回退渲染端旧版检�
   }
   await closeRuntimeServer();
 });
+
+test("Electron 桥接返回成功形状但缺少 Main 权威信封时 fail closed", async () => {
+  const { retrieveLoreContextAsync } = await loadRuntimeModule("app/rag/client.ts");
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    mistRag: {
+      search: async () => ({
+        available: true,
+        indexVersion: "index-v1",
+        records: [{ id: "untrusted", title: "未授权", content: "不应被采用", sourceId: "S01", sourceGrade: "A" }],
+      }),
+      status: async () => ({ available: true, chunks: 1, indexVersion: "index-v1" }),
+    },
+  };
+  try {
+    await assert.rejects(retrieveLoreContextAsync([], {
+      query: "测试缺失权威信封",
+      audience: { kind: "player-known", principalRef: "player", purpose: "player-ability", knownLoreIds: [], topicGrants: [] },
+      limit: 4,
+      maxChars: 2000,
+    }), /RAG_GATEWAY_AUTHORITY_UNAVAILABLE/);
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+  await closeRuntimeServer();
+});

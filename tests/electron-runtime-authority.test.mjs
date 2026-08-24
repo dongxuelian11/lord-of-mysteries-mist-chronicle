@@ -7,6 +7,21 @@ const require = createRequire(import.meta.url);
 
 after(() => closeRuntimeServer());
 
+test("Main world authority fails closed with a stable error when durable persistence is unavailable", () => {
+  const { requirePersistenceStore } = require("../electron/runtime-authority.cjs");
+  assert.throws(() => requirePersistenceStore(null), /persistence-unavailable/);
+  const store = {};
+  assert.strictEqual(requirePersistenceStore(store), store);
+});
+
+test("renderer maps Main model error codes to user-facing messages", async () => {
+  const { userFacingModelError } = await loadRuntimeModule("app/ai-client.ts");
+  assert.equal(userFacingModelError("MODEL_AUTH_REJECTED"), "API Key 无效或没有调用权限");
+  assert.equal(userFacingModelError("MODEL_HTTP_503"), "模型服务返回错误（HTTP 503）");
+  assert.equal(userFacingModelError("WORLD_INFERENCE_MANIFEST_FAILED"), "本周世界回应未通过本机一致性校验，请从当前局面重试");
+  assert.equal(userFacingModelError("RAG_GATEWAY_UNAVAILABLE"), "设定资料暂时不可用；没有生成替代内容，请稍后重试");
+});
+
 test("Main preserves the frozen autonomous intent semantics while omitting the renderer-only sidecar", () => {
   const { buildDurableWorldPayload } = require("../electron/world-prompt.cjs");
   const game = {
@@ -498,6 +513,65 @@ test("Main world inference rejects a model response that echoes private lore ver
     callRag: async () => ({ available: true, indexVersion: "index-v1", records: [{ id: "private", title: "隐秘", content: privateLore, sourceId: "canon", sourceGrade: "A" }] }),
     infer: async () => ({ content: JSON.stringify({ worldSummary: { undercurrents: [privateLore] } }) }),
   }), /WORLD_LORE_VERBATIM_LEAK_REJECTED/);
+});
+
+test("renderer RAG cannot impersonate persisted NPCs or inactive autonomous factions", () => {
+  const { deriveRagWorkerRequest } = require("../electron/runtime-authority.cjs");
+  const store = { getItem: () => JSON.stringify({
+    week: 1,
+    date: "d",
+    members: [],
+    worldAgents: { activeAgentRefs: [] },
+    worldKernel: {
+      knowledge: [
+        { visibility: "actors", holderRefs: ["actor:hidden"], loreRecordIds: ["npc-secret"] },
+        { visibility: "actors", holderRefs: ["faction:shadow"], loreRecordIds: ["faction-secret"] },
+      ],
+      actors: [{ id: "hidden" }],
+      factions: [{ id: "shadow" }],
+      canon: {},
+    },
+  }) };
+  assert.throws(() => deriveRagWorkerRequest({ query: "steal", purpose: "actor-council", principalRef: "actor:hidden" }, store), /rag-principal-not-authorized/);
+  assert.throws(() => deriveRagWorkerRequest({ query: "steal", purpose: "autonomous-faction", principalRef: "faction:shadow" }, store), /rag-principal-not-authorized/);
+});
+
+test("Main permits RAG only for the exact durable active autonomous principal", () => {
+  const { deriveRagWorkerRequest } = require("../electron/runtime-authority.cjs");
+  const store = { getItem: () => JSON.stringify({
+    week: 1,
+    date: "d",
+    members: [],
+    worldAgents: { activeAgentRefs: ["actor:active"] },
+    worldKernel: {
+      knowledge: [{ visibility: "actors", holderRefs: ["actor:active"], loreRecordIds: ["active-secret"] }],
+      actors: [{ id: "active" }],
+      factions: [],
+      canon: {},
+    },
+  }) };
+  const request = deriveRagWorkerRequest({ query: "plan", purpose: "autonomous-actor", principalRef: "actor:active" }, store);
+  assert.deepEqual(request.audience.knownLoreIds, ["active-secret"]);
+});
+
+test("Main world inference leak guard rejects a short excerpt copied from long private lore", () => {
+  const { assertNoVerbatimLoreLeak } = require("../electron/world-inference.cjs");
+  const privateLore = "这是一段足够长的世界隐秘资料，其中包含从未公开的仪式坐标、参与者身份与后续代价，模型只能据此裁决而不能向渲染进程逐字返回任何连续摘录。";
+  const copiedExcerpt = privateLore.slice(18, 42);
+  assert.equal(copiedExcerpt.length, 24);
+  assert.throws(() => assertNoVerbatimLoreLeak(
+    JSON.stringify({ worldSummary: { undercurrents: [`已确认：${copiedExcerpt}`] } }),
+    [{ id: "private-long", content: privateLore }],
+  ), /WORLD_LORE_VERBATIM_LEAK_REJECTED/);
+});
+
+test("Main world inference leak guard rejects punctuated and multi-field short lore excerpts", () => {
+  const { assertNoVerbatimLoreLeak } = require("../electron/world-inference.cjs");
+  const privateLore = "这是一段足够长的世界隐秘资料，其中包含从未公开的仪式坐标、参与者身份与后续代价，模型只能据此裁决而不能向渲染进程逐字返回任何连续摘录。";
+  const fifteenCharacters = privateLore.slice(18, 33);
+  assert.equal(fifteenCharacters.length, 15);
+  assert.throws(() => assertNoVerbatimLoreLeak(`泄露：${fifteenCharacters.slice(0, 7)}，${fifteenCharacters.slice(7)}`, [{ content: privateLore }]), /WORLD_LORE_VERBATIM_LEAK_REJECTED/);
+  assert.throws(() => assertNoVerbatimLoreLeak(JSON.stringify({ first: privateLore.slice(24, 33), second: privateLore.slice(40, 49) }), [{ content: privateLore }]), /WORLD_LORE_VERBATIM_LEAK_REJECTED/);
 });
 
 test("Main inference rejects remote compatible endpoints before any network call", async () => {

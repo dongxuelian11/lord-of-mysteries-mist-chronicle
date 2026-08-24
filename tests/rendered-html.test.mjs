@@ -187,9 +187,9 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(aiSettings, /DeepSeek V4 Flash/);
   assert.match(aiSettings, /测试真实连接/);
   assert.match(aiSettings, /小说生成模式/);
-  assert.match(aiSettings, /专用世界推演模型/);
+  assert.match(aiSettings, /专用世界回应模型/);
   assert.match(aiSettings, /设定知识库已启用/);
-  assert.match(aiSettings, /世界推演补充资料/);
+  assert.match(aiSettings, /本局世界补充资料/);
   assert.match(aiSettings, /AI 世界推演已暂停/);
   assert.match(aiSettings, /游戏不会用本地事件表冒充人物回应或世界变化/);
   assert.doesNotMatch(aiSettings, /当前使用离线规则/);

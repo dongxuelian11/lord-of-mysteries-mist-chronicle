@@ -366,7 +366,7 @@ test("SQLite import preserves explicit authority turns and marks legacy unowned 
       },
     });
 
-    store.replaceWithRecovery("mist-chronicle-complete-v21", payload, "mist-chronicle-recovery-v21", { id: "before-import", game: {} });
+    store.replaceWithRecovery("mist-chronicle-complete-v21", payload, "mist-chronicle-recovery-v21", { id: "before-import", game: { worldKernel: { revision: 0 } } });
 
     const db = new DatabaseSync(dbPath);
     const receipts = db.prepare("SELECT receipt_id, turn_id FROM retrieval_receipts ORDER BY receipt_id").all();
@@ -485,6 +485,52 @@ test("SQLite import replacement writes the recovery point and imported active sa
     ), /injected-persistence-failure/);
     assert.deepEqual(JSON.parse(store.getItem("mist-chronicle-complete-v21")), imported);
     assert.deepEqual(JSON.parse(store.getItem("mist-chronicle-recovery-v21")).map((item) => item.id), ["before-import"]);
+  });
+});
+
+test("SQLite import replacement rolls corrupt recovery quarantine back with the replacement transaction", () => {
+  withTempStore((store) => {
+    const activeKey = "mist-chronicle-complete-v21";
+    const recoveryKey = "mist-chronicle-recovery-v21";
+    const original = { version: 21, saveId: "original", worldLedger: { branchId: "main" }, worldKernel: { revision: 0, committedTransactions: [], events: [], retrievalReceipts: [], mutationClaims: [] } };
+    const imported = { ...original, saveId: "failed-import" };
+    store.setItem(activeKey, JSON.stringify(original));
+    store.setItem(recoveryKey, JSON.stringify([{ id: "corrupt-before", game: { worldKernel: { revision: 1 } } }]));
+    store.db.prepare("UPDATE persistence_records SET payload = ? WHERE key = ?").run("corrupt-recovery-payload", recoveryKey);
+    const before = store.db.prepare("SELECT kind, schema_version, payload, checksum FROM persistence_records WHERE key = ?").get(recoveryKey);
+
+    assert.throws(() => store.replaceWithRecovery(
+      activeKey,
+      JSON.stringify(imported),
+      recoveryKey,
+      { id: "must-rollback", game: { worldKernel: { revision: 2 } } },
+      3,
+      { failAfter: true },
+    ), /injected-persistence-failure/);
+
+    const after = store.db.prepare("SELECT kind, schema_version, payload, checksum FROM persistence_records WHERE key = ?").get(recoveryKey);
+    assert.deepEqual(after, before);
+    assert.equal(store.listQuarantine(recoveryKey).length, 0);
+    assert.deepEqual(JSON.parse(store.getItem(activeKey)), original);
+  });
+});
+
+test("SQLite recovery writes reject checkpoints without a world kernel", () => {
+  withTempStore((store) => {
+    assert.throws(
+      () => store.appendRecoveryCheckpoint("mist-chronicle-recovery-v21", { id: "invalid", game: {} }),
+      /invalid-recovery-checkpoint/,
+    );
+    assert.throws(
+      () => store.replaceWithRecovery(
+        "mist-chronicle-complete-v21",
+        JSON.stringify({ version: 21, saveId: "invalid", worldLedger: { branchId: "main" }, worldKernel: { revision: 0, committedTransactions: [], events: [], retrievalReceipts: [], mutationClaims: [] } }),
+        "mist-chronicle-recovery-v21",
+        { id: "invalid", game: {} },
+      ),
+      /invalid-recovery-replacement/,
+    );
+    assert.equal(store.getItem("mist-chronicle-recovery-v21"), null);
   });
 });
 
