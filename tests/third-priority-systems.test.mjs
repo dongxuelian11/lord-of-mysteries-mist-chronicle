@@ -13,6 +13,9 @@ test("the map computes bounded travel ranges and keeps player hypotheses epistem
   const estimate = estimateRoute(game, "cherwood", "dock");
   assert.ok(estimate.districtIds.includes("bridge"));
   assert.ok(estimate.minutes[1] > estimate.minutes[0]);
+  const hiddenRiskChange = structuredClone(game);
+  hiddenRiskChange.worldKernel.locations = hiddenRiskChange.worldKernel.locations.map((location) => location.id === "dock" ? { ...location, risk: 100 } : location);
+  assert.deepEqual(estimateRoute(hiddenRiskChange, "cherwood", "dock"), estimate);
   const intelligence = buildSpatialIntelligence(game, 1);
   assert.equal(intelligence.routes.find((item) => item.id.includes("hypothesis"))?.status, "玩家假设");
 });
@@ -47,6 +50,8 @@ test("a resolved finale stage exposes concrete action contracts to the AI world 
   assert.equal(chapter.results.length, deployed.ending.campaign.crises.length);
   assert.ok(chapter.results.every((result) => result.contract.rawIntent.includes("改变")));
   assert.ok(chapter.results.every((result) => result.contract.redLines.includes("死亡")));
+  assert.ok(chapter.results.every((result) => result.executionPlan?.executable));
+  assert.ok(chapter.results.every((result) => result.executionPlan?.proposalId === `proposal:${chapter.week}:${result.id}`));
   const refreshed = refreshFinaleFronts(resolved);
   if (refreshed.ending.phase === "finale") assert.ok(refreshed.ending.campaign.crises.every((crisis) => crisis.sourceFactIds?.length));
 });

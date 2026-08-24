@@ -1,7 +1,7 @@
 # 《灰雾纪事》核心玩法构建总账
 
-状态：执行中
-最后更新：2026-08-21
+状态：核心玩法已完成；五阶段最终提交前审核重新打开的运行缺陷已修复，本地最终门禁与三路独立复审通过，具备本地提交条件
+最后更新：2026-08-24
 维护规则：每完成一个工作包，必须更新本文件的状态、证据与下一步。后续会话先读本文件，再读 `git status --short`，不得依赖聊天上下文恢复目标。
 
 ## 北极星体验
@@ -55,6 +55,10 @@
 ### 当前权威状态（2026-08-20 · I）
 
 CG-01 至 CG-10 全部已完成，剩余 0 个未开发工作包。后续会话以本段和表格为准；下方历史记录中的“当前工作包”只保留当时断点，不覆盖最新状态。
+
+### 运行时闭环状态（2026-08-23）
+
+五阶段运行时闭环已完成：单一 TurnCommit、ExactPromptEvidence/Main 权威、逐受众观察投影、DurableTurnStore/隔离恢复、永久归档/持久 trace/发行证据门禁均已进入运行代码。最终生产 build 通过；419 项测试中 414 通过、5 项条件跳过、0 失败。安装包 seed 仍缺失，因此 installer smoke 保持 `BLOCKED / NOT_RUN`，clean-machine、production、human 证据保持 `NOT_AVAILABLE`。完整逐阶段证据、压缩恢复规则与推送建议见 `docs/FIVE_STAGE_RUNTIME_CLOSURE.md`。
 
 ## 当前迭代：核心循环竖切 A
 
@@ -645,3 +649,20 @@ PR2 不再拆分后续实现包。下一阶段若继续，应另立 PR3 目标�
 - `tests/runtime-trace.test.mjs` 覆盖脱敏/容量上限、模型关联、检索—事务关联和事务拒绝；专项 3/3，PR4/PR5/PR6 定向回归 9/9，全量测试 383 项中 378 通过、5 条既有条件跳过、0 失败，typecheck、lint、bundle budget、Node/PowerShell syntax 和远端差异检查均通过。PR4/PR5/PR6 实现与本记录已纳入当前分支；GitHub PR、CI 与审批状态以远端实时查询为准，不把本地记录升级为远端通过。
 
 边界仍为本机内存可观测性契约，不宣称供应商 tokenizer 计量、跨进程 trace 持久化、packaged/clean-machine/production/human 证据。PR3 授权 seed 未提供时，installer smoke 继续 `NOT_RUN`；两个 QA 日志保持未跟踪。
+
+### 2026-08-23 · 五阶段运行时闭环（进行中）
+
+- 当前任务不是重做既有 CG/PR1–PR6，而是按最新深度代码审计逐步关闭五类仍存在的系统旁路：单一 `TurnCommit`、`ExactPromptEvidence` 与 Main 权威、观察限定投影、`DurableTurnStore`、永久归档/持久 trace/真实发行证据。
+- 权威执行账本：`docs/FIVE_STAGE_RUNTIME_CLOSURE.md`。自动压缩后先完整读取该文件，再检查 Git 状态，从首个“进行中”阶段继续。
+- 阶段 1 已完成：世界裁决结果现在只能经 `TurnCommit` 原子提交；逐引用 mutation authority、零默认资源承诺、新实体/事件因果、显式 ambient capability 和晚期失败 trace 真值均已闭合。
+- 阶段 1–4 已完成：单一 `TurnCommit`、`ExactPromptEvidence` / Main 权威、观察限定投影和 `DurableTurnStore` 已进入运行代码并完成各阶段全量回归。当前阶段：5 / 5，永久归档、唯一身份、持久 trace 与真实发行证据。
+- 远端边界：五阶段完成、全量回归和目标/计划效果复核前不推送、不开 PR、不合并；两个 `.qa-prodserver3.*.log` 继续保持未跟踪且不得触碰。
+
+### 2026-08-24 · 最终提交前缺陷关闭与效果复核
+
+- durable authority 记录现在由 `WorldKernel` 在事务验证成功且非 replay 后写入真实 `turnId`；SQLite 不再把累计旧 receipt/claim 伪归到最新回合。多回合 legacy 无 owner 时保持 `state-import`，claim identity 与 payload SHA-256 分离；老化显式 owner 只有被 retained journal 或既有 durable `world_turns` 证明时才保留，否则降级为 `state-import`。连续提交、fresh import 与 256 回合保留边界均有真实 SQLite 回归。
+- current/legacy 活动存档 JSON/迁移失败统一报告 `active-save-migration-rejected`。Electron persistence 记录进入 Main quarantine；浏览器记录先复制原始字节与原因到本地 quarantine 再移除来源，quarantine 写失败时保留来源，不再静默失败或直接丢档。
+- 五阶段预计效果逐项复核成立：TurnCommit 输入哈希和 replay 语义未改变；Main-owned RAG/推理未向 renderer 下放 owner；内部 `turnId` 未进入玩家/角色/模型受众投影；durable normalized tables 的 owner/checksum 真值和 legacy recoverability 已闭合；archive/trace/release 证据等级没有被本机结果升级。
+- 最终本地证据：`npm.cmd test` 构建通过，466 项中 461 通过、5 项条件性跳过、0 失败；`typecheck`、`lint`、200 个 CJS/MJS syntax、`git diff --check origin/main` 与 bundle budget 通过，最大 chunk 188.0 KiB / 450 KiB；维护性、安全/数据完整性和测试覆盖三路独立复审最终均为 `NO_BLOCKING_FINDINGS`。
+- 发行边界：`release:verify:seed` 仍以退出码 1 报 `seed-manifest-missing`；installer smoke 保持 `BLOCKED / NOT_RUN`，clean-machine、production 与 human evidence 保持 `NOT_AVAILABLE`。
+- Git 边界：fresh `origin/main`、HEAD 与 merge-base 均为 `d54f8e0f6abade0c3682e63f5e735e3eae39775a`；候选仍限制为 87 个既定路径，排除两份受保护 QA 日志。当前没有 stage、commit 或 push；自动压缩后继续读取 `docs/FIVE_STAGE_RUNTIME_CLOSURE.md` 的最后一节恢复进度。

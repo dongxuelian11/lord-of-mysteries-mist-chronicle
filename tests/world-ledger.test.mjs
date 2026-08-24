@@ -6,6 +6,7 @@ import {
   appendWorldLedgerEvents,
   appendWorldLedgerCompensation,
   WORLD_LEDGER_EVENT_RETENTION,
+  WORLD_LEDGER_SEGMENT_RETENTION,
   commitWorldLedgerWeek,
   createWorldLedger,
   createWorldLedgerBranch,
@@ -178,11 +179,11 @@ test("long-running ledgers keep bounded checkpoint snapshots while retaining ful
   assert.equal(verifyWorldLedger(ledger).ok, true, verifyWorldLedger(ledger).issues.join("\n"));
 });
 
-test("very long ledgers segment old events behind a trusted checkpoint and verify the retained chain incrementally", () => {
+test("very long ledgers keep archive proofs bounded while rejecting archived ID reuse", () => {
   const game = createInitialGame("spectator");
   let ledger = createWorldLedger(game);
   let current = game;
-  for (let week = 2; week <= 30; week += 1) {
+  for (let week = 2; week <= 110; week += 1) {
     ledger = appendWorldLedgerEvents(ledger, Array.from({ length: 90 }, (_, index) => ({
       id: `bulk:${week}:${index}`,
       week,
@@ -199,10 +200,34 @@ test("very long ledgers segment old events behind a trusted checkpoint and verif
   assert.ok(ledger.eventArchive);
   assert.ok(ledger.eventArchive.archivedCount > 0);
   assert.ok(ledger.eventArchive.segments.length > 0);
+  assert.ok(ledger.eventArchive.segments.length <= WORLD_LEDGER_SEGMENT_RETENTION);
+  assert.equal("archivedEventIds" in ledger.eventArchive, false);
+  assert.ok(typeof ledger.eventArchive.identityFilter?.bits === "string");
+  assert.ok(ledger.eventArchive.identityFilter.bits.length <= 65_536);
+  assert.match(ledger.eventArchive.identityDigest, /^[0-9a-f]{64}$/);
   assert.ok(ledger.events.length <= WORLD_LEDGER_EVENT_RETENTION);
   assert.deepEqual(replayWorldLedger(ledger, { useSnapshots: false }), replayWorldLedger(ledger, { useSnapshots: true }));
   assert.equal(replayWorldLedger(ledger, { throughWeek: ledger.eventArchive.throughWeek - 1, useSnapshots: false }), null);
   assert.equal(verifyWorldLedger(ledger).ok, true, verifyWorldLedger(ledger).issues.join("\n"));
+  assert.throws(() => appendWorldLedgerEvents(ledger, [{
+    id: "bulk:2:0", week: 111, phase: "autonomous-actors", kind: "world-event-recorded", summary: "reused archived id",
+    actorIds: [], factionIds: [], witnessRefs: [], causeEventIds: [], audience: { visibility: "world", holderRefs: [] }, payload: {},
+  }]), /事件 ID 重复/);
+  assert.throws(() => appendWorldLedgerEvents(ledger, [{
+    id: "after-archive:unknown-cause", week: 111, phase: "autonomous-actors", kind: "world-event-recorded", summary: "unknown cause",
+    actorIds: [], factionIds: [], witnessRefs: [], causeEventIds: ["never-archived"], audience: { visibility: "world", holderRefs: [] }, payload: {},
+  }]), /未知或前向原因/);
+
+  assert.throws(() => appendWorldLedgerEvents(ledger, [
+    {
+      id: "forward:consumer", week: 111, phase: "autonomous-actors", kind: "world-event-recorded", summary: "forward reference",
+      actorIds: [], factionIds: [], witnessRefs: [], causeEventIds: ["forward:cause"], audience: { visibility: "world", holderRefs: [] }, payload: {},
+    },
+    {
+      id: "forward:cause", week: 111, phase: "autonomous-actors", kind: "world-event-recorded", summary: "later cause",
+      actorIds: [], factionIds: [], witnessRefs: [], causeEventIds: [], audience: { visibility: "world", holderRefs: [] }, payload: {},
+    },
+  ]), /未知或前向原因/);
 
   const damagedCheckpoint = structuredClone(ledger);
   damagedCheckpoint.eventArchive.checkpoint.projection.resources.money += 1;

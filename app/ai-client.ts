@@ -3,9 +3,26 @@ import {
   tryRecordRuntimeTrace,
   type RuntimeTraceContext,
 } from "./runtime-trace.ts";
+import type { RetrievalReceipt } from "./world-authority-closure.ts";
 
 export type AiProviderId = "deepseek" | "compatible";
 export type AiQuality = "balanced" | "literary";
+export type ModelTaskKind =
+  | "connection-test"
+  | "intent-parser"
+  | "situation-brief"
+  | "npc-dialogue"
+  | "council-reply"
+  | "council-summary"
+  | "decision-draft"
+  | "ability-draft"
+  | "ability-scene"
+  | "participation-scene"
+  | "autonomous-planning"
+  | "world-adjudication"
+  | "world-repair"
+  | "literary-generation"
+  | "dynamic-origin";
 
 export type AiConfig = {
   provider?: AiProviderId;
@@ -19,13 +36,19 @@ export type AiConfig = {
 };
 
 export type ModelCallOptions = {
+  task: ModelTaskKind;
   json?: boolean;
   maxTokens?: number;
   temperature?: number;
   stream?: boolean;
   onToken?: (text: string) => void;
   trace?: RuntimeTraceContext;
+  worldRequest?: { ticket: string; attempt: number };
+  onRetrieval?: (value: { receipt: RetrievalReceipt; selectedCount: number; rejectedCount: number; authority: { turnId: string; baseRevision: number; week?: number; gameDate?: string; payloadHash?: string } }) => void;
 };
+
+export const WORLD_LORE_CONTEXT_MARKER = "__MIST_MAIN_WORLD_LORE_CONTEXT__";
+export const WORLD_LORE_IDS_MARKER = "__MIST_MAIN_WORLD_LORE_IDS__";
 
 export const DEEPSEEK_FLASH_PRESET: AiConfig = {
   provider: "deepseek",
@@ -35,6 +58,18 @@ export const DEEPSEEK_FLASH_PRESET: AiConfig = {
   quality: "balanced",
   timeoutMs: 90_000,
 };
+
+export function isLoopbackInferenceEndpoint(endpoint: string) {
+  try {
+    const url = new URL(endpoint.trim());
+    return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname)
+      && ["http:", "https:"].includes(url.protocol)
+      && !url.username
+      && !url.password;
+  } catch {
+    return false;
+  }
+}
 
 function normalizeEndpoint(endpoint: string) {
   const trimmed = endpoint.trim().replace(/\/+$/, "");
@@ -108,7 +143,59 @@ async function readStreamedContent(response: Response, onToken?: (text: string) 
   return content;
 }
 
-async function requestModel(config: AiConfig, system: string, user: string, options: ModelCallOptions = {}) {
+async function requestModel(config: AiConfig, system: string, user: string, options: ModelCallOptions) {
+  if (typeof window !== "undefined" && window.mistInference) {
+    if (!options.task) throw new Error("MODEL_TASK_REQUIRED");
+    const requestBase = {
+      config: {
+        provider: config.provider,
+        endpoint: config.endpoint,
+        model: config.model,
+        timeoutMs: config.timeoutMs,
+      },
+      options: {
+        json: options.json,
+        maxTokens: options.maxTokens,
+        temperature: options.temperature,
+      },
+    };
+    let response;
+    try {
+      response = await (options.task === "world-adjudication"
+        ? (() => {
+          if (!options.worldRequest || typeof window.mistInference?.requestWorld !== "function") throw new Error("WORLD_INFERENCE_CONTRACT_REQUIRED");
+          return window.mistInference.requestWorld({ ...requestBase, task: "world-adjudication", worldRequest: options.worldRequest });
+        })()
+        : window.mistInference.request({ ...requestBase, task: options.task, system, user }));
+    } catch (error) {
+      if (!options.worldRequest) throw error;
+      const marked = (error instanceof Error ? error : new Error(String(error))) as Error & { worldAttemptStatusUnknown?: boolean };
+      marked.worldAttemptStatusUnknown = true;
+      throw marked;
+    }
+    if (!response.ok || typeof response.content !== "string" || !response.content.trim()) {
+      const error = new Error(response.error ?? "MODEL_REQUEST_FAILED") as Error & { worldAttemptStarted?: boolean };
+      if (options.worldRequest && response.attemptStarted === true) error.worldAttemptStarted = true;
+      throw error;
+    }
+    const content = response.content.trim();
+    if (options.worldRequest) {
+      if (!response.retrieval) {
+        const error = new Error("WORLD_RAG_RECEIPT_UNAVAILABLE") as Error & { worldAttemptStarted: boolean };
+        error.worldAttemptStarted = true;
+        throw error;
+      }
+      try {
+        options.onRetrieval?.(response.retrieval);
+      } catch (error) {
+        const marked = (error instanceof Error ? error : new Error(String(error))) as Error & { worldAttemptStarted?: boolean };
+        marked.worldAttemptStarted = true;
+        throw marked;
+      }
+    }
+    if (options.stream) options.onToken?.(content);
+    return content;
+  }
   const provider = config.provider ?? (config.endpoint.includes("api.deepseek.com") ? "deepseek" : "compatible");
   const stream = Boolean(options.stream);
   const userPrompt = options.json && !/json/i.test(`${system} ${user}`) ? `${user}\n\n只返回严格 JSON 对象。` : user;
@@ -196,7 +283,7 @@ function modelFailureCode(error: unknown): string {
  * bounded trace. Provider usage fields are null until the provider supplies
  * tokenizer-backed usage; this is deliberate and not an estimate.
  */
-export async function callModel(config: AiConfig, system: string, user: string, options: ModelCallOptions = {}) {
+export async function callModel(config: AiConfig, system: string, user: string, options: ModelCallOptions) {
   const startedAt = Date.now();
   const traceId = options.trace?.traceId ?? deriveRuntimeTraceId("model", `${config.model}\n${system}\n${user}`);
   let outcome: "PASS" | "FAILED" = "FAILED";
@@ -234,6 +321,6 @@ export async function callModel(config: AiConfig, system: string, user: string, 
 
 export async function testModelConnection(config: AiConfig) {
   const started = performance.now();
-  const content = await callModel(config, "你是连接测试器，只回复 READY。", "回复 READY。", { maxTokens: 16, temperature: 0 });
+  const content = await callModel(config, "你是连接测试器，只回复 READY。", "回复 READY。", { task: "connection-test", maxTokens: 16, temperature: 0 });
   return { latencyMs: Math.round(performance.now() - started), reply: content.slice(0, 48) };
 }

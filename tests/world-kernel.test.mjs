@@ -27,6 +27,17 @@ function applyWorldTurn(kernel, delta, turnId = `test:${delta.week}`) {
   return commitWorldTurn(kernel, { ...prepared, transaction: createWorldTurnTransaction(kernel, prepared, turnId) });
 }
 
+test("world kernel rejects actor and faction IDs that collide across namespaces", () => {
+  assert.throws(() => createWorldKernel({
+    week: 1,
+    date: "1349年1月1日",
+    actors: [{ id: "shared", name: "角色", locationId: "dock", agenda: "观察" }],
+    factions: [{ id: "shared", name: "势力", plan: "行动", progress: 1 }],
+    locations: [{ id: "dock", name: "码头", risk: 20 }],
+    timeline: [],
+  }), /角色与势力标识跨类型重复：shared/);
+});
+
 test("a new campaign begins with a persistent anchored world, not an empty weekly summary shell", () => {
   const game = createInitialGame("spectator");
   assert.equal(game.version, 21);
@@ -62,8 +73,45 @@ test("an AI world turn advances independent plans even when the player issued no
   assert.equal(next.locations.find((item) => item.id === "east")?.risk, 72);
   assert.deepEqual(next.locations.find((item) => item.id === "east")?.factionIds, ["press"]);
   assert.equal(next.events.at(-1)?.id, "event-press-list");
-  assert.equal(projectWorldForAudience(next, { kind: "player", holderId: "player" }).events.length, 0);
-  assert.equal(projectWorldForAudience(next, { kind: "player", holderId: "player" }).observations[0].id, "obs-rumour");
+  const playerView = projectWorldForAudience(next, { kind: "player", holderId: "player" });
+  assert.equal(playerView.events.length, 1);
+  assert.equal(playerView.events[0].title, "街谈");
+  assert.equal(playerView.events[0].detail, "东区有人在高价收购旧工人名册。");
+  assert.deepEqual(playerView.events[0].knownActorIds, []);
+  assert.deepEqual(playerView.events[0].knownFactionIds, []);
+  assert.equal(playerView.observations[0].id, "obs-rumour");
+});
+
+test("world kernel binds new authority receipts and claims to the committed transaction", () => {
+  const initial = createWorldKernel({
+    week: 1,
+    date: "1349年1月1日",
+    factions: [],
+    actors: [],
+    locations: [{ id: "dock", name: "码头区", risk: 20 }],
+    timeline: [],
+  });
+  const next = applyWorldTurn(initial, {
+    week: 1,
+    playerIssuedNoOrders: true,
+    executableProposalIds: ["proposal:observe-dock"],
+    actorUpdates: [], factionUpdates: [], projectUpdates: [], locationUpdates: [],
+    events: [{ id: "event:dock", title: "码头观察", detail: "码头完成一次有界观察。", locationId: "dock", actorIds: [], factionIds: [], causeIds: [], visibility: "world", sourceProposalIds: ["proposal:observe-dock"] }],
+    observations: [],
+    retrievalReceipt: {
+      requestId: "request:dock",
+      indexVersion: "test-index",
+      audienceRef: "world",
+      queryHash: "query",
+      filterHash: "filter",
+      chunkIds: ["chunk:dock"],
+      contextHash: "context",
+    },
+    mutationClaims: [{ proposalId: "proposal:observe-dock", effectKind: "event", subjectRef: "event:event:dock", targetRefs: [], sourceEventId: "event:dock" }],
+  }, "world:1");
+
+  assert.equal(next.retrievalReceipts.at(-1)?.turnId, "world:1");
+  assert.equal(next.mutationClaims.at(-1)?.turnId, "world:1");
 });
 
 test("an event updates its location footprint even without an explicit location update", () => {

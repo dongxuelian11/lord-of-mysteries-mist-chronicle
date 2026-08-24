@@ -36,7 +36,7 @@ test("DeepSeek relay validates requests without exposing an open proxy", async (
 });
 
 test("implements the complete simulation systems and accessible Apple-style UI", async () => {
-  const [app, title, council, prologue, abilitySystem, abilityConsole, engine, agentPlanning, worldEnvelope, aiClient, aiSettings, aiRoute, finale, finaleView, model, managementConsole, css, councilCss, v10Css, v11Css, finaleCss, apiCss, layout] = await Promise.all([
+  const [app, title, council, prologue, abilitySystem, abilityConsole, engine, turnCommit, agentPlanning, worldEnvelope, aiClient, aiSettings, aiRoute, finale, finaleView, model, managementConsole, css, councilCss, v10Css, v11Css, finaleCss, apiCss, layout] = await Promise.all([
     readFile(new URL("../app/complete-game.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/title-screen.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/weekly-council.tsx", import.meta.url), "utf8"),
@@ -44,6 +44,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
     readFile(new URL("../app/ability-system.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ability-console.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game-engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/turn-commit.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/agent-planning-service.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/world-envelope.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ai-client.ts", import.meta.url), "utf8"),
@@ -98,6 +99,17 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(app, /TitleScreen/);
   assert.match(app, /SituationOpening/);
   assert.match(app, /本周尚未走完，你可以检查连接后从同一局面继续，已经发生的事不会被重掷/);
+  assert.match(app, /pendingFinale \? sourceGame : resolveFinalePhase/);
+  assert.match(app, /终局规则战报已锁定，世界回应尚未完成/);
+  assert.match(app, /pendingFinaleWorldTurn: undefined/);
+  assert.match(app, /game\.ending\.phase === "finale" \|\| game\.pendingFinaleWorldTurn/);
+  assert.match(app, /busy=\{Boolean\(generationStage\)\} locked=\{Boolean\(game\.pendingFinaleWorldTurn\)\}/);
+  assert.match(app, /current\.pendingFinaleWorldTurn \? current : chooseFinaleDoctrine/);
+  assert.match(app, /current\.pendingFinaleWorldTurn \? current : assignFinaleResource/);
+  assert.match(app, /current\.pendingFinaleWorldTurn \? current : autoDeployFinale/);
+  assert.match(app, /onResolve=\{\(\) => void resolveFinaleStage\(\)\}/);
+  assert.match(finaleView, /disabled=\{busy \|\| locked\}/);
+  assert.match(finaleView, /locked \? "继续已锁定的世界回应"/);
   assert.match(council, /三件大事/);
   assert.match(council, /你要改变什么，授权到哪里/);
   assert.doesNotMatch(council, /type CouncilStage|上周述职|治理议题|形成决议/);
@@ -115,7 +127,9 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /actionEvidenceIds/);
   assert.match(worldEnvelope, /行动报告缺少可核验的现场事实/);
   assert.match(engine, /refreshOpportunities/);
-  assert.match(engine, /applyWorldTurn/);
+  assert.match(engine, /commitWorldTurn/);
+  assert.doesNotMatch(engine, /applyWorldTurn/);
+  assert.match(turnCommit, /applyWorldTurn/);
   assert.match(engine, /timelineAfterWeek/);
   assert.match(engine, /organizationConditions/);
   assert.match(engine, /abilitiesFor/);
@@ -131,6 +145,11 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(engine, /autonomousAgentProposals/);
   assert.match(engine, /planAutonomousAgentsForWeek/);
   assert.match(engine, /WORLD_KERNEL_PROTOCOL/);
+  assert.match(engine, /boundedPayload = finalized\.manifest/);
+  assert.match(engine, /runtimeAutonomousProposals: autonomousAgentProposals/);
+  assert.match(engine, /boundedPayload\.runtimeAutonomousProposals/);
+  assert.match(engine, /key !== "runtimeAutonomousProposals"/);
+  assert.match(engine, /WORLD_INFERENCE_FROZEN_SCOPE_MISMATCH/);
   assert.match(worldProtocol, /presence不等于perception/);
   assert.match(model, /INITIAL_CANON_ACTORS/);
   assert.match(initialWorldSeed, /INITIAL_KERNEL_CANON_ACTORS/);
@@ -155,7 +174,7 @@ test("implements the complete simulation systems and accessible Apple-style UI",
   assert.match(finale, /buildStageCrises/);
   assert.match(finale, /aftermathLedger/);
   assert.match(app, /refreshFinaleFronts/);
-  assert.match(app, /generateAiWorldDelta\(aiConfig, next, localChapter/);
+  assert.match(app, /generateAiWorldDelta\(aiConfig, pendingState, localChapter/);
   assert.doesNotMatch(finale, /const STAGES/);
   assert.match(finaleView, /本阶段并发危机/);
   assert.match(finaleView, /城市中的其他行动者/);

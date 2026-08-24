@@ -21,7 +21,7 @@ import { ensureHighSequenceLedger, type HighSequenceLedger } from "./high-sequen
 import { ensureCampaignWorldState, type CampaignWorldState } from "./campaign-world.ts";
 import { ensureAttentionSimulationState } from "./attention-simulation.ts";
 import { ensureWorldKernelTransactionState } from "./world-kernel.ts";
-import { matchesJsonChecksum, stableJsonChecksum } from "./persistence-integrity.ts";
+import { matchesJsonChecksum, matchesLegacyJsonChecksum, stableJsonChecksum } from "./persistence-integrity.ts";
 
 export const ACTIVE_SAVE_KEY = "mist-chronicle-complete-v21";
 export const LEGACY_ACTIVE_SAVE_KEYS = Array.from(
@@ -31,6 +31,11 @@ export const LEGACY_ACTIVE_SAVE_KEYS = Array.from(
 export const RECOVERY_KEY = "mist-chronicle-recovery-v21";
 export const LEGACY_RECOVERY_KEYS = ["mist-chronicle-recovery-v20", "mist-chronicle-recovery-v19", "mist-chronicle-recovery-v18", "mist-chronicle-recovery-v17", "mist-chronicle-recovery-v16"] as const;
 export const SAVE_SCHEMA_VERSION = 21;
+export const MAX_IMPORT_BYTES = 24 * 1024 * 1024;
+const MAX_IMPORT_DEPTH = 64;
+const MAX_IMPORT_NODES = 250_000;
+const MAX_IMPORT_ARRAY_LENGTH = 50_000;
+const MAX_IMPORT_STRING_LENGTH = 8 * 1024 * 1024;
 
 export type SaveEnvelope = {
   format: "mist-chronicle-save";
@@ -270,6 +275,7 @@ export function normalizeStoredGame(input: Partial<GameState>): GameState {
   const worldKernel = ensureWorldKernelTransactionState(input.worldKernel ?? initializeWorldKernel(base));
   const normalized: GameState = {
     ...base,
+    saveId: typeof input.saveId === "string" && input.saveId.trim() ? input.saveId.trim() : fresh.saveId,
     playerOrigin: {
       ...fresh.playerOrigin,
       ...(input.playerOrigin ?? {}),
@@ -282,6 +288,17 @@ export function normalizeStoredGame(input: Partial<GameState>): GameState {
     },
     actingMarks: input.actingMarks ?? [],
     activeParticipationScene: input.activeParticipationScene ?? null,
+    pendingFinaleWorldTurn: input.pendingFinaleWorldTurn
+      && typeof input.pendingFinaleWorldTurn.turnId === "string"
+      && typeof input.pendingFinaleWorldTurn.chapterId === "string"
+      && Number.isInteger(input.pendingFinaleWorldTurn.baseRevision)
+      && input.pendingFinaleWorldTurn.baseRevision >= 0
+      ? {
+          turnId: input.pendingFinaleWorldTurn.turnId.slice(0, 192),
+          chapterId: input.pendingFinaleWorldTurn.chapterId.slice(0, 192),
+          baseRevision: input.pendingFinaleWorldTurn.baseRevision,
+        }
+      : undefined,
     advancementProcess: input.advancementProcess ?? null,
     materials: (input.materials ?? fresh.materials).map((item) => ({
       authenticity: item.obtained ? "已确认" : "未知",
@@ -582,10 +599,30 @@ export function createSaveEnvelope(game: GameState): SaveEnvelope {
   };
 }
 
+function assertBoundedImportStructure(value: unknown) {
+  const pending: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
+  let nodes = 0;
+  while (pending.length) {
+    const current = pending.pop()!;
+    nodes += 1;
+    if (nodes > MAX_IMPORT_NODES || current.depth > MAX_IMPORT_DEPTH) throw new Error("存档结构过于复杂，未覆盖当前游戏");
+    if (typeof current.value === "string" && current.value.length > MAX_IMPORT_STRING_LENGTH) throw new Error("存档结构含有异常长文本，未覆盖当前游戏");
+    if (!current.value || typeof current.value !== "object") continue;
+    if (Array.isArray(current.value)) {
+      if (current.value.length > MAX_IMPORT_ARRAY_LENGTH) throw new Error("存档结构含有异常长列表，未覆盖当前游戏");
+      for (const child of current.value) pending.push({ value: child, depth: current.depth + 1 });
+    } else {
+      for (const child of Object.values(current.value)) pending.push({ value: child, depth: current.depth + 1 });
+    }
+  }
+}
+
 export function parseSaveEnvelope(raw: string) {
+  if (typeof raw !== "string" || new TextEncoder().encode(raw).byteLength > MAX_IMPORT_BYTES) throw new Error("存档文件过大，未覆盖当前游戏");
   const value = JSON.parse(raw) as Partial<SaveEnvelope> & { schemaVersion?: number };
+  assertBoundedImportStructure(value);
   if (value.format !== "mist-chronicle-save" || ![15, 16, 17, 18, 19, 20, SAVE_SCHEMA_VERSION].includes(value.schemaVersion ?? -1) || !value.game) throw new Error("这不是可迁移的《灰雾纪事》存档文件");
-  if (!matchesJsonChecksum(value.game, value.checksum)) throw new Error("存档校验失败：文件不完整或被修改");
+  if (!(matchesJsonChecksum(value.game, value.checksum) || matchesLegacyJsonChecksum(value.game, value.checksum))) throw new Error("存档校验失败：文件不完整或被修改");
   if (!value.game.prologueComplete || !value.game.worldKernel || !Array.isArray(value.game.chronicle)) throw new Error("存档缺少世界状态或开局记录，未覆盖当前游戏");
   value.game = normalizeStoredGame(value.game);
   value.schemaVersion = SAVE_SCHEMA_VERSION;
@@ -631,6 +668,20 @@ function parseRecoveryCheckpoints(raw: string | null): RecoveryCheckpoint[] {
   } catch {
     return [];
   }
+}
+
+function parseRecoveryCheckpointsStrict(raw: string): RecoveryCheckpoint[] {
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); }
+  catch { throw persistenceFatalError("persistence-recovery-corrupt"); }
+  if (!Array.isArray(parsed)) throw persistenceFatalError("persistence-recovery-corrupt");
+  const isCheckpoint = (item: unknown): item is RecoveryCheckpoint => {
+    const checkpoint = recordOf(item);
+    const game = recordOf(checkpoint?.game);
+    return Boolean(checkpoint && game && recordOf(game.worldKernel));
+  };
+  if (!parsed.every(isCheckpoint)) throw persistenceFatalError("persistence-recovery-corrupt");
+  return parsed.slice(0, 3);
 }
 
 function persistenceFatalError(error?: string) {
@@ -685,15 +736,17 @@ export async function readRecoveryCheckpointsAsync(): Promise<RecoveryCheckpoint
       if (isNonFatalPersistenceUnavailable(current)) return readRecoveryCheckpoints();
       throw persistenceFatalError(current.error ?? "persistence-read-failed");
     }
-    if (current.error) return [];
-    if (current.value !== null && current.value !== undefined) return parseRecoveryCheckpoints(current.value);
+    if (current.corrupt) throw persistenceFatalError(current.error ?? "persistence-recovery-corrupt");
+    if (current.error) throw persistenceFatalError(current.error);
+    if (current.value !== null && current.value !== undefined) return parseRecoveryCheckpointsStrict(current.value);
     for (const key of LEGACY_RECOVERY_KEYS) {
       const legacy = await bridge.get(key);
       if (!legacy.available && legacy.fatal) throw persistenceFatalError(legacy.error);
       if (!legacy.available && isNonFatalPersistenceUnavailable(legacy)) return readRecoveryCheckpoints();
       if (!legacy.available) throw persistenceFatalError(legacy.error ?? "persistence-read-failed");
-      if (legacy.error) return [];
-      if (legacy.value !== null && legacy.value !== undefined) return parseRecoveryCheckpoints(legacy.value);
+      if (legacy.corrupt) throw persistenceFatalError(legacy.error ?? "persistence-recovery-corrupt");
+      if (legacy.error) throw persistenceFatalError(legacy.error);
+      if (legacy.value !== null && legacy.value !== undefined) return parseRecoveryCheckpointsStrict(legacy.value);
     }
     return readRecoveryCheckpoints();
   } catch (error) {

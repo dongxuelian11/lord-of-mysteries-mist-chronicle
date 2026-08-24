@@ -120,3 +120,49 @@ test("PR5 optional head matching rejects stale source commit", () => {
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /does not match current HEAD/);
 });
+
+test("high evidence levels cannot be upgraded from a local command or same-machine run", () => {
+  const manifest = baseManifest([{
+    id: "release.false-clean-machine",
+    status: "PASS",
+    evidenceLevel: "clean-machine",
+    summary: "This must not pass.",
+    observedAt: new Date().toISOString(),
+    evidence: [{ type: "command", value: "npm test" }],
+    environment: { machineId: "same-machine", sourceCheckout: "PRESENT", dependencyInstall: "RUN", artifactTransferVerified: false },
+  }]);
+  manifest.source.machineId = "same-machine";
+  const result = validateEvidenceManifest(manifest, { root: repositoryRoot });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /requires artifact and provenance|distinct execution machine|sourceCheckout|dependencyInstall/);
+});
+
+test("production deployment must use a verified artifact with matching provenance", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "gmzz-production-evidence-"));
+  const artifact = path.join(directory, "installer.exe");
+  fs.writeFileSync(artifact, "packaged-candidate\n", "utf8");
+  const verifiedDigest = crypto.createHash("sha256").update(fs.readFileSync(artifact)).digest("hex");
+  const unrelatedDigest = crypto.createHash("sha256").update("different-production-binary").digest("hex");
+  try {
+    const manifest = baseManifest([{
+      id: "release.production-artifact-binding",
+      status: "PASS",
+      evidenceLevel: "production",
+      summary: "Production must run the verified candidate.",
+      observedAt: new Date().toISOString(),
+      evidence: [
+        { type: "artifact", path: "installer.exe", sha256: verifiedDigest },
+        { type: "provenance", value: "build provenance", artifactSha256: verifiedDigest, sourceCommit: "a".repeat(40) },
+      ],
+      environment: { machineId: "production-host", sourceCheckout: "ABSENT", dependencyInstall: "NOT_RUN", artifactTransferVerified: true },
+      deployment: { url: "https://game.example.invalid", artifactSha256: unrelatedDigest },
+    }]);
+    manifest.source = { ...manifest.source, commit: "a".repeat(40), worktreeStatus: "clean", machineId: "build-host" };
+
+    const result = validateEvidenceManifest(manifest, { root: directory });
+    assert.equal(result.ok, false);
+    assert.match(result.errors.join("\n"), /deployment artifactSha256 must match a verified artifact and its provenance/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -1,3 +1,5 @@
+import { sha256Hex } from "./sha256.ts";
+
 export const WEEK_RESOLUTION_PHASES = [
   "governance",
   "player-actions",
@@ -137,12 +139,30 @@ export type WorldLedgerEventArchive = {
   projectionChecksum: string;
   checkpoint: WorldLedgerSnapshot;
   segments: WorldLedgerEventSegment[];
+  /** Legacy unbounded identity list; normalized into identityFilter on load. */
+  archivedEventIds?: string[];
+  /** Fixed-size no-false-negative membership filter used only to reject ID reuse. */
+  identityFilter?: {
+    version: 1;
+    bitCount: number;
+    hashCount: number;
+    insertedCount: number;
+    bits: string;
+    checksum: string;
+  };
+  /** Exact archived causes still referenced by the bounded retained window. */
+  archivedCauseIds?: string[];
+  /** Strong rolling digest for the complete archive identity stream. */
+  identityDigest?: string;
 };
 
 export const WORLD_LEDGER_SNAPSHOT_INTERVAL_WEEKS = 4;
 export const WORLD_LEDGER_SNAPSHOT_RETENTION = 6;
 export const WORLD_LEDGER_EVENT_RETENTION = 2048;
 export const WORLD_LEDGER_SEGMENT_RETENTION = 16;
+export const WORLD_LEDGER_CAUSE_REF_LIMIT = 64;
+export const WORLD_LEDGER_IDENTITY_FILTER_BITS = 262_144;
+export const WORLD_LEDGER_IDENTITY_FILTER_HASHES = 7;
 
 export type WorldLedger = {
   version: 2;
@@ -228,12 +248,127 @@ function stableSerialize(value: unknown): string {
 
 export function ledgerChecksum(value: unknown) {
   const text = stableSerialize(value);
+  return sha256Hex(text);
+}
+
+type LedgerIdentityFilter = NonNullable<WorldLedgerEventArchive["identityFilter"]>;
+
+function identityFilterCore(filter: Omit<LedgerIdentityFilter, "checksum">) {
+  return {
+    version: filter.version,
+    bitCount: filter.bitCount,
+    hashCount: filter.hashCount,
+    insertedCount: filter.insertedCount,
+    bits: filter.bits,
+  };
+}
+
+function sealIdentityFilter(filter: Omit<LedgerIdentityFilter, "checksum">): LedgerIdentityFilter {
+  const core = identityFilterCore(filter);
+  return { ...core, checksum: ledgerChecksum(core) };
+}
+
+function emptyIdentityFilter(): LedgerIdentityFilter {
+  return sealIdentityFilter({
+    version: 1,
+    bitCount: WORLD_LEDGER_IDENTITY_FILTER_BITS,
+    hashCount: WORLD_LEDGER_IDENTITY_FILTER_HASHES,
+    insertedCount: 0,
+    bits: "0".repeat(WORLD_LEDGER_IDENTITY_FILTER_BITS / 4),
+  });
+}
+
+function validateIdentityFilter(filter: LedgerIdentityFilter): void {
+  if (filter.version !== 1
+    || filter.bitCount !== WORLD_LEDGER_IDENTITY_FILTER_BITS
+    || filter.hashCount !== WORLD_LEDGER_IDENTITY_FILTER_HASHES
+    || !Number.isInteger(filter.insertedCount)
+    || filter.insertedCount < 0
+    || !new RegExp(`^[0-9a-f]{${WORLD_LEDGER_IDENTITY_FILTER_BITS / 4}}$`).test(filter.bits)
+    || ledgerChecksum(identityFilterCore(filter)) !== filter.checksum) {
+    throw new Error("世界账本事件身份过滤器损坏");
+  }
+}
+
+function identityFilterPositions(id: string): number[] {
+  const digest = sha256Hex(`world-ledger-event-id:${id}`);
+  return Array.from({ length: WORLD_LEDGER_IDENTITY_FILTER_HASHES }, (_, index) => (
+    Number.parseInt(digest.slice(index * 8, index * 8 + 8), 16) % WORLD_LEDGER_IDENTITY_FILTER_BITS
+  ));
+}
+
+function identityFilterBytes(filter: LedgerIdentityFilter): Uint8Array {
+  validateIdentityFilter(filter);
+  const bytes = new Uint8Array(filter.bits.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) bytes[index] = Number.parseInt(filter.bits.slice(index * 2, index * 2 + 2), 16);
+  return bytes;
+}
+
+function identityFilterWithIds(filter: LedgerIdentityFilter, ids: string[]): LedgerIdentityFilter {
+  const bytes = identityFilterBytes(filter);
+  for (const id of ids) {
+    for (const position of identityFilterPositions(id)) bytes[Math.floor(position / 8)] |= 1 << (position % 8);
+  }
+  return sealIdentityFilter({
+    version: 1,
+    bitCount: WORLD_LEDGER_IDENTITY_FILTER_BITS,
+    hashCount: WORLD_LEDGER_IDENTITY_FILTER_HASHES,
+    insertedCount: filter.insertedCount + ids.length,
+    bits: [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+  });
+}
+
+function identityFilterBytesHas(bytes: Uint8Array, id: string): boolean {
+  return identityFilterPositions(id).every((position) => Boolean(bytes[Math.floor(position / 8)] & (1 << (position % 8))));
+}
+
+function archiveIdentityFilter(archive?: WorldLedgerEventArchive): LedgerIdentityFilter {
+  if (!archive) return emptyIdentityFilter();
+  if (archive.identityFilter) {
+    validateIdentityFilter(archive.identityFilter);
+    return archive.identityFilter;
+  }
+  return identityFilterWithIds(emptyIdentityFilter(), [...new Set(archive.archivedEventIds ?? [])]);
+}
+
+function normalizeEventArchive(archive: WorldLedgerEventArchive | undefined, retainedEvents: WorldLedgerEvent[]): WorldLedgerEventArchive | undefined {
+  if (!archive) return undefined;
+  const legacyIds = new Set(archive.archivedEventIds ?? []);
+  const identityFilter = archiveIdentityFilter(archive);
+  const archivedCauseIds = [...new Set([
+    ...(archive.archivedCauseIds ?? []),
+    ...retainedEvents.flatMap((event) => event.causeEventIds).filter((id) => legacyIds.has(id)),
+  ])];
+  const identityBytes = identityFilterBytes(identityFilter);
+  if (identityFilter.insertedCount !== archive.archivedCount
+    || archivedCauseIds.length > WORLD_LEDGER_EVENT_RETENTION * WORLD_LEDGER_CAUSE_REF_LIMIT
+    || archivedCauseIds.some((id) => !identityFilterBytesHas(identityBytes, id))) {
+    throw new Error("世界账本事件归档身份元数据损坏");
+  }
+  const { archivedEventIds: _legacyIds, ...bounded } = archive;
+  void _legacyIds;
+  return {
+    ...bounded,
+    segments: archive.segments.slice(-WORLD_LEDGER_SEGMENT_RETENTION),
+    identityFilter,
+    archivedCauseIds,
+  };
+}
+
+function legacyLedgerChecksum(value: unknown) {
+  const text = stableSerialize(value);
   let output = 2166136261;
   for (let index = 0; index < text.length; index += 1) {
     output ^= text.charCodeAt(index);
     output = Math.imul(output, 16777619);
   }
   return (output >>> 0).toString(16).padStart(8, "0");
+}
+
+function matchesLedgerChecksum(value: unknown, checksum: unknown) {
+  return typeof checksum === "string" && (/^[0-9a-f]{64}$/.test(checksum)
+    ? ledgerChecksum(value) === checksum
+    : /^[0-9a-f]{8}$/.test(checksum) && legacyLedgerChecksum(value) === checksum);
 }
 
 function copyValue<T>(value: T): T {
@@ -344,17 +479,26 @@ export function compactWorldLedgerEvents(ledger: WorldLedger): WorldLedger {
     lastHash: last.hash,
     checksum: ledgerChecksum(removed.map((event) => [event.sequence, event.hash])),
   };
+  const previousArchive = normalizeEventArchive(ledger.eventArchive, ledger.events);
+  const identityFilter = identityFilterWithIds(archiveIdentityFilter(previousArchive), removed.map((event) => event.id));
+  const removedIds = new Set(removed.map((event) => event.id));
+  const previousArchivedCauseIds = new Set(previousArchive?.archivedCauseIds ?? []);
+  const archivedCauseIds = unique(retained.flatMap((event) => event.causeEventIds))
+    .filter((id) => removedIds.has(id) || previousArchivedCauseIds.has(id));
   return {
     ...ledger,
     events: retained,
     eventArchive: {
-      archivedCount: (ledger.eventArchive?.archivedCount ?? 0) + removed.length,
+      archivedCount: (previousArchive?.archivedCount ?? 0) + removed.length,
       throughWeek: checkpoint.week,
       throughSequence: checkpoint.afterSequence,
       lastHash: last.hash,
       projectionChecksum: checkpoint.checksum,
       checkpoint: copyValue(checkpoint),
-      segments: [...(ledger.eventArchive?.segments ?? []), segment].slice(-WORLD_LEDGER_SEGMENT_RETENTION),
+      segments: [...(previousArchive?.segments ?? []), segment].slice(-WORLD_LEDGER_SEGMENT_RETENTION),
+      identityFilter,
+      archivedCauseIds,
+      identityDigest: ledgerChecksum([previousArchive?.identityDigest ?? null, removed.map((event) => [event.branchId, event.sequence, event.id, event.hash])]),
     },
   };
 }
@@ -388,11 +532,20 @@ export function appendWorldLedgerEvents(ledger: WorldLedger, inputs: LedgerEvent
   if (ledger.version !== 2) throw new Error("必须先把 V1 世界账本迁移为 V2 才能追加事件");
   let sequence = ledger.nextSequence;
   let prevHash = ledger.events.at(-1)?.hash ?? ledger.eventArchive?.lastHash ?? null;
+  const identityFilter = archiveIdentityFilter(ledger.eventArchive);
+  const identityBytes = ledger.eventArchive ? identityFilterBytes(identityFilter) : null;
   const existingIds = new Set(ledger.events.map((event) => event.id));
+  const availableCauseIds = new Set([
+    ...existingIds,
+    ...(ledger.eventArchive?.archivedCauseIds ?? []),
+  ]);
   const events: WorldLedgerEvent[] = [];
   for (const input of inputs) {
     const id = input.id ?? `ledger-${input.week}-${sequence}-${input.kind}`;
-    if (existingIds.has(id)) throw new Error(`世界账本事件 ID 重复：${id}`);
+    if (existingIds.has(id) || identityBytes && identityFilterBytesHas(identityBytes, id)) throw new Error(`世界账本事件 ID 重复：${id}`);
+    if (input.causeEventIds.length > WORLD_LEDGER_CAUSE_REF_LIMIT) throw new Error(`世界账本事件原因引用超过上限：${id}`);
+    const missingCauseIds = unique(input.causeEventIds).filter((causeId) => !availableCauseIds.has(causeId));
+    if (missingCauseIds.length) throw new Error(`世界账本事件引用未知或前向原因：${id} -> ${missingCauseIds.join("、")}`);
     const withoutHash: Omit<WorldLedgerEvent, "hash"> = {
       schemaVersion: 1,
       branchId: ledger.branchId,
@@ -410,6 +563,7 @@ export function appendWorldLedgerEvents(ledger: WorldLedger, inputs: LedgerEvent
     const event: WorldLedgerEvent = { ...withoutHash, hash: eventHash(withoutHash) };
     events.push(event);
     existingIds.add(id);
+    availableCauseIds.add(id);
     prevHash = event.hash;
     sequence += 1;
   }
@@ -593,7 +747,7 @@ export function replayWorldLedger(ledger: WorldLedger, through?: number | Replay
   const maximumSequence = eligibleEvents.at(-1)?.sequence ?? archiveCheckpoint?.afterSequence ?? 0;
   const snapshot = options.useSnapshots
     ? ledger.snapshots
-        .filter((item) => item.afterSequence <= maximumSequence && item.afterSequence <= options.throughSequence && item.week <= options.throughWeek && ledgerChecksum(item.projection) === item.checksum)
+        .filter((item) => item.afterSequence <= maximumSequence && item.afterSequence <= options.throughSequence && item.week <= options.throughWeek && matchesLedgerChecksum(item.projection, item.checksum))
         .sort((left, right) => right.afterSequence - left.afterSequence)[0]
     : undefined;
   const base = snapshot ?? archiveCheckpoint;
@@ -668,7 +822,11 @@ function projectionFromLegacyCommit(event: LegacyWorldLedger["events"][number]):
 }
 
 export function migrateWorldLedger(value: WorldLedger | LegacyWorldLedger, fallback?: LedgerStateSource): WorldLedger {
-  if (value.version === 2) return compactWorldLedgerEvents(compactWorldLedgerSnapshots(value));
+  if (value.version === 2) {
+    const normalizedArchive = normalizeEventArchive(value.eventArchive, value.events);
+    const normalized = normalizedArchive ? { ...value, eventArchive: normalizedArchive } : value;
+    return compactWorldLedgerEvents(compactWorldLedgerSnapshots(normalized));
+  }
   const legacyEvents = [...(value.events ?? [])].sort((left, right) => left.sequence - right.sequence);
   const initial = value.snapshots?.find((snapshot) => snapshot.afterSequence === 0)?.projection
     ?? (fallback ? projectLedgerState(fallback) : undefined)
@@ -734,12 +892,24 @@ export function verifyWorldLedger(ledger: WorldLedger) {
   let previousHash: string | null = ledger.eventArchive?.lastHash ?? null;
   let replayed = ledger.eventArchive ? copyProjection(ledger.eventArchive.checkpoint.projection) : null;
   const ids = new Set<string>();
-  const retainedEventSequences = new Map(ledger.events.map((event) => [event.id, event.sequence]));
+  let archivedIdentityFilter: LedgerIdentityFilter | null = null;
+  let archivedIdentityBytes: Uint8Array | null = null;
+  try { archivedIdentityFilter = ledger.eventArchive ? archiveIdentityFilter(ledger.eventArchive) : null; }
+  catch (error) { issues.push(error instanceof Error ? error.message : "世界账本事件身份过滤器损坏"); }
+  if (archivedIdentityFilter) archivedIdentityBytes = identityFilterBytes(archivedIdentityFilter);
+  const archivedCauseIds = new Set(ledger.eventArchive?.archivedCauseIds ?? []);
   if (ledger.eventArchive) {
     const archive = ledger.eventArchive;
     if (archive.checkpoint.afterSequence !== archive.throughSequence || archive.checkpoint.week !== archive.throughWeek) issues.push("事件归档检查点边界不一致");
-    if (ledgerChecksum(archive.checkpoint.projection) !== archive.projectionChecksum || archive.checkpoint.checksum !== archive.projectionChecksum) issues.push("事件归档检查点校验失败");
-    if (archive.segments.length > WORLD_LEDGER_SEGMENT_RETENTION) issues.push("事件分段元数据超过保留上限");
+    if (!matchesLedgerChecksum(archive.checkpoint.projection, archive.projectionChecksum) || archive.checkpoint.checksum !== archive.projectionChecksum) issues.push("事件归档检查点校验失败");
+    if (archive.archivedEventIds) issues.push("事件归档仍包含未迁移的无界身份表");
+    if (!archive.identityFilter) issues.push("事件归档缺少有界身份过滤器");
+    if (archive.identityFilter && archive.identityFilter.insertedCount !== archive.archivedCount) issues.push("事件归档身份计数与归档计数不一致");
+    if (archive.archivedCauseIds && new Set(archive.archivedCauseIds).size !== archive.archivedCauseIds.length) issues.push("事件归档原因锚点存在重复 ID");
+    if ((archive.archivedCauseIds?.length ?? 0) > WORLD_LEDGER_EVENT_RETENTION * WORLD_LEDGER_CAUSE_REF_LIMIT) issues.push("事件归档原因锚点超过保留上限");
+    if (archive.archivedCauseIds?.some((id) => archivedIdentityBytes && !identityFilterBytesHas(archivedIdentityBytes, id))) issues.push("事件归档原因锚点不属于归档身份集");
+    if (archive.identityDigest && !/^[0-9a-f]{64}$/.test(archive.identityDigest)) issues.push("事件归档身份摘要不是 SHA-256");
+    if (archive.segments.length > WORLD_LEDGER_SEGMENT_RETENTION) issues.push(`事件分段数量超过保留上限：${archive.segments.length}`);
     for (let index = 0; index < archive.segments.length; index += 1) {
       const segment = archive.segments[index];
       if (segment.eventCount < 1 || segment.fromSequence > segment.throughSequence || !segment.lastHash || !segment.checksum) issues.push(`事件分段${segment.id}元数据无效`);
@@ -749,23 +919,25 @@ export function verifyWorldLedger(ledger: WorldLedger) {
   for (const event of ledger.events) {
     if (event.schemaVersion !== 1) issues.push(`事件${event.id}使用未知 schemaVersion`);
     if (event.branchId !== ledger.branchId) issues.push(`事件${event.id}属于错误分支`);
-    if (ids.has(event.id)) issues.push(`重复事件ID：${event.id}`);
+    if (ids.has(event.id) || archivedIdentityBytes && identityFilterBytesHas(archivedIdentityBytes, event.id)) issues.push(`重复事件ID：${event.id}`);
     if (event.sequence <= previousSequence) issues.push(`事件序号未严格递增：${event.sequence}`);
     if (event.prevHash !== previousHash) issues.push(`事件${event.id}的 prevHash 断链`);
     const { hash, ...withoutHash } = event;
-    if (eventHash(withoutHash) !== hash) issues.push(`事件${event.id}哈希校验失败`);
-    if (event.causeEventIds.some((id) => !ids.has(id) && (!ledger.eventArchive || retainedEventSequences.has(id)))) issues.push(`事件${event.id}引用了尚不存在的原因`);
+    const expectedHash = hash.length === 8 ? legacyLedgerChecksum(withoutHash) : eventHash(withoutHash);
+    if (expectedHash !== hash) issues.push(`事件${event.id}哈希校验失败`);
+    if (event.causeEventIds.length > WORLD_LEDGER_CAUSE_REF_LIMIT) issues.push(`事件${event.id}原因引用超过上限`);
+    if (event.causeEventIds.some((id) => !ids.has(id) && !archivedCauseIds.has(id))) issues.push(`事件${event.id}引用了尚不存在的原因`);
     ids.add(event.id);
     previousSequence = event.sequence;
     previousHash = event.hash;
     replayed = reduceWorldLedgerEvent(replayed, event);
     if (event.kind === "week-committed") {
       const expected = typeof event.payload.checksum === "string" ? event.payload.checksum : "";
-      if (expected && ledgerChecksum(replayed) !== expected) issues.push(`第${event.week}周提交 checksum 与事件重放不一致`);
+      if (expected && !matchesLedgerChecksum(replayed, expected)) issues.push(`第${event.week}周提交 checksum 与事件重放不一致`);
     }
   }
   for (const snapshot of ledger.snapshots) {
-    if (ledgerChecksum(snapshot.projection) !== snapshot.checksum) issues.push(`快照${snapshot.id}校验失败`);
+    if (!matchesLedgerChecksum(snapshot.projection, snapshot.checksum)) issues.push(`快照${snapshot.id}校验失败`);
     if (snapshot.afterSequence > previousSequence) issues.push(`快照${snapshot.id}指向不存在的 sequence`);
   }
   if (ledger.snapshots.length > WORLD_LEDGER_SNAPSHOT_RETENTION) issues.push(`快照数量超过保留上限：${ledger.snapshots.length}`);
@@ -774,7 +946,7 @@ export function verifyWorldLedger(ledger: WorldLedger) {
   const accelerated = replayWorldLedger(ledger, { useSnapshots: true });
   if (ledgerChecksum(fromZero) !== ledgerChecksum(accelerated)) issues.push("从零重放与快照加速重放不一致");
   const latest = ledger.snapshots.slice().sort((left, right) => right.afterSequence - left.afterSequence)[0];
-  if (latest && fromZero && latest.afterSequence === previousSequence && ledgerChecksum(fromZero) !== latest.checksum) issues.push("重放结果与最新快照不一致");
+  if (latest && fromZero && latest.afterSequence === previousSequence && !matchesLedgerChecksum(fromZero, latest.checksum)) issues.push("重放结果与最新快照不一致");
   if (ledger.nextSequence <= previousSequence) issues.push("nextSequence没有越过最后一个事件");
   return { ok: issues.length === 0, issues, replayed: fromZero };
 }

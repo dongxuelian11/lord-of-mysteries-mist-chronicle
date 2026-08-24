@@ -1,5 +1,6 @@
 import type { MutationClaim, RetrievalReceipt } from "./world-authority-closure.ts";
 import { tryRecordRuntimeTrace } from "./runtime-trace.ts";
+import { sha256Hex } from "./sha256.ts";
 
 export type WorldVisibility = "world" | "public" | "player" | "actors";
 
@@ -198,12 +199,7 @@ function stableSerialize(value: unknown): string {
 }
 
 function hashText(value: string): string {
-  let output = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    output ^= value.charCodeAt(index);
-    output = Math.imul(output, 16777619);
-  }
-  return (output >>> 0).toString(16).padStart(8, "0");
+  return sha256Hex(value);
 }
 
 export function worldTurnInputHash(delta: WorldTurnDelta): string {
@@ -237,13 +233,14 @@ function isWorldTurnTransaction(value: unknown): value is WorldTurnTransaction {
     && Number.isInteger(baseRevision)
     && baseRevision >= 0
     && typeof transaction.inputHash === "string"
-    && /^[0-9a-f]{8}$/.test(transaction.inputHash);
+    && /^(?:[0-9a-f]{8}|[0-9a-f]{64})$/.test(transaction.inputHash);
 }
 
 function isRetrievalReceipt(value: unknown): value is RetrievalReceipt {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const receipt = value as Partial<RetrievalReceipt>;
   return typeof receipt.requestId === "string"
+    && (receipt.turnId === undefined || typeof receipt.turnId === "string" && receipt.turnId.trim().length > 0)
     && typeof receipt.indexVersion === "string"
     && typeof receipt.audienceRef === "string"
     && typeof receipt.queryHash === "string"
@@ -257,6 +254,7 @@ function isMutationClaim(value: unknown): value is MutationClaim {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const claim = value as Partial<MutationClaim>;
   return typeof claim.proposalId === "string"
+    && (claim.turnId === undefined || typeof claim.turnId === "string" && claim.turnId.trim().length > 0)
     && typeof claim.effectKind === "string"
     && typeof claim.subjectRef === "string"
     && Array.isArray(claim.targetRefs)
@@ -279,6 +277,11 @@ export function ensureWorldKernelTransactionState(value: unknown): WorldKernel {
     ? source.mutationClaims.filter(isMutationClaim).slice(-MAX_AUTHORITY_RECEIPTS * 4)
     : [];
   const sourceRevision = Number.isInteger(source.revision) && (source.revision as number) >= 0 ? source.revision as number : 0;
+  const actors = Array.isArray(source.actors) ? source.actors : [];
+  const factions = Array.isArray(source.factions) ? source.factions : [];
+  assertUniqueEntityIds(actors, (item) => item.id, "角色");
+  assertUniqueEntityIds(factions, (item) => item.id, "势力");
+  assertDisjointActorFactionIds(actors.map((item) => item.id), factions.map((item) => item.id));
   return {
     ...(source as WorldKernel),
     revision: Math.max(sourceRevision, committedTransactions.length),
@@ -303,6 +306,9 @@ export function createWorldKernel(seed: WorldKernelSeed): WorldKernel {
     revealedIdentityIds: ["周明瑞", "夏洛克·莫里亚蒂"],
     worldlineMode: "canon-aligned" as const,
   };
+  assertUniqueEntityIds(seed.actors, (item) => item.id, "角色");
+  assertUniqueEntityIds(seed.factions, (item) => item.id, "势力");
+  assertDisjointActorFactionIds(seed.actors.map((item) => item.id), seed.factions.map((item) => item.id));
   return {
     schemaVersion: 1,
     currentWeek: seed.week,
@@ -341,6 +347,11 @@ function assertUniqueEntityIds<T>(items: readonly T[], getId: (item: T) => strin
   }
 }
 
+function assertDisjointActorFactionIds(actorIds: Iterable<string>, factionIds: Iterable<string>) {
+  const actors = new Set(actorIds);
+  for (const id of factionIds) if (actors.has(id)) throw new Error(`角色与势力标识跨类型重复：${id}`);
+}
+
 function assertUniqueTurnEntityIds(kernel: WorldKernel, delta: WorldTurnDelta) {
   assertUniqueEntityIds(delta.actorUpdates, (item) => item.actorId, "角色");
   assertUniqueEntityIds(delta.factionUpdates ?? [], (item) => item.factionId, "势力");
@@ -352,6 +363,12 @@ function assertUniqueTurnEntityIds(kernel: WorldKernel, delta: WorldTurnDelta) {
   assertUniqueEntityIds(delta.newActors ?? [], (item) => item.id, "新角色");
   assertUniqueEntityIds(delta.newFactions ?? [], (item) => item.id, "新势力");
   assertUniqueEntityIds(delta.newProjects ?? [], (item) => item.id, "新项目");
+  const newActorIds = new Set((delta.newActors ?? []).map((item) => item.id));
+  const newFactionIds = new Set((delta.newFactions ?? []).map((item) => item.id));
+  assertDisjointActorFactionIds(actorIds, factionIds);
+  assertDisjointActorFactionIds(newActorIds, newFactionIds);
+  assertDisjointActorFactionIds(newActorIds, factionIds);
+  assertDisjointActorFactionIds(actorIds, newFactionIds);
   for (const actor of delta.newActors ?? []) if (actorIds.has(actor.id)) throw new Error(`新角色标识已存在：${actor.id}`);
   for (const faction of delta.newFactions ?? []) if (factionIds.has(faction.id)) throw new Error(`新势力标识已存在：${faction.id}`);
   for (const project of delta.newProjects ?? []) if (projectIds.has(project.id)) throw new Error(`新项目标识已存在：${project.id}`);
@@ -388,7 +405,7 @@ function turnFailureCode(error: unknown): string {
  * only transaction/retrieval identifiers and outcome codes; world payloads
  * remain in the authoritative kernel and are never copied into diagnostics.
  */
-export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): WorldKernel {
+export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta, options: { recordTrace?: boolean } = {}): WorldKernel {
   const startedAt = Date.now();
   const transaction = delta.transaction;
   const turnId = transaction && typeof transaction.turnId === "string" && transaction.turnId.trim()
@@ -397,8 +414,7 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
   const traceId = turnId ? `turn:${turnId}` : `turn:invalid:${worldTurnInputHash(delta)}`;
   try {
     const next = applyWorldTurnUnchecked(kernel, delta);
-    const replay = next === kernel;
-    tryRecordRuntimeTrace({
+    if (options.recordTrace !== false) tryRecordRuntimeTrace({
       traceId,
       operation: "turn",
       requestId: delta.retrievalReceipt?.requestId,
@@ -414,11 +430,13 @@ export function applyWorldTurn(kernel: WorldKernel, delta: WorldTurnDelta): Worl
       repairCount: 0,
       rejectionReasons: [],
       outcome: "PASS",
-      commitStatus: replay ? "REPLAYED" : "COMMITTED",
+      // Kernel application is not a durable acknowledgement. Main owns the
+      // final COMMITTED/REPLAYED status after its SQLite transaction.
+      commitStatus: "PENDING",
     });
     return next;
   } catch (error) {
-    tryRecordRuntimeTrace({
+    if (options.recordTrace !== false) tryRecordRuntimeTrace({
       traceId,
       operation: "turn",
       requestId: delta.retrievalReceipt?.requestId,
@@ -543,8 +561,7 @@ function applyWorldTurnUnchecked(kernel: WorldKernel, delta: WorldTurnDelta): Wo
     const holderId = grant.holderRef.replace(/^(actor|faction):/, "");
     const sourceObservation = observations.find((observation) => observation.id === grant.sourceObservationId && observation.eventId === grant.sourceEventId);
     if (!sourceObservation || sourceObservation.visibility !== "public"
-      && !sourceObservation.holderRefs?.includes(grant.holderRef)
-      && !sourceObservation.holderIds.includes(holderId)) {
+      && !holderIncludes(sourceObservation.holderIds, sourceObservation.holderRefs, grant.holderRef, holderId)) {
       throw new Error(`KnowledgeGrant references invalid observation: ${grant.id}`);
     }
   }
@@ -571,10 +588,10 @@ function applyWorldTurnUnchecked(kernel: WorldKernel, delta: WorldTurnDelta): Wo
       transactionState.transaction,
     ].slice(-MAX_COMMITTED_WORLD_TRANSACTIONS),
     retrievalReceipts: delta.retrievalReceipt
-      ? [...(kernel.retrievalReceipts ?? []), delta.retrievalReceipt].slice(-MAX_AUTHORITY_RECEIPTS)
+      ? [...(kernel.retrievalReceipts ?? []), { ...delta.retrievalReceipt, turnId: transactionState.transaction.turnId }].slice(-MAX_AUTHORITY_RECEIPTS)
       : [...(kernel.retrievalReceipts ?? [])],
     mutationClaims: delta.mutationClaims?.length
-      ? [...(kernel.mutationClaims ?? []), ...delta.mutationClaims].slice(-MAX_AUTHORITY_RECEIPTS * 4)
+      ? [...(kernel.mutationClaims ?? []), ...delta.mutationClaims.map((claim) => ({ ...claim, turnId: transactionState.transaction.turnId }))].slice(-MAX_AUTHORITY_RECEIPTS * 4)
       : [...(kernel.mutationClaims ?? [])],
     actors,
     factions,
@@ -598,10 +615,16 @@ function audienceRef(audience: WorldAudience) {
   return audience.kind === "player" ? "player" : `${audience.kind}:${audience.holderId}`;
 }
 
+function holderIncludes(holderIds: string[], holderRefs: string[] | undefined, reference: string, legacyId: string) {
+  return Array.isArray(holderRefs) && holderRefs.length > 0
+    ? holderRefs.includes(reference)
+    : holderIds.includes(legacyId);
+}
+
 function canSee(visibility: WorldVisibility, holderIds: string[], holderRefs: string[] | undefined, audience: WorldAudience) {
   if (audience.kind === "world") return true;
   if (visibility === "public") return true;
-  const directlyHeld = holderIds.includes(audience.holderId) || (holderRefs ?? []).includes(audienceRef(audience));
+  const directlyHeld = holderIncludes(holderIds, holderRefs, audienceRef(audience), audience.holderId);
   if (visibility === "player") return audience.kind === "player" || directlyHeld;
   if (visibility === "actors") return directlyHeld;
   return false;
@@ -613,17 +636,23 @@ export type AudienceLocationProjection = {
   knownConditions: string[];
   knownActorIds: string[];
   knownFactionIds: string[];
-  perceivedRisk: number;
-  publicMood: string;
-  stability: number;
-  updatedWeek: number;
+  perceivedRisk: number | null;
+  publicMood: string | null;
+  stability: number | null;
+  observedWeek: number | null;
 };
 
-export type AudienceWorldEvent = Pick<PersistentWorldEvent, "id" | "week" | "title" | "detail" | "locationId" | "actorIds" | "factionIds" | "visibility">;
+export type AudienceWorldEvent = Pick<PersistentWorldEvent, "id" | "week" | "title" | "detail" | "locationId" | "visibility"> & {
+  knownActorIds: string[];
+  knownFactionIds: string[];
+  observationIds: string[];
+};
 
 export type AudienceWorldObservation = Pick<WorldObservation, "id" | "week" | "eventId" | "channel" | "text" | "visibility" | "perceivedRefs" | "acquisitionKind">;
 
-export type AudienceWorldKnowledge = Pick<WorldKnowledgeNode, "id" | "subject" | "statement" | "truth" | "visibility" | "acquiredWeek">;
+export type AudienceWorldKnowledge = Pick<WorldKnowledgeNode, "id" | "subject" | "statement" | "visibility" | "acquiredWeek"> & {
+  epistemicStatus: "public-report" | "witnessed" | "communicated" | "investigated" | "propagated" | "held";
+};
 
 export type AudienceKnowledgeGrant = Pick<WorldKnowledgeGrant, "knowledgeId" | "kind">;
 
@@ -641,7 +670,7 @@ export type AudienceWorldProjection = {
 function projectLocationForAudience(
   location: PersistentWorldLocation,
   audience: WorldAudience,
-  visibleEvents: PersistentWorldEvent[],
+  visibleEvents: AudienceWorldEvent[],
   visibleObservations: WorldObservation[],
 ): AudienceLocationProjection {
   const locationEvents = visibleEvents.filter((event) => event.locationId === location.id);
@@ -650,8 +679,8 @@ function projectLocationForAudience(
   const knownActorIds = new Set<string>();
   const knownFactionIds = new Set<string>();
   for (const event of locationEvents) {
-    for (const actorId of event.actorIds) knownActorIds.add(actorId);
-    for (const factionId of event.factionIds) knownFactionIds.add(factionId);
+    for (const actorId of event.knownActorIds) knownActorIds.add(actorId);
+    for (const factionId of event.knownFactionIds) knownFactionIds.add(factionId);
   }
   for (const observation of locationObservations) {
     for (const perceivedRef of observation.perceivedRefs ?? []) {
@@ -668,16 +697,21 @@ function projectLocationForAudience(
     ...locationObservations.map((observation) => observation.text),
   ].join("\n");
   const knownConditions = location.conditions.filter((condition) => condition.trim() && visibleText.includes(condition));
+  const riskText = visibleText.match(/(?:致命|极度危险|高度危险|危机|危险|风险上升|不安全|警戒|安全|平静)/)?.[0] ?? "";
+  const stabilityText = visibleText.match(/(?:完全失控|混乱|动荡|不稳|秩序恢复|秩序稳定|平静)/)?.[0] ?? "";
+  const perceivedRisk = !riskText ? null : /致命|极度危险/.test(riskText) ? 90 : /高度危险|危机/.test(riskText) ? 75 : /危险|风险上升|不安全|警戒/.test(riskText) ? 60 : 20;
+  const stability = !stabilityText ? null : /完全失控/.test(stabilityText) ? 10 : /混乱|动荡/.test(stabilityText) ? 30 : /不稳/.test(stabilityText) ? 45 : /秩序恢复/.test(stabilityText) ? 65 : 80;
+  const observedWeeks = [...locationEvents.map((event) => event.week), ...locationObservations.map((observation) => observation.week)];
   return {
     id: location.id,
     name: location.name,
     knownConditions: [...new Set(knownConditions)].slice(-8),
     knownActorIds: [...knownActorIds].sort(),
     knownFactionIds: [...knownFactionIds].sort(),
-    perceivedRisk: clamp(location.risk),
-    publicMood: location.publicMood,
-    stability: clamp(location.stability),
-    updatedWeek: location.updatedWeek,
+    perceivedRisk,
+    publicMood: location.publicMood.trim() && visibleText.includes(location.publicMood) ? location.publicMood : null,
+    stability,
+    observedWeek: observedWeeks.length ? Math.max(...observedWeeks) : null,
   };
 }
 
@@ -689,13 +723,46 @@ export function projectWorldForAudience(kernel: WorldKernel, audience: WorldAudi
   const visibleObservations = kernel.observations.filter((observation) => canSee(observation.visibility, observation.holderIds, observation.holderRefs, audience));
   const observableEventIds = new Set(visibleObservations.map((observation) => observation.eventId));
   const reference = audienceRef(audience);
-  const visibleEvents = kernel.events.filter((event) => event.visibility !== "world" && (event.visibility === "public" || observableEventIds.has(event.id) || event.witnessRefs?.includes(reference)));
+  const visibleEvents = kernel.events.filter((event) => event.visibility === "public" || observableEventIds.has(event.id));
   const visibleKnowledge = kernel.knowledge.filter((node) => canSee(node.visibility, node.holderIds, node.holderRefs, audience));
   const visibleKnowledgeGrants = (kernel.knowledgeGrants ?? []).filter((grant) => grant.holderRef === reference);
-  const locations = kernel.locations.map((location) => projectLocationForAudience(location, audience, visibleEvents, visibleObservations));
-  const audienceEvents: AudienceWorldEvent[] = visibleEvents.map(({ id, week, title, detail, locationId, actorIds, factionIds, visibility }) => ({ id, week, title, detail, locationId, actorIds, factionIds, visibility }));
+  const audienceEvents: AudienceWorldEvent[] = visibleEvents.map((event) => {
+    const eventObservations = visibleObservations.filter((observation) => observation.eventId === event.id);
+    const perceivedRefs = eventObservations.flatMap((observation) => observation.perceivedRefs ?? []);
+    const knownActorIds = new Set(perceivedRefs.flatMap((item) => item.startsWith("actor:") ? [item.slice("actor:".length)] : []));
+    const knownFactionIds = new Set(perceivedRefs.flatMap((item) => item.startsWith("faction:") ? [item.slice("faction:".length)] : []));
+    if (audience.kind === "actor" && event.actorIds.includes(audience.holderId)) knownActorIds.add(audience.holderId);
+    if (audience.kind === "faction" && event.factionIds.includes(audience.holderId)) knownFactionIds.add(audience.holderId);
+    const observationText = eventObservations.map((observation) => observation.text).filter(Boolean).join("；");
+    const eventLocation = event.locationId ? kernel.locations.find((location) => location.id === event.locationId) : undefined;
+    const observedLocationId = event.visibility === "public"
+      || Boolean(eventLocation && eventObservations.some((observation) => observation.text.includes(eventLocation.id) || observation.text.includes(eventLocation.name)))
+      ? event.locationId
+      : undefined;
+    return {
+      id: event.id,
+      week: event.week,
+      title: event.visibility === "public" ? event.title : eventObservations[0]?.channel ?? "可见变化",
+      detail: event.visibility === "public" ? event.detail : observationText,
+      locationId: observedLocationId,
+      visibility: event.visibility,
+      knownActorIds: [...knownActorIds].sort(),
+      knownFactionIds: [...knownFactionIds].sort(),
+      observationIds: eventObservations.map((observation) => observation.id).sort(),
+    };
+  });
+  const locations = kernel.locations.map((location) => projectLocationForAudience(location, audience, audienceEvents, visibleObservations));
   const audienceObservations: AudienceWorldObservation[] = visibleObservations.map(({ id, week, eventId, channel, text, visibility, perceivedRefs, acquisitionKind }) => ({ id, week, eventId, channel, text, visibility, perceivedRefs, acquisitionKind }));
-  const audienceKnowledge: AudienceWorldKnowledge[] = visibleKnowledge.map(({ id, subject, statement, truth, visibility, acquiredWeek }) => ({ id, subject, statement, truth, visibility, acquiredWeek }));
+  const grantByKnowledgeId = new Map(visibleKnowledgeGrants.map((grant) => [grant.knowledgeId, grant.kind]));
+  const audienceKnowledge: AudienceWorldKnowledge[] = visibleKnowledge.map(({ id, subject, statement, visibility, acquiredWeek }) => {
+    const grantKind = grantByKnowledgeId.get(id);
+    const epistemicStatus = grantKind === "witness" ? "witnessed"
+      : grantKind === "communication" ? "communicated"
+        : grantKind === "investigation" ? "investigated"
+          : grantKind === "propagation" ? "propagated"
+            : visibility === "public" ? "public-report" : "held";
+    return { id, subject, statement, visibility, acquiredWeek, epistemicStatus };
+  });
   const audienceKnowledgeGrants: AudienceKnowledgeGrant[] = visibleKnowledgeGrants.map(({ knowledgeId, kind }) => ({ knowledgeId, kind }));
   const projectionHash = hashText(stableSerialize({
     audience: reference,

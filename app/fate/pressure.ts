@@ -23,6 +23,7 @@ import type {
   FateSeverity,
   PendingDelayedEffect,
 } from "./types.ts";
+import { stableTextHash } from "../stable-id.ts";
 import type { AbilityDefinition } from "../abilities/types.ts";
 import type { AbilityIntent, ExtraordinaryState } from "../abilities/types.ts";
 
@@ -166,8 +167,8 @@ export function pushRecentTemplate(state: FateAberrationState, templateId: strin
 
 export function pushResolvedFate(state: FateAberrationState, resolutionId: string): FateAberrationState {
   const aggregateHash = state.resolvedFateAggregate.hash
-    ? String((hashNumber(state.resolvedFateAggregate.hash + "|" + resolutionId) >>> 0).toString(16))
-    : String((hashNumber(resolutionId) >>> 0).toString(16));
+    ? stableTextHash(`${state.resolvedFateAggregate.hash}|${resolutionId}`)
+    : stableTextHash(resolutionId);
   return {
     ...state,
     recentFateResolutionIds: [resolutionId, ...state.recentFateResolutionIds].slice(0, RECENT_FATE_RESOLUTION_LIMIT),

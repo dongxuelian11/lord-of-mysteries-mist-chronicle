@@ -182,6 +182,7 @@ test("same seed and inputs produce identical contracts", async () => {
   const second = await resolve("spirit-vision");
   assert.equal(first.margin, second.margin);
   assert.equal(first.result, second.result);
+  assert.match(first.resolutionId, /^res:[0-9a-f]{64}$/);
   assert.deepEqual(first.appliedEffects, second.appliedEffects);
 });
 

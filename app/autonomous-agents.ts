@@ -1,5 +1,6 @@
 import { projectWorldForAudience, type WorldKernel } from "./world-kernel.ts";
 import { buildAutonomousMemoryProjection, type DynamicMemoryState } from "./memory/index.ts";
+import { stableTextHash } from "./stable-id.ts";
 
 export type AutonomousEntityKind = "actor" | "faction";
 
@@ -419,7 +420,7 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
     const relevantLocations = profile.kind === "actor"
       ? view.locations.filter((location) => location.id === (entity as WorldKernel["actors"][number] | undefined)?.locationId)
       : view.locations.filter((location) => location.knownFactionIds.includes(profile.entityId));
-    const planningSignature = stableNumber(JSON.stringify({
+    const planningSignature = stableTextHash(JSON.stringify({
       ref: profile.ref,
       objective: profile.currentObjective,
       nextAction: profile.nextAction,
@@ -428,7 +429,7 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
       resources: profile.kind === "faction" ? (entity as WorldKernel["factions"][number] | undefined)?.resources : undefined,
       suspicion: profile.kind === "faction" ? (entity as WorldKernel["factions"][number] | undefined)?.suspicion : undefined,
       riskTolerance: profile.riskTolerance,
-      locations: relevantLocations.map((location) => [location.id, location.perceivedRisk, location.stability, location.publicMood, location.knownConditions, location.updatedWeek]),
+      locations: relevantLocations.map((location) => [location.id, location.perceivedRisk, location.stability, location.publicMood, location.knownConditions, location.observedWeek]),
       reflection: {
         summary: profile.reflection.summary,
         conclusions: profile.reflection.conclusions,
@@ -442,11 +443,11 @@ export function buildAutonomousDecisionFrames(state: AutonomousWorldState, kerne
         driveSignals: profile.reflection.driveSignals,
       },
       observations: view.observations.map((observation) => [observation.id, observation.eventId, observation.channel, observation.text, observation.visibility, observation.perceivedRefs ?? []]).sort(),
-      knowledge: view.knowledge.map((node) => [node.id, node.subject, node.statement, node.truth, node.visibility]).sort(),
+      knowledge: view.knowledge.map((node) => [node.id, node.subject, node.statement, node.epistemicStatus, node.visibility]).sort(),
       memory: [materialMemory.referenceIds.slice().sort(), materialMemory.text],
       relationships,
       projects: kernel.projects.filter((project) => project.ownerId === profile.entityId && project.status === "active").map((project) => [project.id, project.stage, project.progress, project.nextMilestone, project.blockers]).sort(),
-    })).toString(36);
+    }));
     return {
       planningWeek: week,
       ref: profile.ref,
@@ -574,20 +575,24 @@ function buildStructuredReflection(
   };
 }
 
-function eventParticipantRefs(event: WorldKernel["events"][number]) {
-  return [...new Set([
-    ...event.actorIds.map((id) => `actor:${id}`),
-    ...event.factionIds.map((id) => `faction:${id}`),
-    ...(event.witnessRefs ?? []).filter((ref) => ref.startsWith("actor:") || ref.startsWith("faction:")),
-  ])];
-}
-
 function updateSocialTies(previous: AutonomousSocialTie[], kernel: WorldKernel, week: number) {
   const byId = new Map(previous.map((tie) => [tie.id, { ...tie, causeEventIds: [...tie.causeEventIds] }]));
-  for (const event of kernel.events.filter((candidate) => candidate.week === week)) {
-    const refs = eventParticipantRefs(event);
-    const tense = /袭击|冲突|追捕|背叛|威胁|破坏|争夺|死亡|受伤/.test(`${event.title} ${event.detail}`);
-    for (const sourceRef of refs) for (const targetRef of refs) {
+  const actorIds = new Set(kernel.actors.map((actor) => actor.id));
+  const factionIds = new Set(kernel.factions.map((faction) => faction.id));
+  const isKnownEntityRef = (ref: string) => ref.startsWith("actor:")
+    ? actorIds.has(ref.slice("actor:".length))
+    : ref.startsWith("faction:") && factionIds.has(ref.slice("faction:".length));
+  for (const observation of kernel.observations.filter((candidate) => candidate.week === week)) {
+    const sourceRefs = [...new Set([
+      ...(observation.holderRefs ?? []),
+      ...observation.holderIds.flatMap((id) => [
+        ...(actorIds.has(id) ? [`actor:${id}`] : []),
+        ...(factionIds.has(id) ? [`faction:${id}`] : []),
+      ]),
+    ])].filter(isKnownEntityRef);
+    const targetRefs = [...new Set(observation.perceivedRefs ?? [])].filter(isKnownEntityRef);
+    const tense = /袭击|冲突|追捕|背叛|威胁|破坏|争夺|死亡|受伤/.test(observation.text);
+    for (const sourceRef of sourceRefs) for (const targetRef of targetRefs) {
       if (sourceRef === targetRef) continue;
       const id = `${sourceRef}->${targetRef}`;
       const existing = byId.get(id) ?? { id, sourceRef, targetRef, familiarity: 0, tension: 0, leverage: 0, lastInteractionWeek: week, causeEventIds: [] };
@@ -595,9 +600,9 @@ function updateSocialTies(previous: AutonomousSocialTie[], kernel: WorldKernel, 
         ...existing,
         familiarity: clamp(existing.familiarity + 4),
         tension: clamp(existing.tension + (tense ? 7 : 1)),
-        leverage: clamp(existing.leverage + (event.visibility === "world" ? 2 : 0)),
+        leverage: clamp(existing.leverage + (observation.acquisitionKind === "investigation" ? 2 : 0)),
         lastInteractionWeek: week,
-        causeEventIds: [...new Set([...existing.causeEventIds, event.id])].slice(-16),
+        causeEventIds: [...new Set([...existing.causeEventIds, observation.eventId])].slice(-16),
       });
     }
   }
@@ -617,11 +622,14 @@ export function advanceAutonomousWorldState(
     const entity = profile.kind === "actor"
       ? after.actors.find((actor) => actor.id === profile.entityId)
       : after.factions.find((faction) => faction.id === profile.entityId);
-    const holderRef = profile.ref;
-    const receivedKnowledgeIds = after.knowledge
-      .filter((node) => node.acquiredWeek === week && (node.visibility === "public" || node.holderRefs?.includes(holderRef) || node.holderIds.includes(profile.entityId)))
+    const audience = profile.kind === "actor"
+      ? { kind: "actor" as const, holderId: profile.entityId }
+      : { kind: "faction" as const, holderId: profile.entityId };
+    const worldView = projectWorldForAudience(after, audience);
+    const receivedKnowledgeIds = worldView.knowledge
+      .filter((node) => node.acquiredWeek === week)
       .map((node) => node.id);
-    const witnessedEvents = after.events.filter((event) => event.week === week && (event.visibility === "public" || event.witnessRefs?.includes(holderRef)));
+    const witnessedEventIds = worldView.events.filter((event) => event.week === week).map((event) => event.id);
     const currentObjective = profile.kind === "actor"
       ? (entity as WorldKernel["actors"][number] | undefined)?.shortTermGoal ?? profile.currentObjective
       : (entity as WorldKernel["factions"][number] | undefined)?.posture ?? profile.currentObjective;
@@ -634,7 +642,7 @@ export function advanceAutonomousWorldState(
       drives: [...new Set([...profile.drives, ...reflection.driveSignals])].slice(0, 8),
       currentObjective,
       nextAction,
-      privateMemoryIds: [...new Set([...profile.privateMemoryIds, ...receivedKnowledgeIds, ...witnessedEvents.map((event) => event.id)])].slice(-32),
+      privateMemoryIds: [...new Set([...profile.privateMemoryIds, ...receivedKnowledgeIds, ...witnessedEventIds])].slice(-32),
       reflection,
       lastPlanningSignature: planningSignatures?.get(profile.ref) ?? profile.lastPlanningSignature,
       updatedWeek: week,

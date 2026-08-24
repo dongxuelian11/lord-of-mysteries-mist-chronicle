@@ -5,6 +5,7 @@ import {
   type SpatialRouteClaim,
   type SpatialSource,
 } from "./game-model.ts";
+import { projectWorldForAudience } from "./world-kernel.ts";
 
 export type DistrictEdge = {
   id: string;
@@ -59,7 +60,8 @@ export function estimateRoute(game: GameState, from: string, to: string) {
     queue.sort((a, b) => a.min - b.min);
     const current = queue.shift()!;
     if (current.id === to) {
-      const targetRisk = game.worldKernel?.locations.find((location) => location.id === to)?.risk ?? districtById.get(to)?.danger ?? 30;
+      const targetRisk = projectWorldForAudience(game.worldKernel, { kind: "player", holderId: "player" })
+        .locations.find((location) => location.id === to)?.perceivedRisk ?? districtById.get(to)?.danger ?? 30;
       const pressure = Math.max(0, Math.round((targetRisk - 35) / 10));
       const pathwayFactor = game.pathwayId === "apprentice" && game.currentSequence <= 7 ? .55 : game.pathwayId === "hunter" ? .9 : 1;
       return {
@@ -89,11 +91,12 @@ export function buildSpatialIntelligence(game: GameState, playbackWeek = game.we
   const sources: SpatialSource[] = [];
   const routes: SpatialRouteClaim[] = [];
   const visibleThrough = Math.min(playbackWeek, game.week);
+  const playerWorldView = projectWorldForAudience(game.worldKernel, { kind: "player", holderId: "player" });
   const addRoute = (route: Omit<SpatialRouteClaim, "conflictIds">) => routes.push({ ...route, conflictIds: [] });
 
-  for (const observation of game.worldKernel?.observations ?? []) {
-    if (observation.week > visibleThrough || (observation.visibility !== "player" && observation.visibility !== "public" && !observation.holderIds.includes("player") && !observation.holderRefs?.includes("player"))) continue;
-    const event = game.worldKernel.events.find((item) => item.id === observation.eventId);
+  for (const observation of playerWorldView.observations) {
+    if (observation.week > visibleThrough) continue;
+    const event = playerWorldView.events.find((item) => item.id === observation.eventId);
     const ids = mentionedDistricts(observation.text);
     if (event?.locationId && !ids.includes(event.locationId)) ids.push(event.locationId);
     const sourceId = `observation:${observation.id}`;

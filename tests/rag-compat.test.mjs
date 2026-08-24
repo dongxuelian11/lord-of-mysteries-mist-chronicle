@@ -47,7 +47,7 @@ test("兼容门面：retrieveLoreContext 保持同步签名与旧返回形状", 
   }
 });
 
-test("桥接失败时自动回退旧版检索，不抛错", async () => {
+test("Electron 桥接失败时 fail closed，不允许回退渲染端旧版检索", async () => {
   const { retrieveLoreContextAsync } = await loadRuntimeModule("app/rag/client.ts");
   const originalWindow = globalThis.window;
   globalThis.window = {
@@ -55,7 +55,6 @@ test("桥接失败时自动回退旧版检索，不抛错", async () => {
       search: async () => {
         throw new Error("rag worker down");
       },
-      listChunkIds: async () => [],
       status: async () => ({ available: false, chunks: 0 }),
     },
   };
@@ -71,14 +70,12 @@ test("桥接失败时自动回退旧版检索，不抛错", async () => {
         sourceGrade: "A",
       },
     ];
-    const result = await retrieveLoreContextAsync(records, {
+    await assert.rejects(retrieveLoreContextAsync(records, {
       query: "占卜家途径的序列9",
-      audience: { kind: "player-known", knownLoreIds: [], topicGrants: [] },
+      audience: { kind: "player-known", principalRef: "player", purpose: "player-ability", knownLoreIds: [], topicGrants: [] },
       limit: 4,
       maxChars: 2000,
-    });
-    assert.equal(typeof result.context, "string");
-    assert.ok(result.context.includes("占卜家"));
+    }), /RAG_GATEWAY_UNAVAILABLE/);
   } finally {
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;

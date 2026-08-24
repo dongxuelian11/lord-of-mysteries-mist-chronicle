@@ -29,6 +29,7 @@ export function buildWorldAdjudicatorInput(options: WorldAdjudicatorInputOptions
     worldAuthority: {
       entityState: "adjudicatorWorld" as const,
       stateMutation: "kernelDelta" as const,
+      baseRevision: game.worldKernel.revision,
       compatibilityOutputs: ["factionMoves", "canonMoves"] as const,
     },
     chapter: options.playerActions,

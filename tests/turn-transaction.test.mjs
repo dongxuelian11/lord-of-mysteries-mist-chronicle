@@ -17,7 +17,9 @@ after(async () => { if (moduleServer) await moduleServer.close(); });
 
 function worldEnvelope(game, chapter) {
   const [firstFaction, secondFaction] = game.factions;
-  const locationId = game.worldKernel.locations[0].id;
+  const locationId = game.worldKernel.locations.some((location) => location.id === "east")
+    ? "east"
+    : game.worldKernel.locations[0].id;
   const firstProposalId = `proposal:agent:${chapter.week}:faction:${firstFaction.id}`;
   const secondProposalId = `proposal:agent:${chapter.week}:faction:${secondFaction.id}`;
   return {
@@ -65,7 +67,18 @@ function worldModelFetch(envelope) {
       const payloadStart = user.lastIndexOf("\n{");
       const payload = payloadStart >= 0 ? JSON.parse(user.slice(payloadStart + 1)) : {};
       const usedMemoryIds = payload.projection?.memoryReferenceIds?.slice(0, 1) ?? [];
-      const proposal = { planningWeek, agentRef, disposition: "wait", intent: "维持既定安排并观察本周公开变化。", rationale: "周初没有足以改变计划的新认知。", targetRefs: [], requiredKnowledgeIds: [], usedMemoryIds };
+      const allowedLocations = (payload.projection?.agent?.allowedTargetRefs ?? payload.projection?.allowedTargetRefs ?? [])
+        .filter((ref) => typeof ref === "string" && ref.startsWith("location:"));
+      const proposal = {
+        planningWeek,
+        agentRef,
+        disposition: "act",
+        intent: "推进既定安排并处理本周可见地点中的具体事务。",
+        rationale: "本测试世界增量包含地点事件，因此提案必须先明确授权这些地点。",
+        targetRefs: allowedLocations,
+        requiredKnowledgeIds: [],
+        usedMemoryIds,
+      };
       return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify({ proposal }) } }] }) };
     }
     return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: JSON.stringify(envelope) } }] }) };
@@ -129,6 +142,7 @@ test("autonomous memory is delivered to each explicit audience only after the wo
   const envelope = worldEnvelope(resolved.state, resolved.chapter);
   envelope.kernelDelta.events[0].factionIds = [factionId];
   envelope.kernelDelta.events[0].sourceProposalIds = [`proposal:agent:${resolved.chapter.week}:faction:${factionId}`];
+  envelope.kernelDelta.locationUpdates[0].sourceProposalIds = [`proposal:agent:${resolved.chapter.week}:faction:${factionId}`];
   const captured = [];
   const baseFetch = worldModelFetch(envelope);
   const originalFetch = globalThis.fetch;
@@ -280,7 +294,8 @@ test("one agent failing twice degrades privately while peers and the week still 
   ]).state;
   const memoryBefore = JSON.stringify(resolved.state.memory);
   const agentsBefore = JSON.stringify(resolved.state.worldAgents);
-  const failedRef = resolved.state.worldAgents.activeAgentRefs[0];
+  const failedRef = resolved.state.worldAgents.activeAgentRefs.find((ref) => ref.startsWith("actor:"))
+    ?? resolved.state.worldAgents.activeAgentRefs[0];
   const envelope = worldEnvelope(resolved.state, resolved.chapter);
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
@@ -295,9 +310,16 @@ test("one agent failing twice degrades privately while peers and the week still 
     }
     const agentRef = user.match(/"ref":"([^"]+)"/)?.[1] ?? "actor:unknown";
     const planningWeek = Number(user.match(/"planningWeek":(\d+)/)?.[1] ?? resolved.chapter.week);
-    const content = agentRef === failedRef
-      ? JSON.stringify({ proposal: { agentRef, planningWeek } })
-      : JSON.stringify({ proposal: { planningWeek, agentRef, disposition: "wait", intent: "等待。", rationale: "没有新认知。", targetRefs: [], requiredKnowledgeIds: [] } });
+    let content;
+    if (agentRef === failedRef) {
+      content = JSON.stringify({ proposal: { agentRef, planningWeek } });
+    } else {
+      const payloadStart = user.lastIndexOf("\n{");
+      const payload = payloadStart >= 0 ? JSON.parse(user.slice(payloadStart + 1)) : {};
+      const allowedLocations = (payload.projection?.agent?.allowedTargetRefs ?? [])
+        .filter((ref) => typeof ref === "string" && ref.startsWith("location:"));
+      content = JSON.stringify({ proposal: { planningWeek, agentRef, disposition: "act", intent: "推进可见地点中的既定事务。", rationale: "测试世界增量需要明确地点授权。", targetRefs: allowedLocations, requiredKnowledgeIds: [] } });
+    }
     return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content } }] }) };
   };
   try {
@@ -320,7 +342,7 @@ test("one agent failing twice degrades privately while peers and the week still 
   }
 });
 
-test("AI organization prose cannot double-apply rule-owned numeric consequences", async () => {
+test("AI organization prose without a subject-scoped event fails closed before numeric consequences", async () => {
   const { engine, model } = await loadGameModules();
   const { generateAiWorldDelta, resolveWeek } = engine;
   const { createInitialGame } = model;
@@ -330,10 +352,21 @@ test("AI organization prose cannot double-apply rule-owned numeric consequences"
   const member = resolved.state.members[0];
   const candidate = resolved.state.recruitPool[0];
   const envelope = worldEnvelope(resolved.state, resolved.chapter);
+  const organizationSourceEvent = envelope.kernelDelta.events[1];
+  const organizationSourceProposalId = organizationSourceEvent.sourceProposalIds[0];
+  const organizationSourceObservation = "会长从公开通告中确认警察厅正在整理近期失踪人口登记。";
+  envelope.kernelDelta.observations = [{
+    eventId: organizationSourceEvent.id,
+    channel: "官方通告",
+    text: organizationSourceObservation,
+    visibility: "player",
+    holderIds: ["player"],
+  }];
+  const authority = { sourceProposalId: organizationSourceProposalId, sourceEventId: organizationSourceEvent.id, sourceObservation: organizationSourceObservation };
   envelope.organizationDelta = {
-    departmentDevelopments: [{ departmentId: department.id, report: "负责人发现本周交接记录出现两次迟到，但尚未越过授权边界。", cause: "本周部门运转", capacityDelta: -5, cohesionDelta: -4, exposureDelta: 5, backlogDelta: 8 }],
-    memberDevelopments: [{ memberId: member.id, observation: "他在散会后独自核对了两遍门锁。", cause: "本周压力", pressureDelta: 7, trustDelta: -2 }],
-    recruitDevelopments: [{ memberId: candidate.id, observation: "候选人推迟了下一次见面。", momentumDelta: -8, trustDelta: -2 }],
+    departmentDevelopments: [{ departmentId: department.id, report: "负责人发现本周交接记录出现两次迟到，但尚未越过授权边界。", cause: "本周部门运转", capacityDelta: -5, cohesionDelta: -4, exposureDelta: 5, backlogDelta: 8, ...authority }],
+    memberDevelopments: [{ memberId: member.id, observation: "他在散会后独自核对了两遍门锁。", cause: "本周压力", pressureDelta: 7, trustDelta: -2, ...authority }],
+    recruitDevelopments: [{ memberId: candidate.id, observation: "候选人推迟了下一次见面。", momentumDelta: -8, trustDelta: -2, ...authority }],
     governanceIssues: [], newRecruitableNpc: null,
   };
   const originalFetch = globalThis.fetch;
@@ -341,14 +374,13 @@ test("AI organization prose cannot double-apply rule-owned numeric consequences"
   globalThis.window = globalThis;
   globalThis.fetch = worldModelFetch(envelope);
   try {
-    const committed = await generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {});
-    assert.equal(committed.departments.find((item) => item.id === department.id).capacity, department.capacity);
-    assert.equal(committed.departments.find((item) => item.id === department.id).backlog, department.backlog);
-    assert.equal(committed.members.find((item) => item.id === member.id).personalPressure, member.personalPressure);
-    assert.equal(committed.members.find((item) => item.id === member.id).trust, member.trust);
-    assert.equal(committed.recruitPool.find((item) => item.id === candidate.id).relationshipMomentum, candidate.relationshipMomentum);
-    assert.ok(committed.departmentReports.some((item) => item.headline.includes("交接记录")));
-    assert.ok(committed.members.find((item) => item.id === member.id).personalEventSignals.includes("他在散会后独自核对了两遍门锁。"));
+    await assert.rejects(
+      generateAiWorldDelta({ provider: "compatible", endpoint: "https://model.invalid/v1", apiKey: "test-key", model: "test-model" }, resolved.state, resolved.chapter, () => {}),
+      /SIDECAR_AUTHORITY_REJECTED/,
+    );
+    assert.equal(resolved.state.departments.find((item) => item.id === department.id).capacity, department.capacity);
+    assert.equal(resolved.state.members.find((item) => item.id === member.id).personalPressure, member.personalPressure);
+    assert.equal(resolved.state.recruitPool.find((item) => item.id === candidate.id).relationshipMomentum, candidate.relationshipMomentum);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) delete globalThis.window;
@@ -436,7 +468,7 @@ test("a sourced authorization boundary interrupts only the executed fragment and
     visibility: "world",
     sourceProposalIds: [proposalId],
   });
-  envelope.kernelDelta.locationUpdates.push({ locationId: "east", riskDelta: 1, condition: "联络点开始更换暗号", sourceProposalIds: [proposalId] });
+  envelope.kernelDelta.locationUpdates[0] = { locationId: "east", riskDelta: 2, stabilityDelta: 0, publicMood: "不安", condition: "联络点开始更换暗号", sourceProposalIds: [proposalId] };
   envelope.kernelDelta.observations.push({ eventId: "player-interruption", channel: "负责人述职", text: "身份掩护失效后，负责人按约定停止接触。", visibility: "player", holderIds: ["player"], acquisitionKind: "communication" });
   envelope.kernelDelta.knowledge.push({ subject: "东区联络点", statement: "联络点已经察觉到异常接触。", truth: "confirmed", visibility: "player", holderIds: ["player"], sourceEventId: "player-interruption", loreRecordIds: [] });
   envelope.kernelDelta.directiveInterruptions = [{ proposalId, sourceEventId: "player-interruption", triggeredBoundary: boundary, reason: "身份掩护失效，负责人按撤退条件停止接触。", completedFraction: 0.4 }];
@@ -521,6 +553,33 @@ test("negated compliant phrasing does not trigger red-line rejection", async () 
   assert.equal(actionTextBoundaryIssue("伊妮丝未进入任何档案室，只在门外记录了出入时间。", game, contract), null);
   assert.equal(actionTextBoundaryIssue("伊妮丝在事务所内比对公开报纸。另一版报纸称嫌疑人曾接触码头工人。", game, contract), null);
   assert.ok(actionTextBoundaryIssue("伊妮丝前往档案室询问书记员，并触碰黑玻璃挂坠。", game, contract));
+});
+
+test("a witnessRef without an actual player observation cannot enter a player directive", async () => {
+  const { engine, model } = await loadGameModules();
+  const game = model.createInitialGame("spectator");
+  game.worldKernel = {
+    ...game.worldKernel,
+    events: [...game.worldKernel.events, {
+      id: "hidden-witness-only",
+      week: game.week,
+      title: "隐秘接头",
+      detail: "幕后势力完成了一次不为玩家所知的接头。",
+      actorIds: [],
+      factionIds: [],
+      causeIds: [],
+      visibility: "world",
+      witnessRefs: ["player"],
+    }],
+  };
+  const contract = engine.localContract({
+    intent: "调查隐秘接头",
+    game,
+    leaderId: "organization",
+    districtId: "cherwood",
+    abilityIds: [],
+  });
+  assert.equal(contract.causeEventIds.includes("hidden-witness-only"), false);
 });
 
 test("a decision draft naming a member routes leadership to that member and dedupes red lines", async () => {

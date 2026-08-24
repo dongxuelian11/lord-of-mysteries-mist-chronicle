@@ -63,14 +63,14 @@ function writeScript() {
     if (!bridge) return { ok: false, error: "persistence-bridge-missing" };
     const marker = ${encodedMarker};
     const payload = JSON.stringify({ format: "pr4-electron-persistence-lifecycle", schemaVersion: 1, marker });
-    const saved = await bridge.set("${activeKey}", payload);
+    const saved = await bridge.commitTurn("${activeKey}", payload, []);
     const recovery = await bridge.appendRecovery("${recoveryKey}", {
       id: "pr4-recovery:" + marker,
       reason: "week",
       createdAt: new Date().toISOString(),
       game: { worldKernel: { currentWeek: 1 } },
     }, 3);
-    return { ok: Boolean(saved?.available && saved?.saved && recovery?.available && recovery?.saved), saved, recovery };
+    return { ok: Boolean(saved?.available && saved?.saved && saved?.durable && recovery?.available && recovery?.saved), saved, recovery };
   })()`;
 }
 

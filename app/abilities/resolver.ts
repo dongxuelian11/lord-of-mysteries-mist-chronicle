@@ -18,6 +18,7 @@ import type {
   ExtraordinaryState,
   ResultLevel,
 } from "./types.ts";
+import { stableEntityId } from "../stable-id.ts";
 
 function stableHash(text: string): number {
   let hash = 2166136261;
@@ -59,7 +60,7 @@ export function resolveAbility(options: ResolveOptions): AbilityOutcomeContract 
   const startedAt = Date.now();
   const { definition, actorState, intent, seed } = options;
   const legality = checkLegality(definition, actorState, intent, options.targetStates.length);
-  const resolutionId = `res:${stableHash(seed).toString(16)}`;
+  const resolutionId = stableEntityId("res", seed);
 
   const prep = preparationBonus(intent.preparationRefs, options.environmentRefs);
   const leverage = leverageAvailable(

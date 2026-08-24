@@ -6,6 +6,7 @@ import type {
 } from "./game-model.ts";
 import type { AgentPlanningProjection, AgentProposal } from "./world-runtime.ts";
 import type { LedgerEventInput } from "./world-ledger.ts";
+import { projectWorldForAudience, type WorldAudience } from "./world-kernel.ts";
 
 export type ActionProposer = {
   kind: "player" | "actor" | "faction" | "system";
@@ -235,15 +236,15 @@ export function proposalFromAgentProposal(raw: AgentProposal, projection: AgentP
 
 export function createActionRuleContext(game: GameState, options: ActionRuleContextOptions = {}): ActionRuleContext {
   const knowledgeByRef = new Map<string, Set<string>>();
-  const knowledgeFor = (ref: string, id: string) => new Set(game.worldKernel.knowledge
-    .filter((node) => node.visibility === "public" || node.visibility === "world" || node.holderIds.includes(id) || node.holderRefs?.includes(ref))
-    .map((node) => node.id));
+  const knowledgeFor = (audience: Exclude<WorldAudience, { kind: "world" }>) => new Set(
+    projectWorldForAudience(game.worldKernel, audience).knowledge.map((node) => node.id),
+  );
   for (const member of game.members) {
-    knowledgeByRef.set(`actor:${member.id}`, knowledgeFor(`actor:${member.id}`, member.id));
+    knowledgeByRef.set(`actor:${member.id}`, knowledgeFor({ kind: "actor", holderId: member.id }));
   }
-  for (const actor of game.worldKernel.actors) knowledgeByRef.set(`actor:${actor.id}`, knowledgeFor(`actor:${actor.id}`, actor.id));
-  for (const faction of game.worldKernel.factions) knowledgeByRef.set(`faction:${faction.id}`, knowledgeFor(`faction:${faction.id}`, faction.id));
-  knowledgeByRef.set("player", new Set(game.worldKernel.knowledge.filter((node) => node.visibility === "public" || node.visibility === "world" || node.visibility === "player" || node.holderIds.includes("player") || node.holderRefs?.includes("player")).map((node) => node.id)));
+  for (const actor of game.worldKernel.actors) knowledgeByRef.set(`actor:${actor.id}`, knowledgeFor({ kind: "actor", holderId: actor.id }));
+  for (const faction of game.worldKernel.factions) knowledgeByRef.set(`faction:${faction.id}`, knowledgeFor({ kind: "faction", holderId: faction.id }));
+  knowledgeByRef.set("player", knowledgeFor({ kind: "player", holderId: "player" }));
   for (const [ref, ids] of options.knowledgeByRef ?? []) knowledgeByRef.set(ref, new Set(ids));
   const actorKnowledge = new Map<string, Set<string>>();
   for (const [ref, ids] of knowledgeByRef) {

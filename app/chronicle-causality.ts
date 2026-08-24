@@ -1,5 +1,5 @@
 import type { ActionCausalReceipts, ChronicleChapter, GameState } from "./game-model.ts";
-import type { PersistentWorldEvent, WorldObservation } from "./world-kernel.ts";
+import { projectWorldForAudience, type AudienceWorldEvent } from "./world-kernel.ts";
 
 export type LiteraryReceiptCategory = keyof ActionCausalReceipts;
 
@@ -7,7 +7,7 @@ export type LiteraryReceipt = ActionCausalReceipts[LiteraryReceiptCategory][numb
   category: LiteraryReceiptCategory;
 };
 
-export type LiteraryEventSource = Pick<PersistentWorldEvent, "id" | "week" | "title" | "detail" | "locationId" | "actorIds" | "factionIds" | "causeIds" | "visibility" | "witnessRefs" | "sourceProposalIds">;
+export type LiteraryEventSource = AudienceWorldEvent;
 
 export type ParagraphCausalSource = {
   receiptIds: string[];
@@ -28,35 +28,14 @@ function uniqueStrings(values: unknown[], limit = 24) {
   return [...new Set(values.filter((value): value is string => typeof value === "string" && value.trim().length > 0).map((value) => value.trim()))].slice(0, limit);
 }
 
-function playerCanSeeEvent(event: PersistentWorldEvent, observations: WorldObservation[]) {
-  if (event.visibility === "public" || event.visibility === "player") return true;
-  if (event.witnessRefs?.some((ref) => ["player", "organization", "actor:player"].includes(ref))) return true;
-  return observations.some((observation) => observation.eventId === event.id
-    && (observation.visibility === "public" || observation.visibility === "player")
-    && observation.holderRefs?.some((ref) => ["player", "organization", "actor:player"].includes(ref)));
-}
-
-function refLabel(game: GameState, ref: string) {
-  if (ref === "player") return "你";
-  if (ref === "organization") return "组织";
-  if (ref.startsWith("actor:")) {
-    const id = ref.slice("actor:".length);
-    return game.members.find((member) => member.id === id)?.name
-      ?? game.worldKernel.actors.find((actor) => actor.id === id)?.name
-      ?? "相关人物";
-  }
-  if (ref.startsWith("faction:")) return game.factions.find((faction) => faction.id === ref.slice("faction:".length))?.name ?? "相关势力";
-  if (ref.startsWith("location:")) return game.worldKernel.locations.find((location) => location.id === ref.slice("location:".length))?.name ?? "相关地点";
-  return ref;
-}
-
 function compactSummary(values: string[], fallback: string, limit = 3) {
   const compact = uniqueStrings(values, limit).map((value) => value.slice(0, 150));
   return compact.length ? compact.join("；") : fallback;
 }
 
 export function buildLiteraryCausalPack(game: GameState, chapter: ChronicleChapter): LiteraryCausalPack {
-  const kernelEvents = game.worldKernel.events.filter((event) => event.week === chapter.week && playerCanSeeEvent(event, game.worldKernel.observations));
+  const playerView = projectWorldForAudience(game.worldKernel, { kind: "player", holderId: "player" });
+  const kernelEvents = playerView.events.filter((event) => event.week === chapter.week);
   const visibleEventIds = new Set(kernelEvents.map((event) => event.id));
   const receipts = chapter.results.flatMap((result) => RECEIPT_CATEGORIES.flatMap((category) => (result.causalReceipts?.[category] ?? []).flatMap((receipt) => {
     const sourceEventIds = receipt.sourceEventIds.filter((id) => visibleEventIds.has(id));
@@ -64,10 +43,9 @@ export function buildLiteraryCausalPack(game: GameState, chapter: ChronicleChapt
     return [{ ...receipt, category, sourceEventIds }];
   }))).filter((receipt) => receipt.summary.trim().length > 0);
   const receiptEventIds = new Set(receipts.flatMap((receipt) => receipt.sourceEventIds));
-  const relatedEvents = kernelEvents.filter((event) => receiptEventIds.has(event.id) || event.visibility === "public" || event.visibility === "player").slice(0, 18);
-  const eventSources = relatedEvents.map(({ id, week, title, detail, locationId, actorIds, factionIds, causeIds, visibility, witnessRefs, sourceProposalIds }) => ({ id, week, title, detail, locationId, actorIds, factionIds, causeIds, visibility, witnessRefs, sourceProposalIds }));
+  const eventSources = kernelEvents.filter((event) => receiptEventIds.has(event.id) || event.visibility === "public" || event.visibility === "player").slice(0, 18);
   const changes = receipts.filter((receipt) => ["people", "resources", "locations", "knowledge"].includes(receipt.category)).map((receipt) => receipt.summary);
-  const knowers = [...new Set(eventSources.flatMap((event) => [...(event.witnessRefs ?? []), ...game.worldKernel.observations.filter((observation) => observation.eventId === event.id).flatMap((observation) => observation.holderRefs ?? [])]).map((ref) => refLabel(game, ref)))];
+  const knowers = eventSources.length || receipts.length ? ["你"] : [];
   const relationships = receipts.filter((receipt) => receipt.category === "relationships").map((receipt) => receipt.summary);
   const futureCauses = receipts.filter((receipt) => receipt.category === "futureCauses").map((receipt) => receipt.summary);
   const summary = [

@@ -12,6 +12,9 @@ const { createRagIpc } = require("./rag-ipc.cjs");
 const { deploySeed } = require("./knowledge-seed.cjs");
 const { registerPersistenceIpc } = require("./persistence-ipc.cjs");
 const { resolveServerPort } = require("./server-port.cjs");
+const { ACTIVE_SAVE_KEY, deriveRagWorkerRequest } = require("./runtime-authority.cjs");
+const { requestInference } = require("./inference-gateway.cjs");
+const { requestWorldInference } = require("./world-inference.cjs");
 
 const isWindows = process.platform === "win32";
 const appRoot = path.join(__dirname, "..");
@@ -48,6 +51,7 @@ let persistenceStore = null;
 let persistenceStatus = { available: false, error: "persistence-unavailable", fatal: false };
 let serverPort = 0;
 let stopping = false;
+let sessionCredential = "";
 const ragIpc = createRagIpc({
   timeoutMs: Number(process.env.RAG_IPC_TIMEOUT_MS ?? 15000),
 });
@@ -136,14 +140,145 @@ async function loadCredential() {
 }
 
 function clearCredential() {
+  sessionCredential = "";
   fs.rmSync(credentialFile(), { force: true });
   return { available: true, cleared: true };
 }
 
 function registerCredentialIpc() {
-  ipcMain.handle("credentials:load", () => loadCredential());
-  ipcMain.handle("credentials:save", (_event, apiKey) => saveCredential(apiKey));
-  ipcMain.handle("credentials:clear", () => clearCredential());
+  const guard = (event) => {
+    if (!isTrustedPersistenceSender(event)) throw new Error("untrusted-renderer");
+  };
+  ipcMain.handle("credentials:status", async (event) => {
+    try {
+      guard(event);
+      const loaded = await loadCredential();
+      return {
+        available: loaded.available,
+        configured: Boolean(sessionCredential || loaded.apiKey),
+        persistent: fs.existsSync(credentialFile()),
+        ...(loaded.error ? { error: loaded.error } : {}),
+      };
+    } catch (error) {
+      return { available: false, configured: false, persistent: false, error: String(error?.message ?? error) };
+    }
+  });
+  ipcMain.handle("credentials:set", async (event, apiKey, persist = false) => {
+    try {
+      guard(event);
+      if (typeof apiKey !== "string" || !apiKey.trim() || apiKey.length > 32768) throw new Error("invalid-api-key");
+      sessionCredential = apiKey.trim();
+      if (persist) {
+        try {
+          await saveCredential(sessionCredential);
+          return { available: true, configured: true, persistent: true };
+        } catch (error) {
+          return { available: false, configured: true, persistent: false, error: String(error?.message ?? error) };
+        }
+      }
+      fs.rmSync(credentialFile(), { force: true });
+      return { available: await credentialEncryptionAvailable(), configured: true, persistent: false };
+    } catch (error) {
+      return { available: false, configured: false, persistent: false, error: String(error?.message ?? error) };
+    }
+  });
+  ipcMain.handle("credentials:clear", (event) => {
+    try { guard(event); return { ...clearCredential(), configured: false, persistent: false }; }
+    catch (error) { return { available: false, configured: false, persistent: false, error: String(error?.message ?? error) }; }
+  });
+}
+
+async function inferenceCredential() {
+  if (sessionCredential) return sessionCredential;
+  const loaded = await loadCredential();
+  return loaded.apiKey ?? "";
+}
+
+function registerInferenceIpc() {
+  ipcMain.handle("inference:request", async (event, task) => {
+    if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
+    try {
+      if (task?.task === "world-adjudication" || task?.worldRequest !== undefined || task?.worldRag !== undefined) throw new Error("world-inference-dedicated-channel-required");
+      const result = await requestInference(task, { getCredential: inferenceCredential });
+      return { ok: true, ...result };
+    } catch (error) {
+      return { ok: false, error: String(error?.message ?? error) };
+    }
+  });
+  ipcMain.handle("inference:prepare-world", async (event, request) => {
+    if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
+    try {
+      if (!request || typeof request !== "object" || !request.payload || typeof request.payload !== "object" || Array.isArray(request.payload)) throw new Error("world-inference-prepare-invalid");
+      const prepared = persistenceStore.prepareWorldInference(
+        ACTIVE_SAVE_KEY,
+        JSON.stringify({ payload: request.payload, maxChars: request.maxChars }),
+        request.turnId,
+        request.baseRevision,
+      );
+      return { ok: true, ...prepared };
+    } catch (error) {
+      return { ok: false, error: String(error?.message ?? error) };
+    }
+  });
+  ipcMain.handle("inference:world-status", async (event, request) => {
+    if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
+    try {
+      if (!request || typeof request !== "object" || typeof request.ticket !== "string") throw new Error("world-inference-status-invalid");
+      const status = persistenceStore.worldInferenceStatus(ACTIVE_SAVE_KEY, request.ticket);
+      return { ok: true, ...status };
+    } catch (error) {
+      return { ok: false, error: String(error?.message ?? error) };
+    }
+  });
+  ipcMain.handle("inference:lock-world", async (event, request) => {
+    if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
+    try {
+      if (!request || typeof request !== "object") throw new Error("world-inference-lock-invalid");
+      const locked = persistenceStore.lockWorldInference(ACTIVE_SAVE_KEY, request.turnId, request.baseRevision);
+      return { ok: true, ...locked };
+    } catch (error) {
+      return { ok: false, error: String(error?.message ?? error) };
+    }
+  });
+  ipcMain.handle("inference:finalize-world", async (event, request) => {
+    if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
+    try {
+      if (!request || typeof request !== "object" || !request.manifest || typeof request.manifest !== "object" || Array.isArray(request.manifest)) throw new Error("world-inference-manifest-invalid");
+      const finalized = persistenceStore.finalizeWorldInference(ACTIVE_SAVE_KEY, request.turnId, request.baseRevision, request.manifest);
+      return { ok: true, ...finalized };
+    } catch (error) {
+      return { ok: false, error: String(error?.message ?? error) };
+    }
+  });
+  ipcMain.handle("inference:stage-world", async (event, request) => {
+    if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
+    try {
+      if (!request || typeof request !== "object" || !request.resolution || typeof request.resolution !== "object" || Array.isArray(request.resolution)) throw new Error("world-inference-resolution-invalid");
+      const staged = persistenceStore.stageWorldInference(ACTIVE_SAVE_KEY, request.turnId, request.baseRevision, request.resolution);
+      return { ok: true, ...staged };
+    } catch (error) {
+      return { ok: false, error: String(error?.message ?? error) };
+    }
+  });
+  ipcMain.handle("inference:world", async (event, task) => {
+    if (!isTrustedPersistenceSender(event)) return { ok: false, error: "untrusted-renderer" };
+    try {
+      const result = await requestWorldInference(task, {
+        store: persistenceStore,
+        consumeWorldRequest: (ticket, attempt) => persistenceStore.consumeWorldInference(ACTIVE_SAVE_KEY, ticket, attempt),
+        beginWorldAttempt: (ticket, attempt) => persistenceStore.beginWorldInferenceAttempt(ticket, attempt),
+        callRag,
+        infer: (boundTask) => requestInference(boundTask, { getCredential: inferenceCredential, allowWorldAdjudication: true }),
+      });
+      return { ok: true, ...result };
+    } catch (error) {
+      return {
+        ok: false,
+        error: String(error?.message ?? error),
+        attemptStarted: error?.worldAttemptStarted === true,
+      };
+    }
+  });
 }
 
 function httpReady(url, timeoutMs) {
@@ -255,43 +390,25 @@ function callRag(type, payload) {
 }
 
 function registerRagIpc() {
-  const allowedKinds = new Set([
-    "world",
-    "player",
-    "actor",
-    "world-simulation-internal",
-    "player-facing-narrator",
-    "player-known",
-    "actor-private",
-    "faction-private",
-    "faction",
-  ]);
-  ipcMain.handle("rag:search", (_event, payload) => {
-    if (
-      !payload ||
-      typeof payload !== "object" ||
-      typeof payload.query !== "string" ||
-      !payload.audience ||
-      typeof payload.audience !== "object" ||
-      !allowedKinds.has(payload.audience.kind) ||
-      !Array.isArray(payload.audience.knownLoreIds) ||
-      !Array.isArray(payload.audience.topicGrants)
-    ) {
-      return { available: false, records: [], context: "", error: "invalid-request" };
+  ipcMain.handle("rag:search", async (event, payload) => {
+    if (!isTrustedPersistenceSender(event)) return { available: false, records: [], context: "", error: "untrusted-renderer" };
+    try {
+      const derived = deriveRagWorkerRequest(payload, persistenceStore);
+      const { authority, ...workerRequest } = derived;
+      const response = await callRag("search", workerRequest);
+      return { ...response, authority };
+    } catch (error) {
+      return {
+        available: false,
+        records: [],
+        context: "",
+        error: String(error?.message ?? error),
+      };
     }
-    return callRag("search", payload).catch((error) => ({
-      available: false,
-      records: [],
-      context: "",
-      error: String(error?.message ?? error),
-    }));
   });
-  ipcMain.handle("rag:listChunkIds", () =>
-    callRag("listChunkIds", null).catch(() => [])
-  );
-  ipcMain.handle("rag:status", () =>
-    callRag("status", null).catch(() => ({ available: false, chunks: 0 }))
-  );
+  ipcMain.handle("rag:status", (event) => isTrustedPersistenceSender(event)
+    ? callRag("status", null).catch(() => ({ available: false, chunks: 0 }))
+    : { available: false, chunks: 0, error: "untrusted-renderer" });
 }
 
 function openLogStream() {
@@ -390,6 +507,25 @@ function createWindow(url) {
     }
   );
 
+  mainWindow.webContents.on("will-navigate", (event, targetUrl) => {
+    if (targetUrl !== `${url}/` && targetUrl !== url && !targetUrl.startsWith(`${url}/`)) event.preventDefault();
+  });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  mainWindow.webContents.session.webRequest.onHeadersReceived(
+    { urls: [`${url}/*`] },
+    (details, callback) => callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        ],
+        "X-Content-Type-Options": ["nosniff"],
+        "Referrer-Policy": ["no-referrer"],
+      },
+    }),
+  );
+
   mainWindow.loadURL(url);
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -442,6 +578,7 @@ if (!gotLock) {
     startRagWorker();
     registerRagIpc();
     registerCredentialIpc();
+    registerInferenceIpc();
     const url = await startServer();
     if (!url) return;
 

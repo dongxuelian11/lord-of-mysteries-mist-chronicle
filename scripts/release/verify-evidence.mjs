@@ -101,6 +101,51 @@ function validateEvidenceItem(item, location, root, errors) {
   if (typeof item.value !== "string" || !item.value.trim()) {
     error(errors, `${location}.value`, "must be a non-empty string");
   }
+  if (item.type === "provenance") {
+    if (!SHA256_PATTERN.test(String(item.artifactSha256 ?? ""))) error(errors, `${location}.artifactSha256`, "must bind a 64-character artifact SHA-256");
+    if (!/^[0-9a-f]{40,64}$/i.test(String(item.sourceCommit ?? ""))) error(errors, `${location}.sourceCommit`, "must bind a full source commit");
+  }
+}
+
+function validatePassEvidenceLevel(claim, location, source, errors) {
+  if (claim.status !== "PASS") return;
+  const items = Array.isArray(claim.evidence) ? claim.evidence.filter(isRecord) : [];
+  const types = new Set(items.map((item) => item.type));
+  const artifacts = new Set(items.filter((item) => item.type === "artifact").map((item) => String(item.sha256).toLowerCase()));
+  const provenancedArtifacts = new Set(items.filter((item) => item.type === "provenance").map((item) => String(item.artifactSha256).toLowerCase()));
+  if (["packaged", "clean-machine", "production", "human"].includes(claim.evidenceLevel)) {
+    if (!types.has("artifact") || !types.has("provenance")) error(errors, `${location}.evidence`, `${claim.evidenceLevel} PASS requires artifact and provenance evidence`);
+    if (source?.worktreeStatus !== "clean") error(errors, "source.worktreeStatus", `${claim.evidenceLevel} PASS requires a clean source tree`);
+    if (!/^[0-9a-f]{40,64}$/i.test(String(source?.commit ?? ""))) error(errors, "source.commit", `${claim.evidenceLevel} PASS requires a full source commit`);
+    for (const provenance of items.filter((item) => item.type === "provenance")) {
+      if (String(provenance.sourceCommit ?? "").toLowerCase() !== String(source?.commit ?? "").toLowerCase()) error(errors, `${location}.evidence`, "provenance sourceCommit must equal manifest source.commit");
+      if (!artifacts.has(String(provenance.artifactSha256 ?? "").toLowerCase())) error(errors, `${location}.evidence`, "provenance artifactSha256 must match a verified artifact");
+    }
+  }
+  if (["clean-machine", "production", "human"].includes(claim.evidenceLevel)) {
+    const environment = claim.environment;
+    if (!isRecord(environment)) error(errors, `${location}.environment`, `${claim.evidenceLevel} PASS requires an environment record`);
+    else {
+      if (typeof source?.machineId !== "string" || !source.machineId.trim()) error(errors, "source.machineId", `${claim.evidenceLevel} PASS requires the source machine identity`);
+      if (typeof environment.machineId !== "string" || !environment.machineId.trim() || environment.machineId === source?.machineId) error(errors, `${location}.environment.machineId`, "must identify a distinct execution machine");
+      if (environment.sourceCheckout !== "ABSENT") error(errors, `${location}.environment.sourceCheckout`, "must be ABSENT");
+      if (environment.dependencyInstall !== "NOT_RUN") error(errors, `${location}.environment.dependencyInstall`, "must be NOT_RUN");
+      if (environment.artifactTransferVerified !== true) error(errors, `${location}.environment.artifactTransferVerified`, "must be true");
+    }
+  }
+  if (claim.evidenceLevel === "production") {
+    if (!isRecord(claim.deployment) || typeof claim.deployment.url !== "string" || !claim.deployment.url.startsWith("https://") || !SHA256_PATTERN.test(String(claim.deployment.artifactSha256 ?? ""))) {
+      error(errors, `${location}.deployment`, "production PASS requires an HTTPS deployment bound to an artifact SHA-256");
+    } else {
+      const deployedArtifact = String(claim.deployment.artifactSha256).toLowerCase();
+      if (!artifacts.has(deployedArtifact) || !provenancedArtifacts.has(deployedArtifact)) {
+        error(errors, `${location}.deployment`, "deployment artifactSha256 must match a verified artifact and its provenance");
+      }
+    }
+  }
+  if (claim.evidenceLevel === "human") {
+    if (!types.has("observation") || !Number.isFinite(claim.sessionDurationMinutes) || claim.sessionDurationMinutes <= 0) error(errors, location, "human PASS requires an observation and positive sessionDurationMinutes");
+  }
 }
 
 export function validateEvidenceManifest(manifest, options = {}) {
@@ -156,6 +201,7 @@ export function validateEvidenceManifest(manifest, options = {}) {
         if (!Array.isArray(claim.evidence)) error(errors, `${location}.evidence`, "must be an array");
         else claim.evidence.forEach((item, itemIndex) => validateEvidenceItem(item, `${location}.evidence[${itemIndex}]`, root, errors));
       }
+      validatePassEvidenceLevel(claim, location, source, errors);
     });
   }
 

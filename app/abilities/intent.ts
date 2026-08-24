@@ -1,14 +1,6 @@
 // 自然语言意图解析：确定性匹配，模型仅辅助表达；不直接改变世界状态。
 import type { AbilityDefinition, AbilityIntent } from "./types.ts";
-
-function stableHash(text: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
+import { stableEntityId } from "../stable-id.ts";
 
 export function parseAbilityIntent(
   text: string,
@@ -47,7 +39,7 @@ export function parseAbilityIntent(
   if (/真名/.test(normalized)) preparationRefs.push("knowledge:true-name");
   if (/准备|预设/.test(normalized)) preparationRefs.push("prep:declared");
   return {
-    actionId: actionId ?? `ability-action-${stableHash(normalized).toString(16)}`,
+    actionId: actionId ?? stableEntityId("ability-action", actorId, normalized),
     actorId,
     objective: normalized.slice(0, 200),
     requestedAbilityIds,

@@ -2,7 +2,7 @@
 // 无桥时回退到旧版同步检索。返回结果在渲染端再次应用可见性边界。
 import { retrieveLoreContext as legacyRetrieve } from "../lore-knowledge";
 import { filterChunk } from "./permissions";
-import { buildEvidenceContext } from "./context-builder";
+import { buildExactPromptEvidence, type ExactPromptEvidence } from "./context-builder";
 import type {
   CanonKnowledgeHorizon,
   CanonLayer,
@@ -15,6 +15,9 @@ import { tryRecordRuntimeTrace, type RuntimeTraceContext } from "../runtime-trac
 
 export type RagBridgeAudience = {
   kind: "world-simulation-internal" | "player-facing-narrator" | "player-known" | "actor-private" | "faction-private" | "world" | "player" | "actor" | "faction";
+  /** Concrete rule-owned principal; required for actor/faction private retrieval. */
+  principalRef?: "world" | "player" | `actor:${string}` | `faction:${string}`;
+  purpose?: "world-simulation" | "player-narrator" | "player-ability" | "actor-council" | "actor-dialogue" | "autonomous-actor" | "autonomous-faction";
   knownLoreIds: string[];
   topicGrants: string[];
 };
@@ -64,11 +67,30 @@ export type RagBridgeResponse = {
   context: string;
   indexVersion?: string;
   error?: string;
+  authority?: {
+    kind: RagBridgeAudience["kind"];
+    principalRef: RagBridgeAudience["principalRef"];
+    knownLoreIds: string[];
+    topicGrants: string[];
+    horizon?: CanonKnowledgeHorizon;
+    week?: number;
+    gameDate?: string;
+    maxSpoilerScope?: RagBridgeSearchRequest["maxSpoilerScope"];
+    limit: number;
+    maxChars: number;
+  };
+};
+
+export type RagGatewaySearchRequest = {
+  query: string;
+  purpose: NonNullable<RagBridgeAudience["purpose"]>;
+  principalRef: NonNullable<RagBridgeAudience["principalRef"]>;
+  limit?: number;
+  maxChars?: number;
 };
 
 export type RagBridge = {
-  search(request: RagBridgeSearchRequest): Promise<RagBridgeResponse>;
-  listChunkIds(): Promise<string[]>;
+  search(request: RagGatewaySearchRequest): Promise<RagBridgeResponse>;
   status(): Promise<{ available: boolean; chunks: number; indexVersion?: string }>;
 };
 
@@ -167,6 +189,15 @@ export function reFilter(
   );
 }
 
+function gatewayPurpose(audience: RagBridgeAudience): NonNullable<RagBridgeAudience["purpose"]> {
+  if (audience.purpose) return audience.purpose;
+  if (audience.kind === "world-simulation-internal" || audience.kind === "world") return "world-simulation";
+  if (audience.kind === "player-facing-narrator") return "player-narrator";
+  if (audience.kind === "player-known" || audience.kind === "player") return "player-ability";
+  if (audience.kind === "faction-private" || audience.kind === "faction") return "autonomous-faction";
+  return "actor-council";
+}
+
 function stableSerialize(value: unknown): string {
   if (value === null) return "null";
   if (typeof value === "string") return JSON.stringify(value);
@@ -180,16 +211,25 @@ function stableSerialize(value: unknown): string {
   return JSON.stringify(String(value));
 }
 
-function hashText(value: string): string {
-  let output = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    output ^= value.charCodeAt(index);
-    output = Math.imul(output, 16777619);
-  }
-  return (output >>> 0).toString(16).padStart(8, "0");
+async function hashText(value: string): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error("SHA256_UNAVAILABLE");
+  const digest = await subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function retrievalReceipt(
+function exactAudienceRef(audience: RagBridgeAudience): string {
+  const kind = normalizeRagAudienceKind(audience.kind);
+  if (kind === "world") return "world";
+  if (kind === "player") return "player";
+  const expectedPrefix = `${kind}:`;
+  if (!audience.principalRef?.startsWith(expectedPrefix) || audience.principalRef.length <= expectedPrefix.length) {
+    throw new Error(`RAG_PRINCIPAL_REQUIRED:${kind}`);
+  }
+  return audience.principalRef;
+}
+
+async function retrievalReceipt(
   request: {
     query: string;
     audience: RagBridgeAudience;
@@ -204,13 +244,14 @@ function retrievalReceipt(
   records: LegacyLoreRecord[],
   context: string,
   indexVersion: string,
-): RetrievalReceipt {
-  const queryHash = hashText(request.query.trim());
+): Promise<RetrievalReceipt> {
+  const queryHash = await hashText(request.query.trim());
   const effectiveSpoilerScope = request.maxSpoilerScope
     ?? (request.audience.kind === "player-facing-narrator" ? "volume1" : undefined);
-  const filterHash = hashText(stableSerialize({
+  const filterHash = await hashText(stableSerialize({
     audience: {
       kind: normalizeRagAudienceKind(request.audience.kind),
+      principalRef: exactAudienceRef(request.audience),
       knownLoreIds: [...request.audience.knownLoreIds].sort(),
       topicGrants: [...request.audience.topicGrants].sort(),
     },
@@ -222,12 +263,12 @@ function retrievalReceipt(
     limit: request.limit,
     maxChars: request.maxChars,
   }));
-  const contextHash = hashText(context);
+  const contextHash = await hashText(context);
   const chunkIds = [...new Set(records.map((record) => record.id).filter(Boolean))];
   return {
-    requestId: `rag:${queryHash}:${filterHash}:${contextHash}`,
+    requestId: `rag:${queryHash.slice(0, 16)}:${filterHash.slice(0, 16)}:${contextHash.slice(0, 16)}`,
     indexVersion: indexVersion.trim() || "legacy-v1",
-    audienceRef: normalizeRagAudienceKind(request.audience.kind),
+    audienceRef: exactAudienceRef(request.audience),
     queryHash,
     filterHash,
     chunkIds,
@@ -277,45 +318,45 @@ export async function retrieveLoreContextAsync(
     maxChars?: number;
     trace?: Pick<RuntimeTraceContext, "traceId" | "requestId" | "turnId" | "modelTraceId">;
   }
-): Promise<{ records: LegacyLoreRecord[]; context: string; receipt: RetrievalReceipt }> {
+): Promise<{ records: LegacyLoreRecord[]; context: string; receipt: RetrievalReceipt; promptEvidence: ExactPromptEvidence<RagBridgeChunk> }> {
   const startedAt = Date.now();
   const rag = bridge();
   if (rag) {
     try {
       const response = await rag.search({
         query: request.query,
-        audience: request.audience,
-        week: request.week,
-        gameDate: request.gameDate,
-        maxSpoilerScope:
-          request.maxSpoilerScope ??
-          (request.audience.kind === "player-facing-narrator"
-            ? "volume1"
-            : undefined),
-        allowedVolumes: request.allowedVolumes,
-        horizon: request.horizon,
+        purpose: gatewayPurpose(request.audience),
+        principalRef: exactAudienceRef(request.audience) as NonNullable<RagBridgeAudience["principalRef"]>,
         limit: request.limit,
         maxChars: request.maxChars,
       });
-      if (response.available && !response.error) {
+      if (response.available && !response.error && response.authority) {
+        const effectiveAudience: RagBridgeAudience = {
+          kind: response.authority.kind,
+          principalRef: response.authority.principalRef,
+          knownLoreIds: response.authority.knownLoreIds,
+          topicGrants: response.authority.topicGrants,
+          purpose: gatewayPurpose(request.audience),
+        };
+        const effectiveHorizon = response.authority.horizon;
+        const effectiveRequest = {
+          ...request,
+          audience: effectiveAudience,
+          week: response.authority.week,
+          gameDate: response.authority.gameDate,
+          maxSpoilerScope: response.authority.maxSpoilerScope,
+          allowedVolumes: undefined,
+          horizon: effectiveHorizon,
+          limit: response.authority.limit,
+          maxChars: response.authority.maxChars,
+        };
         const filtered = reFilter(response.records, {
-          query: request.query,
-          audience: request.audience,
-          week: request.week,
-          gameDate: request.gameDate,
-          maxSpoilerScope:
-            request.maxSpoilerScope ??
-            (request.audience.kind === "player-facing-narrator"
-              ? "volume1"
-              : undefined),
-          allowedVolumes: request.allowedVolumes,
-          horizon: request.horizon,
-          limit: request.limit,
-          maxChars: request.maxChars,
+          ...effectiveRequest,
         });
         // records 与 context 一致性：始终基于最终授权记录重建上下文，
         // 绝不沿用 Worker 生成的旧 context（其中可能含二次过滤剔除的切片）。
-        const context = buildEvidenceContext(filtered, request.maxChars ?? 12_000);
+        const promptEvidence = buildExactPromptEvidence(filtered, effectiveRequest.maxChars);
+        const context = promptEvidence.context;
         let indexVersion = response.indexVersion;
         if (!indexVersion) {
           try {
@@ -324,16 +365,19 @@ export async function retrieveLoreContextAsync(
             indexVersion = undefined;
           }
         }
-        const receipt = retrievalReceipt(request, toLegacy(filtered), context, indexVersion ?? "bridge-unknown");
+        const receipt = await retrievalReceipt(effectiveRequest, toLegacy(promptEvidence.includedRecords), context, indexVersion ?? "bridge-unknown");
         recordRetrievalRuntimeTrace(receipt, request, startedAt, "bridge", Math.max(0, response.records.length - filtered.length));
         return {
-          records: toLegacy(filtered),
+          records: toLegacy(promptEvidence.includedRecords),
           context,
           receipt,
+          promptEvidence,
         };
       }
-    } catch {
-      // 桥失败回退旧版
+      throw new Error("RAG_GATEWAY_AUTHORITY_UNAVAILABLE");
+    } catch (error) {
+      if (error instanceof Error && error.message === "RAG_GATEWAY_AUTHORITY_UNAVAILABLE") throw error;
+      throw new Error("RAG_GATEWAY_UNAVAILABLE");
     }
   }
   const safeRecords = request.horizon
@@ -354,22 +398,26 @@ export async function retrieveLoreContextAsync(
       maxChars: request.maxChars,
     }
   );
-  const receipt = retrievalReceipt(request, legacyResult.records, legacyResult.context, "legacy-v1");
+  const legacyBridgeRecords: RagBridgeChunk[] = legacyResult.records.map((record) => ({
+    id: record.id,
+    title: record.title,
+    content: record.content,
+    visibility: record.visibility,
+    topics: record.topics,
+    sourceId: record.sourceIds?.[0] ?? "资料库",
+    sourceGrade: record.sourceGrade ?? "D",
+    canonLayer: record.canon === "derived" ? "community-reference" : record.canon ?? "canon",
+  }));
+  const promptEvidence = buildExactPromptEvidence(legacyBridgeRecords, request.maxChars ?? 12_000);
+  const exactLegacyRecords = toLegacy(promptEvidence.includedRecords);
+  const receipt = await retrievalReceipt(request, exactLegacyRecords, promptEvidence.context, "legacy-v1");
   recordRetrievalRuntimeTrace(receipt, request, startedAt, "legacy", 0);
   return {
-    ...legacyResult,
+    records: exactLegacyRecords,
+    context: promptEvidence.context,
     receipt,
+    promptEvidence,
   };
-}
-
-export async function listRuntimeChunkIds(): Promise<string[]> {
-  const rag = bridge();
-  if (!rag) return [];
-  try {
-    return await rag.listChunkIds();
-  } catch {
-    return [];
-  }
 }
 
 export function ragBridgeAvailable(): boolean {

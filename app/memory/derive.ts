@@ -492,7 +492,8 @@ export function deriveMemoryFromWorldState(
     events: { id: string; week: number; title: string; detail: string; locationId?: string; actorIds: string[]; factionIds: string[]; visibility: string }[];
     knowledge: { id: string; subject: string; statement: string; truth: string; visibility: string; holderIds: string[]; holderRefs?: string[]; sourceEventId?: string; acquiredWeek: number }[];
     projects: { id: string; ownerId: string; title: string; stage: string; progress: number; secrecy: number; nextMilestone: string; blockers: string[]; status: string; updatedWeek: number }[];
-    observations: { eventId: string; holderIds: string[]; holderRefs?: string[]; visibility: string }[];
+    observations: { id: string; week: number; eventId: string; channel: string; text: string; holderIds: string[]; holderRefs?: string[]; visibility: string; perceivedRefs?: string[]; acquisitionKind?: "witness" | "communication" | "investigation" | "propagation" }[];
+    knowledgeGrants?: { knowledgeId: string; holderRef: string; kind: "witness" | "communication" | "investigation" | "propagation"; sourceObservationId: string }[];
     factions?: { id: string }[];
   },
   week: number
@@ -500,37 +501,61 @@ export function deriveMemoryFromWorldState(
   const seeds: MemorySeed[] = [];
   for (const event of worldKernel.events) {
     if (event.week !== week) continue;
-    const observers = worldKernel.observations
-      .filter((observation) => observation.eventId === event.id)
-      .flatMap((observation) => [
-        ...observation.holderIds,
-        ...(observation.holderRefs ?? []).flatMap((reference) => reference === "player"
-          ? ["player"]
-          : reference.startsWith("actor:")
-            ? [reference.slice("actor:".length)]
-            : reference.startsWith("faction:")
-              ? [reference]
-              : []),
-      ]);
     seeds.push({
       kind: "event",
       sourceEventId: event.id,
       week,
       type: "world-event",
       summary: `${event.title}：${event.detail}`.slice(0, 240),
-      participantIds: event.actorIds,
-      observerIds: [...new Set(observers)],
+      // The full event is a world-system memory only. Actor/player memories are
+      // derived from their concrete observations below, never from authority
+      // participant lists or the omniscient event detail.
+      participantIds: [],
+      observerIds: [],
       locationId: event.locationId,
-      organizationIds: event.factionIds,
+      organizationIds: [],
       importance: event.visibility === "world" ? 0.65 : 0.5,
       emotionalWeight: 0.4,
       tags: [event.visibility, "world-event"],
     });
   }
+  for (const observation of worldKernel.observations) {
+    if (observation.week !== week) continue;
+    const holders = [...new Set([
+      ...observation.holderIds,
+      ...(observation.holderRefs ?? []).flatMap((reference) => reference === "player"
+        ? ["player"]
+        : reference.startsWith("actor:")
+          ? [reference.slice("actor:".length)]
+          : reference.startsWith("faction:")
+            ? [reference]
+            : []),
+    ])];
+    const sourceType = observation.acquisitionKind === "witness" ? "observed"
+      : observation.acquisitionKind === "communication" ? "told"
+        : observation.acquisitionKind === "investigation" ? "deduced"
+          : "report";
+    const confidence = observation.acquisitionKind === "witness" ? 0.78
+      : observation.acquisitionKind === "investigation" ? 0.7
+        : observation.acquisitionKind === "communication" ? 0.6 : 0.45;
+    for (const holder of holders) seeds.push({
+      kind: "belief",
+      characterId: holder,
+      propositionKey: `observation:${observation.id}`,
+      subjectId: observation.eventId,
+      claimType: "world-observation",
+      claim: observation.text,
+      confidence,
+      truthStatus: "uncertain",
+      learnedFrom: { type: sourceType, sourceId: observation.id },
+      validFromWeek: observation.week,
+      secrecy: observation.visibility === "public" ? "public" : "restricted",
+      importance: 0.55,
+      emotionalWeight: observation.acquisitionKind === "witness" ? 0.5 : 0.3,
+    } as MemorySeed);
+  }
   for (const node of worldKernel.knowledge) {
     if (node.acquiredWeek !== week) continue;
-    const truthStatus =
-      node.truth === "confirmed" ? "true" : node.truth === "false" ? "false" : node.truth === "unknown" ? "unknown" : "uncertain";
     const secrecy = node.visibility === "public" ? "public" : node.visibility === "world" ? "secret" : "restricted";
     const beliefHolders = [...new Set([
       ...node.holderIds,
@@ -543,15 +568,24 @@ export function deriveMemoryFromWorldState(
             : []),
     ])];
     for (const holder of beliefHolders) {
+      const holderRef = holder === "player" || holder.startsWith("faction:") ? holder : `actor:${holder}`;
+      const grant = (worldKernel.knowledgeGrants ?? []).find((item) => item.knowledgeId === node.id && item.holderRef === holderRef);
+      const confidence = grant?.kind === "witness" ? 0.78
+        : grant?.kind === "investigation" ? 0.7
+          : grant?.kind === "communication" ? 0.6
+            : grant?.kind === "propagation" ? 0.45 : 0.4;
+      const learnedFrom = grant?.kind === "witness" ? "observed"
+        : grant?.kind === "communication" ? "told"
+          : grant?.kind === "investigation" ? "deduced" : "report";
       seeds.push({
         kind: "belief",
         characterId: holder,
         subjectId: node.subject,
         claimType: "world-knowledge",
         claim: node.statement,
-        confidence: node.truth === "confirmed" ? 0.95 : node.truth === "likely" ? 0.65 : 0.35,
-        truthStatus,
-        learnedFrom: { type: node.visibility === "public" ? "observed" : "report", sourceId: node.sourceEventId ?? node.id },
+        confidence,
+        truthStatus: "uncertain",
+        learnedFrom: { type: learnedFrom, sourceId: grant?.sourceObservationId ?? node.sourceEventId ?? node.id },
         validFromWeek: node.acquiredWeek,
         secrecy,
         importance: 0.55,

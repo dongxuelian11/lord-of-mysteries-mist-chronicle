@@ -83,7 +83,7 @@ test("a world turn updates private memory, reflection, plans, and social ties wi
     projectUpdates: [],
     locationUpdates: [],
     events: [{ id: "shared-event", title: "交换名单", detail: "记者与消息网交换了两份名单。", locationId: "east", actorIds: ["reporter"], factionIds: ["press"], causeIds: [], visibility: "actors", witnessRefs: ["actor:reporter", "faction:press"] }],
-    observations: [{ id: "shared-observation", eventId: "shared-event", channel: "exchange", text: "记者与消息网交换并核对名单。", visibility: "actors", holderIds: ["reporter"], holderRefs: ["actor:reporter", "faction:press"] }],
+    observations: [{ id: "shared-observation", eventId: "shared-event", channel: "exchange", text: "记者与消息网交换并核对名单。", visibility: "actors", holderIds: ["reporter"], holderRefs: ["actor:reporter", "faction:press"], perceivedRefs: ["actor:reporter", "faction:press"] }],
     knowledge: [{ id: "shared-knowledge", subject: "名单", statement: "两份名单印章不同", truth: "confirmed", visibility: "actors", holderIds: [], holderRefs: ["actor:reporter", "faction:press"], sourceEventId: "shared-event" }],
     knowledgeGrants: [
       { id: "grant-shared-reporter", knowledgeId: "shared-knowledge", holderRef: "actor:reporter", kind: "communication", sourceEventId: "shared-event", sourceObservationId: "shared-observation" },
@@ -101,6 +101,46 @@ test("a world turn updates private memory, reflection, plans, and social ties wi
   const nextFrame = buildAutonomousDecisionFrames(advanced, after, 4).find((frame) => frame.ref === "actor:reporter");
   assert.ok(nextFrame.candidateActions.some((candidate) => candidate.id.includes(":relationship:")));
   assert.equal(advanced.lastPlannedWeek, 3);
+});
+
+test("social ties and allowed targets require an observation that actually identifies the other party", () => {
+  const before = baseKernel();
+  const state = createAutonomousWorldState(before);
+  const after = applyWorldTurn(before, {
+    week: 3,
+    playerIssuedNoOrders: true,
+    actorUpdates: [], factionUpdates: [], projectUpdates: [], locationUpdates: [],
+    events: [{
+      id: "unidentified-meeting",
+      title: "暗处会面",
+      detail: "记者、书记员与消息网都卷入了会面。",
+      locationId: "east",
+      actorIds: ["reporter", "clerk"],
+      factionIds: ["press"],
+      causeIds: [],
+      visibility: "world",
+      witnessRefs: ["actor:reporter"],
+    }],
+    observations: [{
+      id: "reporter-hears-noise",
+      eventId: "unidentified-meeting",
+      channel: "witness",
+      text: "记者只听见暗处的脚步，没有辨认出其他主体。",
+      visibility: "actors",
+      holderIds: ["reporter"],
+      holderRefs: ["actor:reporter"],
+      perceivedRefs: ["actor:reporter"],
+      acquisitionKind: "witness",
+    }],
+  });
+
+  const advanced = advanceAutonomousWorldState(state, before, after, 3);
+  assert.equal(advanced.socialTies.some((tie) => tie.sourceRef === "actor:reporter" && tie.targetRef === "actor:clerk"), false);
+  assert.equal(advanced.socialTies.some((tie) => tie.sourceRef === "actor:reporter" && tie.targetRef === "faction:press"), false);
+  const reporter = buildAutonomousDecisionFrames(advanced, after, 4).find((frame) => frame.ref === "actor:reporter");
+  assert.ok(reporter);
+  assert.equal(reporter.allowedTargetRefs.includes("actor:clerk"), false);
+  assert.equal(reporter.allowedTargetRefs.includes("faction:press"), false);
 });
 
 test("structured reflection cites only visible experience and changes the next decision frame", () => {

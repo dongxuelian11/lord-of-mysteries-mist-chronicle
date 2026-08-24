@@ -19,7 +19,8 @@ import {
   WorldSnapshot,
 } from "./game-model";
 import { createFinaleCampaign } from "./finale-system";
-import { callModel as invokeModel, type AiConfig } from "./ai-client";
+import { stableEntityId, stableTextHash } from "./stable-id.ts";
+import { callModel as invokeModel, WORLD_LORE_CONTEXT_MARKER, WORLD_LORE_IDS_MARKER, type AiConfig } from "./ai-client";
 import { type LegacyLoreRecord } from "./rag";
 import { retrieveLoreContextAsync } from "./rag/client";
 import {
@@ -36,7 +37,7 @@ import {
   worldSystemAudience,
 } from "./memory/index";
 export type LoreRecord = LegacyLoreRecord;
-import { applyWorldTurn, createWorldTurnTransaction, type WorldTurnDelta } from "./world-kernel";
+import { projectWorldForAudience, type AudienceWorldEvent, type WorldTurnDelta } from "./world-kernel";
 import { abilitiesFor, abilityRuleSummary } from "./pathway-abilities";
 import { advanceAdvancementStage, createAdvancementProcess, evaluateActing } from "./progression-system";
 import { advanceOrganizationCausality } from "./organization-causality";
@@ -62,6 +63,7 @@ import {
   assertWorldAdjudicatorPayloadBudget,
   buildAdjudicatorProjection,
   fitWorldAdjudicatorPayload,
+  type AgentProposal,
 } from "./world-runtime.ts";
 import { buildWorldAdjudicatorPrompt, WORLD_ADJUDICATOR_SYSTEM } from "./world-adjudicator-prompt.ts";
 import { resolveFactionStrategyRound } from "./faction-strategy.ts";
@@ -75,9 +77,11 @@ import { planAutonomousAgentsForWeek, releaseAutonomousPlanningCache } from "./a
 import { buildWorldAdjudicatorInput, projectLegacyWorldCompatibility } from "./world-authority.ts";
 import { advanceAttentionSimulation } from "./attention-simulation.ts";
 import { adaptWorldAdjudication, type ExecutableProposalBoundary } from "./world-output-adapter.ts";
+import { commitWorldTurn } from "./turn-commit.ts";
 import { attachOrganizationAdjudicationProtocol, WORLD_KERNEL_PROTOCOL, WORLD_PROPOSAL_PROVENANCE_PROTOCOL } from "./world-adjudication-protocol.ts";
 import { chronicleSummaryFromCausality, advancementRetrospective } from "./chronicle-causality.ts";
 import type { RuntimeTraceContext } from "./runtime-trace.ts";
+import type { RetrievalReceipt } from "./world-authority-closure.ts";
 export type { AiConfig } from "./ai-client";
 export { actionTextBoundaryIssue } from "./action-boundaries.ts";
 export const callModel = invokeModel;
@@ -88,7 +92,7 @@ export async function generateParticipationSceneBeat(config: AiConfig, game: Gam
   const response = await callModel(config,
     "你是《灰雾纪事》的玩家亲历场景叙事器。规则引擎已经在后台锁定事实，你只能把玩家刚输入的自由行动转成连续、具体、有限视角的小说现场。不得替玩家补充未输入的关键决定，不得提前泄露后台结算；只有收到visibleResolution时才能在当前段落末尾写出行动结果。必须遵守红线与撤退条件。不要输出列表、数值、系统提示或JSON。模型失败必须直接报错，禁止降级文本。",
     `场景：${JSON.stringify(participationSceneModelView(scene))}\n玩家行动：${intent}\n${visibleResolution ? `本段结束时必须忠实呈现已锁定结果：${JSON.stringify(visibleResolution)}` : "本段只推进现场并留下新的可操作局面，不宣布最终成败。"}\n用140至320字写当前一段。`,
-    { maxTokens: 1100, temperature: scene.mode === "combat" ? .82 : .74 },
+    { task: "participation-scene", maxTokens: 1100, temperature: scene.mode === "combat" ? .82 : .74 },
   );
   if (!response.trim()) throw new Error("亲历场景模型没有返回正文");
   return response.trim().slice(0, 1800);
@@ -113,7 +117,7 @@ function actionIdentityHash(contract: Pick<ActionContract,
   "retreat" | "resourceCommitment" | "authorization" | "requiredKnowledgeIds" | "sourceIssueId" |
   "strategyIntentId" | "causeEventIds" | "opportunityId" | "methodTags"
 >) {
-  return hash(JSON.stringify({
+  return stableTextHash(JSON.stringify({
     rawIntent: canonicalIdentityText(contract.rawIntent),
     title: canonicalIdentityText(contract.title),
     kind: contract.kind,
@@ -139,7 +143,7 @@ function actionIdentityHash(contract: Pick<ActionContract,
     retreat: canonicalIdentityText(contract.retreat),
     opportunityId: contract.opportunityId ?? null,
     methodTags: [...new Set(contract.methodTags ?? [])].sort(),
-  })).toString(36);
+  }));
 }
 
 function nextActionOrdinal(game: GameState) {
@@ -178,7 +182,7 @@ function knowledgeHorizon(game: GameState, wider = false) {
 async function loreForPlayer(records: LoreRecord[], game: GameState, query: string, maxChars = 5_000) {
   return retrieveLoreContextAsync(records, {
     query,
-    audience: { kind: "player-facing-narrator", knownLoreIds: knownLoreIds(game, "player"), topicGrants: [] },
+    audience: { kind: "player-facing-narrator", principalRef: "player", purpose: "player-narrator", knownLoreIds: knownLoreIds(game, "player"), topicGrants: [] },
     limit: 12,
     maxChars,
     week: game.week,
@@ -196,7 +200,7 @@ async function loreForActor(records: LoreRecord[], game: GameState, member: Game
   ];
   return retrieveLoreContextAsync(records, {
     query,
-    audience: { kind: "actor-private", knownLoreIds: knownLoreIds(game, member.id), topicGrants },
+    audience: { kind: "actor-private", principalRef: `actor:${member.id}`, purpose: "actor-dialogue", knownLoreIds: knownLoreIds(game, member.id), topicGrants },
     limit: 12,
     maxChars,
     week: game.week,
@@ -208,7 +212,7 @@ async function loreForActor(records: LoreRecord[], game: GameState, member: Game
 async function loreForWorld(records: LoreRecord[], game: GameState, query: string, maxChars = 12_000, trace?: Pick<RuntimeTraceContext, "traceId" | "turnId">) {
   return retrieveLoreContextAsync(records, {
     query,
-    audience: { kind: "world-simulation-internal", knownLoreIds: [], topicGrants: [] },
+    audience: { kind: "world-simulation-internal", principalRef: "world", purpose: "world-simulation", knownLoreIds: [], topicGrants: [] },
     limit: 24,
     maxChars,
     week: game.week,
@@ -383,10 +387,14 @@ function directiveReferences(game: GameState, intent: string) {
     .filter((item) => item.state === "active")
     .map((item) => ({ item, score: intent.includes(item.id) || intent.includes(item.text) ? 1 : textSimilarity(intent, item.text) }))
     .sort((left, right) => right.score - left.score)[0];
-  const visibleKnowledge = (game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.visibility === "player" || node.holderIds.includes("player") || node.holderRefs?.includes("player"));
+  const playerWorldView = projectWorldForAudience(game.worldKernel, { kind: "player", holderId: "player" });
+  const visibleKnowledge = playerWorldView.knowledge;
   const requiredKnowledge = visibleKnowledge.filter((node) => intent.includes(node.id) || intent.includes(node.subject) || textSimilarity(intent, `${node.subject}${node.statement}`) >= .28);
-  const visibleEvents = (game.worldKernel?.events ?? []).filter((event) => event.visibility === "public" || event.visibility === "player" || event.witnessRefs?.includes("player"));
-  const sourceEventIds = new Set(requiredKnowledge.map((node) => node.sourceEventId).filter((id): id is string => Boolean(id)));
+  const visibleEvents = playerWorldView.events;
+  const requiredKnowledgeIds = new Set(requiredKnowledge.map((node) => node.id));
+  const sourceEventIds = new Set(game.worldKernel.knowledge
+    .filter((node) => requiredKnowledgeIds.has(node.id) && node.sourceEventId)
+    .map((node) => node.sourceEventId!));
   const causeEvents = visibleEvents.filter((event) => sourceEventIds.has(event.id) || intent.includes(event.id) || intent.includes(event.title) || textSimilarity(intent, `${event.title}${event.detail}`) >= .28);
   return {
     requiredKnowledgeIds: requiredKnowledge.map((node) => node.id).slice(0, 12),
@@ -462,7 +470,7 @@ export function localContract(args: {
   const authorization = inferAuthorization(args.intent);
   const references = directiveReferences(args.game, args.intent);
   return {
-    id: `action-draft:${args.game.week}:${hash(JSON.stringify({ intent: canonicalIdentityText(args.intent), leaderId: effectiveLeaderId, districtId: district.id, abilityIds: [...new Set(args.abilityIds)].sort() })).toString(36)}`,
+    id: stableEntityId("action-draft", args.game.saveId ?? "legacy-save", args.game.week, { intent: canonicalIdentityText(args.intent), leaderId: effectiveLeaderId, districtId: district.id, abilityIds: [...new Set(args.abilityIds)].sort() }),
     rawIntent: args.intent.trim(),
     title: `${kind} · ${targetFrom(args.intent)}`,
     kind,
@@ -497,6 +505,7 @@ export function localContract(args: {
 
 export async function interpretIntentWithAi(config: AiConfig, args: Parameters<typeof localContract>[0]) {
   const fallback = localContract(args);
+  const playerWorldView = projectWorldForAudience(args.game.worldKernel, { kind: "player", holderId: "player" });
   const safeState = {
     week: args.game.week,
     pathway: PATHWAYS[args.game.pathwayId].name,
@@ -507,14 +516,14 @@ export async function interpretIntentWithAi(config: AiConfig, args: Parameters<t
     availableOpportunities: args.game.opportunities.filter((item) => item.state === "available"),
     organizationIssues: args.game.organizationIssues.filter((item) => item.state === "待裁决" || item.state === "已逾期").map(({ id, title, summary, sourceId }) => ({ id, title, summary, sourceId })),
     strategicIntents: args.game.playerIntents.filter((item) => item.state === "active"),
-    authorizedKnowledge: (args.game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.visibility === "player" || node.holderIds.includes("player") || node.holderRefs?.includes("player")).slice(-16).map(({ id, subject, statement, sourceEventId }) => ({ id, subject, statement, sourceEventId })),
-    visibleCauseEvents: (args.game.worldKernel?.events ?? []).filter((event) => event.visibility === "public" || event.visibility === "player" || event.witnessRefs?.includes("player")).slice(-16).map(({ id, title, detail }) => ({ id, title, detail })),
+    authorizedKnowledge: playerWorldView.knowledge.slice(-16),
+    visibleCauseEvents: playerWorldView.events.slice(-16),
     district: DISTRICTS.find((district) => district.id === args.districtId),
     members: args.game.members.map(({ id, name, role, specialty, loyalty, fatigue }) => ({ id, name, role, specialty, loyalty, fatigue })),
   };
   const raw = await callModel(config,
     "你是《灰雾纪事》的首领指令解析器。只整理玩家意图，不决定成败，不新增幕后真相，不把玩家原著知识视为角色知识。不得删除或放宽本地保守解释中的任何红线、必须请示条件、撤退条件或授权限制。返回严格JSON。",
-    `将自由意图整理为首领指令。缺失信息使用保守推断，只有重大歧义才在unknowns中指出。返回字段：title,kind,target,desiredOutcome,approach,days,risk,knownFacts,hypothesis,unknowns；resourceCommitment:{posture:minimal|balanced|substantial|all-in,money,manpower,extraordinaryMaterials}；authorization:{scope:strict|bounded|broad,redLines:[],mustEscalateWhen:[],retreatCondition}；requiredKnowledgeIds:[]；可选sourceIssueId、strategyIntentId；causeEventIds:[]。兼容字段budget必须等于resourceCommitment.money，redLines必须是authorization.redLines用分号连接，retreat必须等于authorization.retreatCondition。kind只能是调查/交涉/研究/建设/招募/仪式/休整/自由行动，risk只能是低/中/高/致命。所有引用id只能逐字取自本地状态；不得扩大本地授权，不得移除本地红线或请示条件。\n玩家意图：${args.intent}\n本地状态：${JSON.stringify(safeState)}\n本地保守解释：${JSON.stringify(fallback)}`, { json: true, maxTokens: 2300, temperature: .25 });
+    `将自由意图整理为首领指令。缺失信息使用保守推断，只有重大歧义才在unknowns中指出。返回字段：title,kind,target,desiredOutcome,approach,days,risk,knownFacts,hypothesis,unknowns；resourceCommitment:{posture:minimal|balanced|substantial|all-in,money,manpower,extraordinaryMaterials}；authorization:{scope:strict|bounded|broad,redLines:[],mustEscalateWhen:[],retreatCondition}；requiredKnowledgeIds:[]；可选sourceIssueId、strategyIntentId；causeEventIds:[]。兼容字段budget必须等于resourceCommitment.money，redLines必须是authorization.redLines用分号连接，retreat必须等于authorization.retreatCondition。kind只能是调查/交涉/研究/建设/招募/仪式/休整/自由行动，risk只能是低/中/高/致命。所有引用id只能逐字取自本地状态；不得扩大本地授权，不得移除本地红线或请示条件。\n玩家意图：${args.intent}\n本地状态：${JSON.stringify(safeState)}\n本地保守解释：${JSON.stringify(fallback)}`, { task: "intent-parser", json: true, maxTokens: 2300, temperature: .25 });
   const value = extractJson(raw);
   const kindOptions = ["调查", "交涉", "研究", "建设", "招募", "仪式", "休整", "自由行动"];
   const riskOptions = ["低", "中", "高", "致命"];
@@ -536,8 +545,8 @@ export async function interpretIntentWithAi(config: AiConfig, args: Parameters<t
     retreatCondition: typeof proposedAuthorization.retreatCondition === "string" ? proposedAuthorization.retreatCondition : value.retreat,
   });
   const resourceCommitment = normalizeResourceCommitment(fallback.resourceCommitment, value.resourceCommitment, value.budget, args.intent, args.game);
-  const allowedKnowledgeIds = new Set((args.game.worldKernel?.knowledge ?? []).filter((node) => node.visibility === "public" || node.visibility === "player" || node.holderIds.includes("player") || node.holderRefs?.includes("player")).map((node) => node.id));
-  const allowedEventIds = new Set((args.game.worldKernel?.events ?? []).filter((event) => event.visibility === "public" || event.visibility === "player" || event.witnessRefs?.includes("player")).map((event) => event.id));
+  const allowedKnowledgeIds = new Set(playerWorldView.knowledge.map((node) => node.id));
+  const allowedEventIds = new Set(playerWorldView.events.map((event) => event.id));
   const proposedKnowledgeIds = Array.isArray(value.requiredKnowledgeIds) ? value.requiredKnowledgeIds.filter((id): id is string => typeof id === "string" && allowedKnowledgeIds.has(id)) : [];
   const proposedCauseEventIds = Array.isArray(value.causeEventIds) ? value.causeEventIds.filter((id): id is string => typeof id === "string" && allowedEventIds.has(id)) : [];
   const proposedIssueId = typeof value.sourceIssueId === "string" && args.game.organizationIssues.some((issue) => issue.id === value.sourceIssueId) ? value.sourceIssueId : undefined;
@@ -793,7 +802,7 @@ type ReceiptContext = {
   worldKernel: GameState["worldKernel"];
   game: GameState;
   proposalId?: string;
-  visibleEvents: GameState["worldKernel"]["events"];
+  visibleEvents: AudienceWorldEvent[];
   visibleEventIds: Set<string>;
 };
 
@@ -804,21 +813,21 @@ function causalReceipt(id: string, summary: string, entityRefs: string[], source
 function playerVisibleProposalEvents(actionResult: ActionResult, delta: WorldTurnDelta, worldKernel: GameState["worldKernel"]) {
   const proposalId = actionResult.executionPlan?.proposalId;
   if (!proposalId) return [];
-  return worldKernel.events.filter((event) => event.week === delta.week && event.sourceProposalIds?.includes(proposalId)).filter((event) => {
-    if (event.visibility === "public" || event.visibility === "player") return true;
-    if (event.witnessRefs?.some((ref) => ref === "player" || ref === "organization")) return true;
-    return worldKernel.observations.some((observation) => observation.eventId === event.id && (observation.visibility !== "actors" || observation.holderRefs?.some((ref) => ref === "player" || ref === "organization")));
-  });
+  const proposalEventIds = new Set(worldKernel.events
+    .filter((event) => event.week === delta.week && event.sourceProposalIds?.includes(proposalId))
+    .map((event) => event.id));
+  return projectWorldForAudience(worldKernel, { kind: "player", holderId: "player" }).events
+    .filter((event) => proposalEventIds.has(event.id));
 }
 
 function peopleReceipts(context: ReceiptContext) {
   const participantIds = [...new Set([context.actionResult.contract.leaderId, ...context.actionResult.contract.memberIds].filter((id) => id !== "organization"))];
   const receipts = participantIds.map((participantId) => {
     const name = participantId === "player" ? "你" : context.game.members.find((member) => member.id === participantId)?.name ?? context.worldKernel.actors.find((actor) => actor.id === participantId)?.name ?? "受命人";
-    const eventIds = context.visibleEvents.filter((event) => event.actorIds.includes(participantId)).map((event) => event.id);
+    const eventIds = context.visibleEvents.filter((event) => event.knownActorIds.includes(participantId)).map((event) => event.id);
     return causalReceipt(`receipt:${context.actionResult.id}:person:${participantId}`, `${name}参与了“${context.actionResult.title}”，并留下了可确认的执行回执。`, [participantId === "player" ? "player" : `actor:${participantId}`], eventIds);
   });
-  for (const event of context.visibleEvents) for (const actorId of event.actorIds) if (!receipts.some((receipt) => receipt.entityRefs.includes(`actor:${actorId}`))) {
+  for (const event of context.visibleEvents) for (const actorId of event.knownActorIds) if (!receipts.some((receipt) => receipt.entityRefs.includes(`actor:${actorId}`))) {
     const name = context.worldKernel.actors.find((actor) => actor.id === actorId)?.name ?? "相关人物";
     receipts.push(causalReceipt(`receipt:${context.actionResult.id}:event-person:${actorId}`, `${event.title}改变了${name}的处境。`, [`actor:${actorId}`], [event.id]));
   }
@@ -843,7 +852,15 @@ function locationReceipts(context: ReceiptContext) {
 }
 
 function knowledgeReceipts(context: ReceiptContext) {
-  return context.worldKernel.knowledge.filter((node) => node.acquiredWeek === context.delta.week && node.sourceEventId && context.visibleEventIds.has(node.sourceEventId) && (node.visibility === "public" || node.visibility === "player" || node.holderRefs?.includes("player") || node.holderRefs?.includes("organization"))).map((node) => causalReceipt(`receipt:${context.actionResult.id}:knowledge:${node.id}`, node.statement, [`knowledge:${node.id}`], node.sourceEventId ? [node.sourceEventId] : []));
+  const sourceEventByKnowledgeId = new Map(context.worldKernel.knowledge
+    .filter((node) => node.sourceEventId)
+    .map((node) => [node.id, node.sourceEventId!]));
+  return projectWorldForAudience(context.worldKernel, { kind: "player", holderId: "player" }).knowledge
+    .filter((node) => node.acquiredWeek === context.delta.week && context.visibleEventIds.has(sourceEventByKnowledgeId.get(node.id) ?? ""))
+    .map((node) => {
+      const sourceEventId = sourceEventByKnowledgeId.get(node.id)!;
+      return causalReceipt(`receipt:${context.actionResult.id}:knowledge:${node.id}`, node.statement, [`knowledge:${node.id}`], [sourceEventId]);
+    });
 }
 
 function relationshipReceipts(context: ReceiptContext) {
@@ -1714,7 +1731,7 @@ export async function generateSituationBrief(config: AiConfig, game: GameState):
     loreRecordIds: lore.records.map((item) => item.id),
     dynamicMemory: situationMemoryView.text,
   };
-  const raw = extractJson(await callModel(config, "你为原创维多利亚神秘主义互动小说《灰雾纪事》写玩家进入存档时看到的当前现状。它必须像小说真正开始的一页，不是教程、任务清单、系统摘要或模板化周报。使用有限视角、具体物件、声音、天气、人物动作与消息来源，让玩家理解此刻身在何处、世界刚发生了什么、什么压力正在逼近以及自己可以自由行动。不要替玩家决定情绪或选择，不泄露角色未知的幕后真相，不复制任何现成小说句子。只返回JSON。", `写一个标题、日期行和3至6个自然段。段落可以长短不一，不要使用“当前状况/你的目标/建议行动”之类标签。返回{"title":"小说式标题","dateline":"日期与地点","paragraphs":["完整段落"]}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 3200, temperature: .92 }));
+  const raw = extractJson(await callModel(config, "你为原创维多利亚神秘主义互动小说《灰雾纪事》写玩家进入存档时看到的当前现状。它必须像小说真正开始的一页，不是教程、任务清单、系统摘要或模板化周报。使用有限视角、具体物件、声音、天气、人物动作与消息来源，让玩家理解此刻身在何处、世界刚发生了什么、什么压力正在逼近以及自己可以自由行动。不要替玩家决定情绪或选择，不泄露角色未知的幕后真相，不复制任何现成小说句子。只返回JSON。", `写一个标题、日期行和3至6个自然段。段落可以长短不一，不要使用“当前状况/你的目标/建议行动”之类标签。返回{"title":"小说式标题","dateline":"日期与地点","paragraphs":["完整段落"]}。\n${JSON.stringify(payload)}`, { task: "situation-brief", json: true, maxTokens: 3200, temperature: .92 }));
   const title = typeof raw.title === "string" && raw.title.trim() ? raw.title.trim().slice(0, 80) : "";
   const dateline = typeof raw.dateline === "string" && raw.dateline.trim() ? raw.dateline.trim().slice(0, 120) : "";
   const paragraphs = Array.isArray(raw.paragraphs) ? raw.paragraphs.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim().slice(0, 1200)).slice(0, 6) : [];
@@ -1739,6 +1756,9 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
   const thread = game.dialogueThreads.find((item) => item.memberId === memberId);
   const currentPressure = game.missions.find((item) => item.state === "active");
   const dialogueMemoryView = memoryPromptBlockWithIds(game.memory, "dialogue", memberId, game.week);
+  const memberWorldView = game.worldKernel
+    ? projectWorldForAudience(game.worldKernel, { kind: "actor", holderId: memberId })
+    : null;
   const system = `你正在扮演原创人物${member.name}，参加维多利亚神秘组织的${context === "council" ? "每周密议" : "私下谈话"}。组织领导人是${game.playerName || "尚未登记姓名的负责人"}，正式场合应自然地称其为“${game.playerAddress || "会长阁下"}”，但不要每一段都重复称呼。你不是菜单、助手或任务发布器，而是一个有局限、有利益、有情绪、有当下注意力的人。
 固定背景：${member.background ?? "未登记"}
 性格核心：${member.core ?? "谨慎"}
@@ -1753,18 +1773,21 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
     recentConversation: thread?.messages.slice(-12).map((item) => ({ role: item.role, text: item.text, context: item.context })) ?? [],
     lastingMemories: thread?.memories.slice(-6) ?? [],
     currentPressure: currentPressure ? { title: currentPressure.title, premise: currentPressure.premise, consequence: currentPressure.consequence } : null,
-    lastWeek: game.chronicle[0] ? { summary: game.chronicle[0].summary, results: game.chronicle[0].results.map((item) => ({ title: item.title, outcome: item.outcome, findings: item.findings })) } : null,
-    knownFacts: game.facts.slice(-14),
-    currentWorld: game.worldSnapshots?.[0] ? { week: game.worldSnapshots[0].week, date: game.worldSnapshots[0].date, atmosphere: game.worldSnapshots[0].atmosphere, changes: game.worldSnapshots[0].changes } : null,
-    authorizedWorldView: game.worldKernel ? {
-      observations: game.worldKernel.observations.filter((item) => item.visibility === "public" || item.holderIds.includes(member.id) || item.holderRefs?.includes(`actor:${member.id}`)).slice(-12),
-      knowledge: game.worldKernel.knowledge.filter((item) => item.visibility === "public" || item.holderIds.includes(member.id) || item.holderRefs?.includes(`actor:${member.id}`)).slice(-12),
+    lastWeek: game.chronicle[0] ? { results: game.chronicle[0].results
+      .filter((item) => item.contract.leaderId === member.id || item.contract.memberIds.includes(member.id))
+      .map((item) => ({ title: item.title, outcome: item.outcome, findings: item.findings })) } : null,
+    authorizedWorldView: memberWorldView ? {
+      events: memberWorldView.events.slice(-8),
+      observations: memberWorldView.observations.slice(-12),
+      knowledge: memberWorldView.knowledge.slice(-12),
     } : null,
     recentSignals: game.worldSignals?.slice(0, 8) ?? [],
     authorizedLore: lore.context || null,
     loreRecordIds: lore.records.map((item) => item.id),
     dynamicMemory: dialogueMemoryView.text,
-    scheduledOrders: game.schedule.map((item) => ({ title: item.title, leaderId: item.leaderId, risk: item.risk })),
+    scheduledOrders: game.schedule
+      .filter((item) => item.leaderId === member.id || item.memberIds.includes(member.id))
+      .map((item) => ({ title: item.title, leaderId: item.leaderId, risk: item.risk })),
     relationship: {
       trust: member.trust ?? member.loyalty,
       interest: member.interest,
@@ -1784,7 +1807,7 @@ export async function generateNpcDialogue(config: AiConfig, game: GameState, mem
       alreadyScreenedThisWeek: game.management.screeningProjects.some((project) => project.startedWeek === game.week && project.status !== "cancelled"),
     } : null,
   };
-  const raw = extractJson(await callModel(config, system, `像真实人物一样回应此刻这一句话。长度完全服从内容：可以20字，也可以在复杂问题中达到500字；不要为满足格式凭空扩写。普通谈话不要生成任务或提案卡。如果近期有该成员职责范围内的新信号、记忆、个人事件或上周结果，尽量自然引用其中一条具体内容，避免空泛表态；没有就不硬凑。只有当此人确实担任内务负责人、玩家明确要求筛选或提交可提拔的基层人选、且本周尚未筛选时，才返回managementAction；人力取3到5，经费至少20且不得超过现有资金，投入越高档案越充分。其他情况必须为null。返回：{"reply":"自然动作与口语组成的回应，不包含分类标签","mood":"不超过8字的当前状态","memory":"真正值得以后记住的关系事实或null","trustDelta":-2到2,"managementAction":null或{"kind":"screen-candidates","manpower":3到5,"moneyCost":20以上}}。\n${JSON.stringify(payload)}`, { json: true, maxTokens: 1900, temperature: .96 }));
+  const raw = extractJson(await callModel(config, system, `像真实人物一样回应此刻这一句话。长度完全服从内容：可以20字，也可以在复杂问题中达到500字；不要为满足格式凭空扩写。普通谈话不要生成任务或提案卡。如果近期有该成员职责范围内的新信号、记忆、个人事件或上周结果，尽量自然引用其中一条具体内容，避免空泛表态；没有就不硬凑。只有当此人确实担任内务负责人、玩家明确要求筛选或提交可提拔的基层人选、且本周尚未筛选时，才返回managementAction；人力取3到5，经费至少20且不得超过现有资金，投入越高档案越充分。其他情况必须为null。返回：{"reply":"自然动作与口语组成的回应，不包含分类标签","mood":"不超过8字的当前状态","memory":"真正值得以后记住的关系事实或null","trustDelta":-2到2,"managementAction":null或{"kind":"screen-candidates","manpower":3到5,"moneyCost":20以上}}。\n${JSON.stringify(payload)}`, { task: "npc-dialogue", json: true, maxTokens: 1900, temperature: .96 }));
   const reply = typeof raw.reply === "string" ? raw.reply.trim().slice(0, 1200) : "";
   if (!reply) throw new Error("人物没有形成可用回应");
   const mood = typeof raw.mood === "string" ? raw.mood.trim().slice(0, 16) : "克制";
@@ -1835,8 +1858,8 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   const autonomousState = autonomousPlanning.autonomousState;
   const autonomousDecisionFrames = autonomousPlanning.decisionFrames;
   const autonomousPlanningProjections = autonomousPlanning.planningProjections;
-  const autonomousAgentProposals = autonomousPlanning.proposals;
-  const autonomousWorldProposals = autonomousAgentProposals.flatMap((proposal) => {
+  let autonomousAgentProposals = autonomousPlanning.proposals;
+  let autonomousWorldProposals = autonomousAgentProposals.flatMap((proposal) => {
     const projection = autonomousPlanningProjections.get(proposal.agentRef);
     return projection ? [proposalFromAgentProposal(proposal, projection)] : [];
   });
@@ -1847,47 +1870,69 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   const lockedPlayerPlans = worldActionResults
     .map((result) => result.executionPlan)
     .filter((plan): plan is NonNullable<typeof plan> => Boolean(plan?.executable));
-  const autonomousAdjudications = adjudicateWorldActionProposals(
+  let autonomousAdjudications = adjudicateWorldActionProposals(
     autonomousWorldProposals,
     createActionRuleContext(game, { resolvingWeek: chapter.week, knowledgeByRef: autonomousKnowledgeByRef }),
     { lockedPlans: lockedPlayerPlans },
   );
-  const executableAutonomousRefs = new Set(autonomousAdjudications
+  let executableAutonomousRefs = new Set(autonomousAdjudications
     .filter((item) => item.executionPlan.executable)
     .map((item) => item.proposal.participantRefs[0]));
-  const executableAutonomousAgentProposals = autonomousAgentProposals
+  let executableAutonomousAgentProposals = autonomousAgentProposals
     .filter((proposal) => executableAutonomousRefs.has(proposal.agentRef));
-  const proposalBoundaryFor = (proposalId: string, plan: NonNullable<typeof worldActionResults[number]["executionPlan"]>): ExecutableProposalBoundary => ({
+  const formulaProposalAuthorizations = new Map(worldActionResults.flatMap((result) => {
+    const proposalId = result.executionPlan?.proposalId;
+    const actionText = `${result.contract.rawIntent} ${result.contract.target} ${result.contract.desiredOutcome}`;
+    if (!proposalId || result.outcome !== "成功" || !/配方|魔药|神秘学资料/.test(actionText)) return [];
+    return [[proposalId, {
+      actionId: result.id,
+      existingFormulaRefs: game.management.formulas.filter((formula) => {
+        const pathway = formula.pathwayId in PATHWAYS ? PATHWAYS[formula.pathwayId as PathwayId] : undefined;
+        const sequenceName = pathway?.sequences.find((item) => item.rank === formula.sequence)?.name ?? "";
+        const pathwayNamed = actionText.includes(formula.pathwayId) || Boolean(pathway?.name && actionText.includes(pathway.name));
+        const sequenceNamed = actionText.includes(`序列${formula.sequence}`) || Boolean(sequenceName && actionText.includes(sequenceName));
+        return actionText.includes(formula.id) || (pathwayNamed && sequenceNamed);
+      }).map((formula) => `knowledge:${formula.id}`),
+    }]] as const;
+  }));
+  const proposalBoundaryFor = (proposalId: string, plan: NonNullable<typeof worldActionResults[number]["executionPlan"]>, principalRefs: string[] = []): ExecutableProposalBoundary => ({
     proposalId,
     redLines: [...plan.authorization.redLines],
     mustEscalateWhen: [...plan.authorization.mustEscalateWhen],
     retreatCondition: plan.authorization.retreatCondition,
     participantRefs: [...plan.participantRefs],
-    targetRefs: [...plan.targetRefs],
-    holderRefs: [...plan.holderRefs],
+    targetRefs: [...new Set([
+      ...plan.targetRefs,
+      ...game.departments.filter((department) => plan.participantRefs.includes(`actor:${department.leadMemberId}`)).map((department) => `department:${department.id}`),
+      ...(formulaProposalAuthorizations.get(proposalId)?.existingFormulaRefs ?? []),
+    ])],
+    holderRefs: [...new Set([...plan.holderRefs, ...principalRefs])],
     commitments: { ...plan.commitments },
     causeEventIds: [...plan.causeEventIds],
   });
-  const executableProposalBoundaries = new Map<string, ExecutableProposalBoundary>([
+  let executableProposalBoundaries = new Map<string, ExecutableProposalBoundary>([
     ...worldActionResults.flatMap((result) => result.executionPlan?.executable ? [[
       result.executionPlan.proposalId,
-      proposalBoundaryFor(result.executionPlan.proposalId, result.executionPlan),
+      proposalBoundaryFor(result.executionPlan.proposalId, result.executionPlan, ["player", "organization"]),
     ] as [string, ExecutableProposalBoundary]] : []),
     ...autonomousAdjudications.flatMap((item) => item.executionPlan.executable ? [[
       item.proposal.id,
       proposalBoundaryFor(item.proposal.id, item.executionPlan),
     ] as [string, ExecutableProposalBoundary]] : []),
   ]);
-  const executableProposalIds = [...executableProposalBoundaries.keys()];
+  let executableProposalIds = [...executableProposalBoundaries.keys()];
   onStage("世界裁决器正在处理同时发生的提案");
   const adjudicatorWorld = buildAdjudicatorProjection(game.worldKernel, executableAutonomousAgentProposals, [...autonomousPlanningProjections.values()]);
-  const lore = await loreForWorld(
+  const worldLoreQuery = `${game.date} ${worldActionResults.map((item) => item.contract.rawIntent).join(" ")} ${adjudicatorWorld.projects.map((item) => item.title).join(" ")} ${autonomousDecisionFrames.map((item) => `${item.displayName} ${item.currentObjective}`).join(" ")}`;
+  const mainOwnsWorldLore = typeof window !== "undefined" && Boolean(window.mistInference?.requestWorld && window.mistRag);
+  const lore = mainOwnsWorldLore ? null : await loreForWorld(
     LORE_RECORDS,
     game,
-    `${game.date} ${worldActionResults.map((item) => item.contract.rawIntent).join(" ")} ${adjudicatorWorld.projects.map((item) => item.title).join(" ")} ${autonomousDecisionFrames.map((item) => `${item.displayName} ${item.currentObjective}`).join(" ")}`,
+    worldLoreQuery,
     12_000,
     { traceId: `turn:world:${chapter.week}`, turnId: `world:${chapter.week}` },
   );
+  let mainRetrievalReceipt: RetrievalReceipt | undefined;
   const payload = buildWorldAdjudicatorInput({
     game,
     resolvingWeek: chapter.week,
@@ -1910,36 +1955,90 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
       limit: 24,
     },
     dynamicMemory: worldMemoryView.text,
-    authorizedLore: lore.context,
-    loreRecordIds: lore.records.map((item) => item.id),
+    authorizedLore: mainOwnsWorldLore ? WORLD_LORE_CONTEXT_MARKER : lore?.context ?? "",
+    loreRecordIds: mainOwnsWorldLore ? [WORLD_LORE_IDS_MARKER] : lore?.records.map((item) => item.id) ?? [],
     designerSupplement: config.worldBible,
   });
-  const boundedPayload = fitWorldAdjudicatorPayload(attachOrganizationAdjudicationProtocol(payload));
+  let boundedPayload = fitWorldAdjudicatorPayload(attachOrganizationAdjudicationProtocol(payload)) as ReturnType<typeof fitWorldAdjudicatorPayload> & { runtimeAutonomousProposals?: AgentProposal[] };
   assertWorldAdjudicatorPayloadBudget(boundedPayload);
+  if (mainOwnsWorldLore) {
+    if (typeof window.mistInference?.finalizeWorld !== "function") throw new Error("WORLD_INFERENCE_MANIFEST_UNAVAILABLE");
+    const manifestPayload = { ...boundedPayload, runtimeAutonomousProposals: autonomousAgentProposals };
+    const finalized = await window.mistInference.finalizeWorld({ turnId: `world:${chapter.week}`, baseRevision: game.worldKernel.revision, manifest: manifestPayload });
+    if (!finalized.ok || typeof finalized.manifestHash !== "string" || !/^[0-9a-f]{64}$/.test(finalized.manifestHash) || !finalized.manifest || typeof finalized.manifest !== "object" || Array.isArray(finalized.manifest)) throw new Error(finalized.error ?? "WORLD_INFERENCE_MANIFEST_FAILED");
+    boundedPayload = finalized.manifest as typeof boundedPayload;
+    const frozenProposals = Array.isArray(boundedPayload.runtimeAutonomousProposals) ? boundedPayload.runtimeAutonomousProposals as AgentProposal[] : [];
+    // A retry epoch must use the same autonomous intentions and scopes that Main
+    // froze for the first attempt. Replanning may still run, but it cannot become
+    // a second local authority while Main is adjudicating the original manifest.
+    buildAdjudicatorProjection(game.worldKernel, frozenProposals, [...autonomousPlanningProjections.values()]);
+    autonomousAgentProposals = frozenProposals;
+    autonomousWorldProposals = autonomousAgentProposals.flatMap((proposal) => {
+      const projection = autonomousPlanningProjections.get(proposal.agentRef);
+      return projection ? [proposalFromAgentProposal(proposal, projection)] : [];
+    });
+    autonomousAdjudications = adjudicateWorldActionProposals(
+      autonomousWorldProposals,
+      createActionRuleContext(game, { resolvingWeek: chapter.week, knowledgeByRef: autonomousKnowledgeByRef }),
+      { lockedPlans: lockedPlayerPlans },
+    );
+    executableAutonomousRefs = new Set(autonomousAdjudications.filter((item) => item.executionPlan.executable).map((item) => item.proposal.participantRefs[0]));
+    executableAutonomousAgentProposals = autonomousAgentProposals.filter((proposal) => executableAutonomousRefs.has(proposal.agentRef));
+    executableProposalBoundaries = new Map<string, ExecutableProposalBoundary>([
+      ...worldActionResults.flatMap((result) => result.executionPlan?.executable ? [[
+        result.executionPlan.proposalId,
+        proposalBoundaryFor(result.executionPlan.proposalId, result.executionPlan, ["player", "organization"]),
+      ] as [string, ExecutableProposalBoundary]] : []),
+      ...autonomousAdjudications.flatMap((item) => item.executionPlan.executable ? [[
+        item.proposal.id,
+        proposalBoundaryFor(item.proposal.id, item.executionPlan),
+      ] as [string, ExecutableProposalBoundary]] : []),
+    ]);
+    executableProposalIds = [...executableProposalBoundaries.keys()];
+    const frozenExecutableIds = Array.isArray(boundedPayload.executableProposalIds) ? boundedPayload.executableProposalIds.map(String) : [];
+    if (JSON.stringify([...executableProposalIds].sort()) !== JSON.stringify([...frozenExecutableIds].sort())) throw new Error("WORLD_INFERENCE_FROZEN_SCOPE_MISMATCH");
+  }
+  const mainInferencePayload = mainOwnsWorldLore
+    ? Object.fromEntries(Object.entries(boundedPayload).filter(([key]) => key !== "runtimeAutonomousProposals"))
+    : boundedPayload;
   const raw = await requestWorldEnvelope(worldConfig, WORLD_ADJUDICATOR_SYSTEM, buildWorldAdjudicatorPrompt(boundedPayload, `${WORLD_KERNEL_PROTOCOL}\n${WORLD_PROPOSAL_PROVENANCE_PROTOCOL}`), game, worldActionResults.length === 0, worldActionResults.map((result) => result.id), onStage, onToken, {
     traceId: `turn:world:${chapter.week}:model`,
     turnId: `world:${chapter.week}`,
-    requestId: lore.receipt.requestId,
-    retrievalId: lore.receipt.requestId,
+    requestId: lore?.receipt.requestId,
+    retrievalId: lore?.receipt.requestId,
     promptVersion: "world-adjudicator:v1",
     responseSchemaVersion: "world-envelope:v1",
-  });
-  const allowedLoreIds = new Set(lore.receipt.chunkIds);
-  const { worldMoves, canonMoves, publicSignals, atmosphere, undercurrents, kernelDelta } = adaptWorldAdjudication(raw, {
+  }, mainOwnsWorldLore ? {
+    payload: mainInferencePayload,
+    turnId: `world:${chapter.week}`,
+    baseRevision: game.worldKernel.revision,
+    maxChars: 12_000,
+  } : undefined, mainOwnsWorldLore ? (retrieval) => {
+    if (retrieval.authority.turnId !== `world:${chapter.week}` || retrieval.authority.baseRevision !== game.worldKernel.revision) throw new Error("WORLD_RAG_AUTHORITY_MISMATCH");
+    mainRetrievalReceipt = retrieval.receipt;
+  } : undefined);
+  const retrievalReceipt = lore?.receipt ?? mainRetrievalReceipt;
+  if (!retrievalReceipt) throw new Error("WORLD_RAG_RECEIPT_UNAVAILABLE");
+  const allowedLoreIds = new Set(retrievalReceipt.chunkIds);
+  const { worldMoves, canonMoves, publicSignals, atmosphere, undercurrents, kernelDelta, emergentPressure, emergentLead, organizationDelta: authorizedOrganizationDelta, ruleSignals } = adaptWorldAdjudication(raw, {
     game,
     resolvingWeek: chapter.week,
     playerIssuedNoOrders: worldActionResults.length === 0,
     allowedLoreIds,
     allowedProposalIds: new Set(executableProposalIds),
     proposalBoundaries: executableProposalBoundaries,
-    retrievalReceipt: lore.receipt,
+    formulaProposalAuthorizations,
+    retrievalReceipt,
   });
   const committedKernelDelta = {
     ...kernelDelta,
     executableProposalIds,
   };
-  const committedTransaction = createWorldTurnTransaction(game.worldKernel, committedKernelDelta, `world:${chapter.week}`);
-  const worldKernel = { ...applyWorldTurn(game.worldKernel, { ...committedKernelDelta, transaction: committedTransaction }), currentWeek: game.week, currentDate: game.date };
+  const committedGame = await commitWorldTurn({
+    baseGame: game,
+    delta: committedKernelDelta,
+    turnId: `world:${chapter.week}`,
+    deriveNextGame: async ({ baseGame: game, worldKernel }) => {
   const interruptionApplication = applyDirectiveInterruptions(chapter, kernelDelta);
   const postWorldResults = interruptionApplication.results;
   const interruptionContinuations = interruptionApplication.continuations;
@@ -1969,16 +2068,16 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     districtStates: worldKernel.locations.map((location) => ({ districtId: location.id, risk: location.risk, stability: location.stability, conditions: location.conditions.slice(-4) })),
     cityStates: game.campaignWorld.cities.map((city) => ({ cityId: city.id, control: city.playerControl, intelligence: city.intelligence, pressure: city.localPressure, status: city.status })),
   };
-  const campaignWorld = applyCampaignSignals(game.campaignWorld, publicSignals, chapter.week);
+  const campaignWorld = applyCampaignSignals(game.campaignWorld, ruleSignals, chapter.week);
   let missions = game.missions;
-  const pressure = raw.emergentPressure;
+  const pressure = emergentPressure;
   if (pressure && typeof pressure === "object" && !Array.isArray(pressure)) {
     const value = pressure as Record<string, unknown>;
-    if (typeof value.title === "string" && typeof value.premise === "string" && typeof value.consequence === "string") missions = [...missions, { id: `ai-pressure-${game.week}-${hash(value.title)}`, title: value.title.slice(0, 45), premise: value.premise.slice(0, 280), deadline: Math.max(2, Math.min(6, Number(value.deadline) || 3)), urgency: 58, progress: 0, consequence: value.consequence.slice(0, 240), hints: ["自由调查其来源", "与相关成员讨论", "寻求一项外部合作", "暂不处理并承担后果"], state: "active" as const }];
+    if (typeof value.title === "string" && typeof value.premise === "string" && typeof value.consequence === "string") missions = [...missions, { id: stableEntityId("ai-pressure", game.saveId ?? "legacy-save", game.week, value.title, value.premise), title: value.title.slice(0, 45), premise: value.premise.slice(0, 280), deadline: Math.max(2, Math.min(6, Number(value.deadline) || 3)), urgency: 58, progress: 0, consequence: value.consequence.slice(0, 240), hints: ["自由调查其来源", "与相关成员讨论", "寻求一项外部合作", "暂不处理并承担后果"], state: "active" as const }];
   }
   let evidenceNodes = game.evidenceNodes;
   let opportunities = game.opportunities;
-  const lead = raw.emergentLead;
+  const lead = emergentLead;
   if (lead && typeof lead === "object" && !Array.isArray(lead)) {
     const value = lead as Record<string, unknown>;
     const districtId = typeof value.districtId === "string" && DISTRICTS.some((district) => district.id === value.districtId) ? value.districtId : "cherwood";
@@ -1989,9 +2088,9 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     const allowedTags = new Set(["document", "track", "social", "occult", "official", "protect"]);
     const tags = Array.isArray(value.tags) ? value.tags.map(String).filter((tag) => allowedTags.has(tag)).slice(0, 4) : [];
     if (label && summary && !game.evidenceNodes.some((item) => item.label === label)) {
-      const id = `ev-ai-${game.week}-${hash(label)}`;
+      const id = stableEntityId("ev-ai", game.saveId ?? "legacy-save", game.week, label, summary);
       evidenceNodes = [...game.evidenceNodes, { id, caseId: "ai-emergent", label, kind: tags.includes("document") ? "记录" as const : tags.includes("social") ? "证词" as const : tags.includes("occult") ? "异常" as const : "推断" as const, summary, certainty: "推断" as const, discovered: true, source, tags: tags.length ? tags : ["open"], weekDiscovered: game.week }];
-      opportunities = [...game.opportunities, { id: `op-ai-${game.week}-${hash(label)}`, caseId: "ai-emergent", title: `追查 · ${label}`, description: summary, districtId, risk: DISTRICTS.find((district) => district.id === districtId)!.danger >= 65 ? "高" as const : "中" as const, requirements: [id], suggestedIntent: followUp, rewardPreview: "把世界回应转化为可交叉验证的新事实或关系", state: "available" as const }];
+      opportunities = [...game.opportunities, { id: stableEntityId("op-ai", game.saveId ?? "legacy-save", game.week, label, summary), caseId: "ai-emergent", title: `追查 · ${label}`, description: summary, districtId, risk: DISTRICTS.find((district) => district.id === districtId)!.danger >= 65 ? "高" as const : "中" as const, requirements: [id], suggestedIntent: followUp, rewardPreview: "把世界回应转化为可交叉验证的新事实或关系", state: "available" as const }];
     }
   }
   let actionReportsRaw = Array.isArray(raw.actionReports) ? raw.actionReports : [];
@@ -2035,7 +2134,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     const boundaryIssue = actionTextBoundaryIssue([fieldReport, ...observableFacts, followUp].join("\n"), game, result.contract);
     if (boundaryIssue) throw new Error(`世界模型对“${result.title}”的现场报告${boundaryIssue}；本周拒绝结算`);
     const actionEvidenceIds = seeksEvidence(result.contract) && result.outcome !== "受阻" ? observableFacts.map((fact, index) => {
-      const id = `ev-ai-action-${result.id}-${hash(fact)}`;
+      const id = stableEntityId("ev-ai-action", game.saveId ?? "legacy-save", result.id, fact);
       if (!evidenceNodes.some((item) => item.id === id)) evidenceNodes.push({
         id,
         caseId: "player-led",
@@ -2069,7 +2168,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     summary: chronicleSummaryFromCausality({ ...game, worldKernel }, { ...chapter, results: enrichedResults }),
   };
   const chronicle = game.chronicle.map((item) => item.id === chapter.id ? enrichedChapter : item);
-  const organizationDelta = raw.organizationDelta && typeof raw.organizationDelta === "object" && !Array.isArray(raw.organizationDelta) ? raw.organizationDelta as Record<string, unknown> : {};
+  const organizationDelta = authorizedOrganizationDelta;
   const clampOrg = (value: number, minimum = 0, maximum = 100) => Math.max(minimum, Math.min(maximum, Math.round(value)));
   const departments = game.departments.map((item) => ({ ...item }));
   let departmentReports = [...game.departmentReports];
@@ -2137,23 +2236,29 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     const title = typeof value.title === "string" ? value.title.trim().slice(0, 70) : "";
     const summary = typeof value.summary === "string" ? value.summary.trim().slice(0, 360) : "";
     if (!title || !summary || organizationIssues.some((item) => item.sourceId === sourceId && item.state === "待裁决")) continue;
-    organizationIssues.push({ id: `ai-org-issue-${game.week}-${index}-${hash(title)}`, weekCreated: game.week, category, sourceId, title, summary, urgency: clampOrg(Number(value.urgency) || 55, 35, 95), deadline: game.week + clampOrg(Number(value.deadline) || 2, 1, 3), signals: Array.isArray(value.signals) ? value.signals.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 4) : [], state: "待裁决" });
+    organizationIssues.push({ id: stableEntityId("ai-org-issue", game.saveId ?? "legacy-save", game.week, index, sourceId, title), weekCreated: game.week, category, sourceId, title, summary, urgency: clampOrg(Number(value.urgency) || 55, 35, 95), deadline: game.week + clampOrg(Number(value.deadline) || 2, 1, 3), signals: Array.isArray(value.signals) ? value.signals.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 4) : [], state: "待裁决" });
   }
   const newRecruit = organizationDelta.newRecruitableNpc && typeof organizationDelta.newRecruitableNpc === "object" && !Array.isArray(organizationDelta.newRecruitableNpc) ? organizationDelta.newRecruitableNpc as Record<string, unknown> : null;
+  const newRecruitActorId = typeof newRecruit?.actorId === "string" ? newRecruit.actorId.trim() : "";
+  const newRecruitActor = worldKernel.actors.find((actor) => actor.id === newRecruitActorId);
   const newRecruitName = typeof newRecruit?.name === "string" ? newRecruit.name.trim().slice(0, 40) : "";
-  const hasPersistentContact = Boolean(newRecruitName && (worldActionResults.some((result) => ["招募", "交涉"].includes(result.contract.kind) && result.contract.rawIntent.includes(newRecruitName)) || worldKernel.actors.some((actor) => actor.name === newRecruitName)));
-  if (newRecruit && newRecruitName && hasPersistentContact && ![...members, ...recruitPool].some((item) => item.name === newRecruitName)) {
-    recruitPool.push({ id: `ai-recruit-${hash(newRecruitName)}`, name: newRecruitName, role: typeof newRecruit.role === "string" ? newRecruit.role.slice(0, 50) : "新近联系人", specialty: typeof newRecruit.specialty === "string" ? newRecruit.specialty.slice(0, 100) : "尚待确认", loyalty: 24, trust: 18, interest: 55, ideology: 50, fatigue: 8, status: "尚未接触", background: typeof newRecruit.background === "string" ? newRecruit.background.slice(0, 300) : "其背景已被世界账本锁定，仍待组织核验。", core: typeof newRecruit.core === "string" ? newRecruit.core.slice(0, 180) : "谨慎观察组织", voice: typeof newRecruit.voice === "string" ? newRecruit.voice.slice(0, 120) : "保留而具体", arc: typeof newRecruit.arc === "string" ? newRecruit.arc.slice(0, 180) : "尚未形成", secret: typeof newRecruit.secret === "string" ? newRecruit.secret.slice(0, 180) : "未公开", personalEvent: typeof newRecruit.contactReason === "string" ? newRecruit.contactReason.slice(0, 220) : "因持续接触进入组织视野。", personalEventState: "dormant", relationshipStage: "接触", relationshipMomentum: 0, personalPressure: 4, personalEventSignals: [], promises: [], lastRelationshipChangeWeek: game.week });
+  const newRecruitId = newRecruitActorId ? stableEntityId("ai-recruit", game.saveId ?? "legacy-save", newRecruitActorId) : "";
+  const hasPersistentContact = Boolean(newRecruit && newRecruitActor && newRecruitName === newRecruitActor.name.trim().slice(0, 40));
+  if (newRecruit && newRecruitActor && newRecruitName && newRecruitId && hasPersistentContact && ![...members, ...recruitPool].some((item) => item.id === newRecruitId || item.name === newRecruitName)) {
+    recruitPool.push({ id: newRecruitId, name: newRecruitName, role: typeof newRecruit.role === "string" ? newRecruit.role.slice(0, 50) : "新近联系人", specialty: typeof newRecruit.specialty === "string" ? newRecruit.specialty.slice(0, 100) : "尚待确认", loyalty: 24, trust: 18, interest: 55, ideology: 50, fatigue: 8, status: "尚未接触", background: typeof newRecruit.background === "string" ? newRecruit.background.slice(0, 300) : "其背景已被世界账本锁定，仍待组织核验。", core: typeof newRecruit.core === "string" ? newRecruit.core.slice(0, 180) : "谨慎观察组织", voice: typeof newRecruit.voice === "string" ? newRecruit.voice.slice(0, 120) : "保留而具体", arc: typeof newRecruit.arc === "string" ? newRecruit.arc.slice(0, 180) : "尚未形成", secret: "尚未确认", personalEvent: typeof newRecruit.contactReason === "string" ? newRecruit.contactReason.slice(0, 220) : "因持续接触进入组织视野。", personalEventState: "dormant", relationshipStage: "接触", relationshipMomentum: 0, personalPressure: 4, personalEventSignals: [], promises: [], lastRelationshipChangeWeek: game.week });
   }
-  const hasSuccessfulFormulaAction = worldActionResults.some((result) => result.outcome === "成功" && /配方|魔药|神秘学资料/.test(`${result.contract.rawIntent} ${result.contract.target} ${result.contract.desiredOutcome}`));
-  if (hasSuccessfulFormulaAction && Array.isArray(organizationDelta.formulaDiscoveries)) {
+  if (Array.isArray(organizationDelta.formulaDiscoveries)) {
     const formulas = [...management.formulas];
     for (const discovery of organizationDelta.formulaDiscoveries.slice(0, 3)) {
       if (!discovery || typeof discovery !== "object") continue;
       const value = discovery as Record<string, unknown>;
+      const sourceProposalId = typeof value.sourceProposalId === "string" ? value.sourceProposalId.trim() : "";
+      const formulaAuthorization = formulaProposalAuthorizations.get(sourceProposalId);
+      const declaredSourceRefs = Array.isArray(value.sourceRefs) ? value.sourceRefs.map(String).map((item) => item.trim()).filter(Boolean) : [];
+      if (!formulaAuthorization || !declaredSourceRefs.includes(formulaAuthorization.actionId)) throw new Error("SIDECAR_AUTHORITY_REJECTED: 配方变化未绑定同一提案的成功行动");
       const pathwayId = typeof value.pathwayId === "string" && value.pathwayId in PATHWAYS ? value.pathwayId as PathwayId : undefined;
-      const sequence = Math.max(0, Math.min(9, Math.round(Number(value.sequence))));
-      if (!pathwayId || !Number.isFinite(sequence)) continue;
+      const sequence = Number(value.sequence);
+      if (!pathwayId || !Number.isInteger(sequence) || sequence < 0 || sequence > 9) throw new Error("SIDECAR_AUTHORITY_REJECTED: 配方途径或序列无效");
       const reliability = Math.max(0, Math.min(100, Math.round(Number(value.reliability) || 0)));
       const requestedLoreEvidenceIds = Array.isArray(value.loreEvidenceIds) ? [...new Set(value.loreEvidenceIds.map(String).map((id) => id.trim()).filter(Boolean))].slice(0, 8) : [];
       const unretrievedLoreEvidenceIds = requestedLoreEvidenceIds.filter((id) => !allowedLoreIds.has(id));
@@ -2175,7 +2280,7 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
   }
   management = {
     ...management,
-    map: attachIntelligenceToBacklundMap(management.map, publicSignals.map((signal) => ({ id: signal.id, districtId: signal.districtId, text: `${signal.headline} ${signal.body}` }))),
+    map: attachIntelligenceToBacklundMap(management.map, ruleSignals.map((signal) => ({ id: signal.id, districtId: signal.districtId, text: `${signal.headline} ${signal.body}` }))),
   };
   let worldLedger = game.worldLedger ?? createWorldLedger(game);
   worldLedger = appendWorldLedgerEvents(worldLedger, actionAdjudicationLedgerEvents(autonomousAdjudications, "autonomous-actors"));
@@ -2362,8 +2467,11 @@ export async function generateAiWorldDelta(config: AiConfig, game: GameState, ch
     economyHistory,
   };
   nextGame.worldLedger = commitWorldLedgerWeek(worldLedger, nextGame);
-  releaseAutonomousPlanningCache(game);
   return nextGame;
+    },
+  });
+  releaseAutonomousPlanningCache(game);
+  return committedGame;
 }
 
 export function canAdvance(game: GameState) {

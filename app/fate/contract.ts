@@ -17,6 +17,7 @@ import type {
   FateSeverity,
   FateTwist,
 } from "./types.ts";
+import { stableEntityId } from "../stable-id.ts";
 
 export type FateResolveInput = {
   definition: AbilityDefinition;
@@ -65,7 +66,7 @@ export function buildFateContract(input: FateResolveInput): FateAberrationContra
     description: item.description,
     worldEventTitle: item.worldEventTitle,
   }));
-  const fateId = `fate-${stableHashShort(`${seed}|fate-id`)}`;
+  const fateId = stableEntityId("fate", seed, "fate-id");
   return {
     fateId,
     resolutionId: abilityContract.resolutionId,
@@ -104,15 +105,6 @@ export function buildFateContract(input: FateResolveInput): FateAberrationContra
       ...(decision.triggered && (decision.severity ?? template.severity) === 4 ? ["worldline-divergence-recorded"] : []),
     ],
   };
-}
-
-function stableHashShort(text: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 export function validateFateContract(contract: FateAberrationContract): string[] {

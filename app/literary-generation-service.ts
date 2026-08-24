@@ -4,6 +4,7 @@ import { attachFallbackParagraphSources, buildLiteraryCausalPack, normalizeParag
 import { PATHWAYS, type ChronicleChapter, type ChronicleSection, type GameState } from "./game-model.ts";
 import { memoryPromptBlockWithIds, narratorAudience, submitMemoryDelivery } from "./memory/index.ts";
 import { extractJson } from "./model-output.ts";
+import { projectWorldForAudience } from "./world-kernel.ts";
 
 type ValidatedSection = { heading: string; paragraphs: string[]; rawParagraphSources?: unknown };
 type ValidatedChapter = { title: string; sections: ValidatedSection[] };
@@ -116,7 +117,7 @@ async function enforceLiteraryAgency(config: AiConfig, system: string, factPack:
         config,
         `${system}\n你是玩家主权连续性编辑。世界事实只读；你一次只能改写一个越界段落。`,
         `这一个段落违反了玩家行动边界：${target.issue}。只重写这一段，不要重写章节，不得新增行动、线索、人物、地点或世界事实。\n本周已结算行动：${JSON.stringify(local.results.map((result) => ({ title: result.title, outcome: result.outcome, findings: result.findings, consequence: result.consequence, contract: { rawIntent: result.contract.rawIntent, approach: result.contract.approach, desiredOutcome: result.contract.desiredOutcome, redLines: result.contract.redLines, retreat: result.contract.retreat } })))}\n本周公开消息：${JSON.stringify(factPack.publicSignals ?? [])}\n原段落：${JSON.stringify(original)}\n\n只返回严格 JSON：{"paragraph":"改写后的单个自然段"}。保留原段落的文风和已锁定结果，但绝不扩大行动范围。若行动只允许整理、汇总、比对公开来源，成员必须始终留在组织据点，只能阅读已经持有的公开材料；不要在输出中复述、讨论或引用禁区行为。`,
-        { json: true, maxTokens: 1200, temperature: pass ? .12 : .2, stream: true, onToken },
+        { task: "literary-generation", json: true, maxTokens: 1200, temperature: pass ? .12 : .2, stream: true, onToken },
       ));
       if (typeof raw.paragraph !== "string" || !raw.paragraph.trim()) throw new Error("文学连续性编辑没有返回可用的局部段落");
       sections[target.sectionIndex].paragraphs[target.paragraphIndex] = raw.paragraph.trim().slice(0, 1200);
@@ -131,6 +132,7 @@ async function enforceLiteraryAgency(config: AiConfig, system: string, factPack:
 export async function generateLiteraryChapter(config: AiConfig, game: GameState, local: ChronicleChapter, onStage: (value: string) => void, onToken?: (text: string) => void): Promise<ChronicleChapter> {
   const literaryMemoryView = memoryPromptBlockWithIds(game.memory, "player", "player", local.week);
   const causalPack = buildLiteraryCausalPack(game, local);
+  const playerWorldView = projectWorldForAudience(game.worldKernel, { kind: "player", holderId: "player" });
   const playerLedResult = local.results.find((result) => result.contract.executionMode === "player-led" || result.contract.leaderId === "player");
   const factPack = {
     week: local.week,
@@ -149,7 +151,7 @@ export async function generateLiteraryChapter(config: AiConfig, game: GameState,
     availableOpportunities: game.opportunities.filter((item) => item.state === "available"),
     worldState: (() => { const snapshot = game.worldSnapshots?.find((item) => item.week === local.week); return snapshot ? { week: snapshot.week, date: snapshot.date, publicAtmosphere: snapshot.atmosphere } : null; })(),
     publicSignals: game.worldSignals?.filter((signal) => signal.week === local.week).slice(0, 8).map((signal) => ({ ...signal, relatedFactionId: undefined })) ?? [],
-    playerWorldKnowledge: game.worldKernel.knowledge.filter((node) => node.visibility === "public" || node.holderIds.includes("player") || node.holderRefs?.includes("player")).slice(-16),
+    playerWorldKnowledge: playerWorldView.knowledge.slice(-16),
     dynamicMemory: literaryMemoryView.text,
     finale: game.ending.campaign ? { stage: game.ending.campaign.stage, doctrine: game.ending.campaign.doctrine, reports: game.ending.campaign.reports.slice(0, 2), aftermath: game.ending.campaign.aftermath } : null,
     campaignWorld: { currentStageId: game.campaignWorld.currentStageId, cities: game.campaignWorld.cities.map((city) => ({ id: city.id, name: city.name, status: city.status, control: city.playerControl, intelligence: city.intelligence, pressure: city.localPressure })), postDeity: game.campaignWorld.postDeity },
@@ -178,19 +180,19 @@ export async function generateLiteraryChapter(config: AiConfig, game: GameState,
   const system = "你为原创维多利亚神秘主义互动小说《灰雾纪事》工作。使用严格的第三人称有限视角和克制的神秘悬疑文风，不复制任何现有小说句子。严格遵守participationDirective：玩家亲自参与时写连续现场，委派执行时只能写玩家收到的回报。不要套用固定的周报结构、固定开场、固定收尾、信息分类标题或‘首先/其次/最后’式模板；根据这一周真正发生的事情自行决定场景、节奏、详略和分节数量。即使玩家没有发布命令，也要以事实包里的报纸、街谈、来信、亲历场景和可感知异常写出世界继续运行的实感。事实包故意排除了全知世界层：不得补写任何未被玩家观察到的势力行动、幕后身份、秘密工程目的或原著真相；publicAtmosphere只能用于天气与公共气氛，不能从中推导幕后主体。只能表达事实包，不能新增事实。每个段落都要尽量在 paragraphSources 中标注它实际扩写的 receiptIds/eventIds；只能使用事实包允许的 ID，无法对应时留空数组。只返回JSON。";
   if ((config.quality ?? "balanced") === "balanced") {
     onStage("小说引擎正在把规则结果写成章节");
-    const written = extractJson(await callModel(config, system, `根据事实包写成600至1400字的完整章节。分节数量由内容决定，允许一段连续场景，也允许多地点交错；不要为了凑结构重复信息。正文必须自然分段，每段控制在180字以内，段落之间用空行节奏区分。返回JSON：{"title":"章名","sections":[{"heading":"自然分节名","paragraphs":["完整段落"],"paragraphSources":[{"receiptIds":["事实包中的收据ID"],"eventIds":["事实包中的事件ID"]}]}]}。paragraphSources 必须与 paragraphs 一一对应，不得改变成败或新增线索。\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6200, temperature: .86, stream: true, onToken }));
+    const written = extractJson(await callModel(config, system, `根据事实包写成600至1400字的完整章节。分节数量由内容决定，允许一段连续场景，也允许多地点交错；不要为了凑结构重复信息。正文必须自然分段，每段控制在180字以内，段落之间用空行节奏区分。返回JSON：{"title":"章名","sections":[{"heading":"自然分节名","paragraphs":["完整段落"],"paragraphSources":[{"receiptIds":["事实包中的收据ID"],"eventIds":["事实包中的事件ID"]}]}]}。paragraphSources 必须与 paragraphs 一一对应，不得改变成败或新增线索。\n事实：${JSON.stringify(factPack)}`, { task: "literary-generation", json: true, maxTokens: 6200, temperature: .86, stream: true, onToken }));
     submitLiterary("writer");
     const chapter = await enforceLiteraryAgency(config, system, factPack, game, local, validateChapter(written), onStage, onToken);
     return finalizeLiteraryChapter(local, { ...local, ...chapter }, causalPack);
   }
   onStage("叙事导演正在安排重点场景");
-  const director = extractJson(await callModel(config, `${system}\n你是叙事导演。`, `根据事实的戏剧重量制定600至1500字章节提纲，自行决定视角锚点、场景数量和结尾位置，不使用固定周报结构。返回JSON。\n${JSON.stringify(factPack)}`, { json: true, maxTokens: 2600, temperature: .62, stream: true, onToken }));
+  const director = extractJson(await callModel(config, `${system}\n你是叙事导演。`, `根据事实的戏剧重量制定600至1500字章节提纲，自行决定视角锚点、场景数量和结尾位置，不使用固定周报结构。返回JSON。\n${JSON.stringify(factPack)}`, { task: "literary-generation", json: true, maxTokens: 2600, temperature: .62, stream: true, onToken }));
   submitLiterary("director");
   onStage("正文作者正在写作");
-  const writer = extractJson(await callModel(config, `${system}\n你是正文作者。`, `按提纲完成正文，分节数量服从故事而不是模板。正文必须自然分段，每段控制在180字以内，避免整页无断落的长块文字。返回{"title":"章名","sections":[{"heading":"分节","paragraphs":["完整段落"],"paragraphSources":[{"receiptIds":[],"eventIds":[]}]}]}，paragraphSources 与 paragraphs 一一对应。\n提纲：${JSON.stringify(director)}\n事实：${JSON.stringify(factPack)}`, { json: true, maxTokens: 6800, temperature: .9, stream: true, onToken }));
+  const writer = extractJson(await callModel(config, `${system}\n你是正文作者。`, `按提纲完成正文，分节数量服从故事而不是模板。正文必须自然分段，每段控制在180字以内，避免整页无断落的长块文字。返回{"title":"章名","sections":[{"heading":"分节","paragraphs":["完整段落"],"paragraphSources":[{"receiptIds":[],"eventIds":[]}]}]}，paragraphSources 与 paragraphs 一一对应。\n提纲：${JSON.stringify(director)}\n事实：${JSON.stringify(factPack)}`, { task: "literary-generation", json: true, maxTokens: 6800, temperature: .9, stream: true, onToken }));
   submitLiterary("writer");
   onStage("连续性编辑正在校对世界事实");
-  const edited = extractJson(await callModel(config, `${system}\n你是连续性编辑，只能压缩、校正视角和人物语气。`, `校订并返回同样JSON。不得改变以下初稿所引用的事实；保留或收紧 paragraphSources，不得添加事实包之外的来源。\n事实：${JSON.stringify(factPack)}\n初稿：${JSON.stringify(writer)}`, { json: true, maxTokens: 6200, temperature: .35, stream: true, onToken }));
+  const edited = extractJson(await callModel(config, `${system}\n你是连续性编辑，只能压缩、校正视角和人物语气。`, `校订并返回同样JSON。不得改变以下初稿所引用的事实；保留或收紧 paragraphSources，不得添加事实包之外的来源。\n事实：${JSON.stringify(factPack)}\n初稿：${JSON.stringify(writer)}`, { task: "literary-generation", json: true, maxTokens: 6200, temperature: .35, stream: true, onToken }));
   submitLiterary("editor");
   const chapter = await enforceLiteraryAgency(config, system, factPack, game, local, validateChapter(edited), onStage, onToken);
   return finalizeLiteraryChapter(local, { ...local, ...chapter }, causalPack);

@@ -1,3 +1,5 @@
+import { sha256Hex } from "./sha256.ts";
+
 function canonicalPart(value: unknown): string {
   if (value === null) return "null";
   if (value === undefined) return "undefined";
@@ -11,14 +13,9 @@ function canonicalPart(value: unknown): string {
   return JSON.stringify(value);
 }
 
-/** Stable, non-cryptographic hash for persisted entity identity and replay keys. */
+/** Stable SHA-256 identity for persisted entities and replay keys. */
 export function stableTextHash(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
+  return sha256Hex(value);
 }
 
 export function stableEntityId(prefix: string, ...parts: unknown[]): string {
