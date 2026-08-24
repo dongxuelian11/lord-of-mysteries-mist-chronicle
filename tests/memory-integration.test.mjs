@@ -107,13 +107,15 @@ test("世界状态为 faction 观察者派生规范 belief、event 和 plan 记�
   const memory = await memoryModule();
   const state = memory.deriveMemoryFromWorldState(memory.emptyMemoryState(), {
     events: [{ id: "faction-observed-event", week: 4, title: "联络点异动", detail: "旧联络点附近出现陌生巡逻。", locationId: "east", actorIds: [], factionIds: [], visibility: "actors" }],
-    observations: [{ eventId: "faction-observed-event", holderIds: [], holderRefs: ["faction:press"], visibility: "actors" }],
+    observations: [{ id: "press-observation", week: 4, eventId: "faction-observed-event", channel: "通信", text: "旧联络点附近出现陌生巡逻。", holderIds: [], holderRefs: ["faction:press"], visibility: "actors", perceivedRefs: [], acquisitionKind: "communication" }],
     knowledge: [{ id: "faction-private-knowledge", subject: "network", statement: "旧联络点已经暴露", truth: "likely", visibility: "actors", holderIds: [], holderRefs: ["faction:press"], sourceEventId: "faction-observed-event", acquiredWeek: 4 }],
+    knowledgeGrants: [{ knowledgeId: "faction-private-knowledge", holderRef: "faction:press", kind: "communication", sourceObservationId: "press-observation" }],
     projects: [{ id: "press-relocation", ownerId: "press", title: "转移联络点", stage: "分散档案", progress: 30, secrecy: 80, nextMilestone: "启用备用信箱", blockers: [], status: "active", updatedWeek: 4 }],
     factions: [{ id: "press" }],
   }, 4);
 
-  assert.ok(state.events.some((event) => event.sourceEventId === "faction-observed-event" && event.observerIds.includes("faction:press")));
+  assert.ok(state.events.some((event) => event.sourceEventId === "faction-observed-event" && event.observerIds.length === 0));
+  assert.ok(state.beliefs.some((belief) => belief.characterId === "faction:press" && belief.claim === "旧联络点附近出现陌生巡逻。" && belief.learnedFrom.sourceId === "press-observation"));
   assert.ok(state.beliefs.some((belief) => belief.characterId === "faction:press" && belief.claim === "旧联络点已经暴露"));
   assert.ok(state.plans.some((plan) => plan.sourcePlanId === "press-relocation" && plan.ownerId === "faction:press" && plan.participantIds.includes("faction:press")));
   const projection = memory.buildAutonomousMemoryProjection(state, { kind: "faction", factionId: "press" }, 4);

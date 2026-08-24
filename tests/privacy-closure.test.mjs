@@ -40,6 +40,32 @@ function commit(kernel, delta, turnId = `privacy:${delta.week}`) {
   });
 }
 
+test("canonical holderRefs override ambiguous legacy holderIds in audience projection", () => {
+  const kernel = createWorldKernel({
+    week: 1,
+    date: "1349年1月1日",
+    actors: [{ id: "shared", name: "同名角色", locationId: "dock", agenda: "核验" }],
+    factions: [{ id: "faction-seed", name: "同名势力", plan: "保密", progress: 1 }],
+    locations: [{ id: "dock", name: "码头", risk: 20 }],
+    timeline: [],
+  });
+  kernel.factions = kernel.factions.map((faction) => ({ ...faction, id: "shared" }));
+  kernel.knowledge = [{
+    id: "faction-only",
+    subject: "势力秘密",
+    statement: "只应由同名势力持有。",
+    truth: "confirmed",
+    visibility: "actors",
+    holderIds: ["shared"],
+    holderRefs: ["faction:shared"],
+    loreRecordIds: [],
+    acquiredWeek: 1,
+  }];
+
+  assert.equal(projectWorldForAudience(kernel, { kind: "actor", holderId: "shared" }).knowledge.length, 0);
+  assert.equal(projectWorldForAudience(kernel, { kind: "faction", holderId: "shared" }).knowledge.length, 1);
+});
+
 test("角色地点投影只暴露受众已知的边界字段", () => {
   const kernel = createWorldKernel({
     week: 1,
@@ -72,7 +98,8 @@ test("角色地点投影只暴露受众已知的边界字段", () => {
     observations: [],
   });
 
-  const location = projectWorldForAudience(next, { kind: "actor", holderId: "owner" }).locations[0];
+  const firstProjection = projectWorldForAudience(next, { kind: "actor", holderId: "owner" });
+  const location = firstProjection.locations[0];
   assert.ok(location);
   assert.equal("actorIds" in location, false);
   assert.equal("factionIds" in location, false);
@@ -80,17 +107,21 @@ test("角色地点投影只暴露受众已知的边界字段", () => {
   assert.deepEqual(location.knownActorIds, ["owner"]);
   assert.deepEqual(location.knownFactionIds, []);
   assert.deepEqual(location.knownConditions, []);
-  assert.equal(location.perceivedRisk, 77);
-  assert.equal(location.publicMood, "日常秩序仍在维持");
+  assert.equal(location.perceivedRisk, null);
+  assert.equal(location.publicMood, null);
+  assert.equal(location.stability, null);
   assert.equal(JSON.stringify(location).includes("hidden"), false);
   assert.equal(JSON.stringify(location).includes("secret-condition"), false);
+  assert.equal("actorIds" in firstProjection.events[0], false);
+  assert.equal("factionIds" in firstProjection.events[0], false);
+  assert.deepEqual(firstProjection.events[0].knownActorIds, ["owner"]);
+  assert.deepEqual(firstProjection.events[0].knownFactionIds, []);
   const ownerFrame = buildAutonomousDecisionFrames(createAutonomousWorldState(next), next, 1).find((frame) => frame.ref === "actor:owner");
   assert.ok(ownerFrame);
   const planningProjection = buildAgentPlanningProjection(ownerFrame, next);
   assert.equal("actorIds" in (planningProjection.currentLocation ?? {}), false);
   assert.equal(JSON.stringify(planningProjection.currentLocation).includes("secret-condition"), false);
 
-  const firstProjection = projectWorldForAudience(next, { kind: "actor", holderId: "owner" });
   const replayProjection = projectWorldForAudience(next, { kind: "actor", holderId: "owner" });
   assert.equal(typeof firstProjection.projectionHash, "string");
   assert.equal("revision" in firstProjection, false);
@@ -138,6 +169,37 @@ test("受众世界投影不携带知识与观察的权威内部字段", () => {
   assert.equal("loreRecordIds" in projection.knowledge[0], false);
   assert.equal("holderRefs" in projection.knowledge[0], false);
   assert.deepEqual(projection.knowledgeGrants, [{ knowledgeId: "visible-knowledge", kind: "witness" }]);
+  assert.equal("truth" in projection.knowledge[0], false);
+  assert.equal(projection.knowledge[0].epistemicStatus, "witnessed");
+});
+
+test("同处一地和事件权威参与者不等于受众辨认了隐藏主体", () => {
+  const kernel = createWorldKernel({
+    week: 1,
+    date: "1349年1月1日",
+    actors: [
+      { id: "observer", name: "观察者", locationId: "dock", agenda: "观察" },
+      { id: "hidden", name: "隐藏者", locationId: "dock", agenda: "潜伏" },
+    ],
+    factions: [{ id: "hidden-faction", name: "隐藏势力", plan: "潜伏", progress: 20 }],
+    locations: [{ id: "dock", name: "码头", risk: 88 }],
+    timeline: [],
+  });
+  const next = commit(kernel, {
+    week: 1,
+    playerIssuedNoOrders: true,
+    actorUpdates: [], factionUpdates: [], projectUpdates: [], locationUpdates: [],
+    events: [{ id: "dock-event", title: "码头异响", detail: "雾里传来一次碰撞声。", locationId: "dock", actorIds: ["observer", "hidden"], factionIds: ["hidden-faction"], causeIds: [], visibility: "world" }],
+    observations: [{ id: "observer-heard", eventId: "dock-event", channel: "目击", text: "观察者只听见碰撞，没有辨认出其他人。", visibility: "actors", holderIds: ["observer"], holderRefs: ["actor:observer"], perceivedRefs: ["actor:observer"], acquisitionKind: "witness" }],
+  });
+  const projection = projectWorldForAudience(next, { kind: "actor", holderId: "observer" });
+  assert.deepEqual(projection.events[0].knownActorIds, ["observer"]);
+  assert.deepEqual(projection.events[0].knownFactionIds, []);
+  assert.equal(projection.events[0].locationId, undefined);
+  assert.deepEqual(projection.locations[0].knownActorIds, ["observer"]);
+  assert.deepEqual(projection.locations[0].knownFactionIds, []);
+  assert.equal(JSON.stringify(projection).includes("hidden-faction"), false);
+  assert.equal(JSON.stringify(projection).includes('"hidden"'), false);
 });
 
 test("议会模型调用按成员隔离私有上下文", async () => {
@@ -150,6 +212,7 @@ test("议会模型调用按成员隔离私有上下文", async () => {
   const members = councilSystem.relevantCouncilMembers(gameBase, topic, 3);
   assert.equal(members.length, 3);
   const privateTokens = Object.fromEntries(members.map((member) => [member.id, `PRIVATE_${member.id.toUpperCase()}`]));
+  const privateOrderTokens = Object.fromEntries(members.map((member) => [member.id, `PRIVATE_ORDER_${member.id.toUpperCase()}`]));
   const { state } = memory.deriveMemory(gameBase.memory, members.map((member) => ({
     kind: "belief",
     characterId: member.id,
@@ -162,7 +225,12 @@ test("议会模型调用按成员隔离私有上下文", async () => {
     validFromWeek: gameBase.week,
     secrecy: "secret",
   })));
-  const game = { ...gameBase, memory: state };
+  const game = {
+    ...gameBase,
+    memory: state,
+    facts: [...gameBase.facts, { id: "player-only", subject: "玩家密档", statement: "PLAYER_ONLY_GLOBAL_SECRET", certainty: "确认", source: "玩家私人笔记", week: gameBase.week }],
+    schedule: members.map((member) => ({ title: privateOrderTokens[member.id], rawIntent: privateOrderTokens[member.id], risk: "低", leaderId: member.id, memberIds: [member.id] })),
+  };
   const requests = [];
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
@@ -191,10 +259,37 @@ test("议会模型调用按成员隔离私有上下文", async () => {
       const prompt = request.messages?.[1]?.content ?? "";
       const visibleTokens = members.filter((member) => prompt.includes(privateTokens[member.id]));
       assert.equal(visibleTokens.length, 1);
+      const visibleOrderTokens = members.filter((member) => prompt.includes(privateOrderTokens[member.id]));
+      assert.equal(visibleOrderTokens.length, 1);
+      assert.equal(prompt.includes("PLAYER_ONLY_GLOBAL_SECRET"), false);
     }
   } finally {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;
   }
+});
+
+test("world-only knowledge cannot authorize player or actor proposals", async () => {
+  const model = await loadRuntimeModule("app/game-model.ts");
+  const actions = await loadRuntimeModule("app/world-actions.ts");
+  const game = model.createInitialGame("seer");
+  const memberId = game.members[0].id;
+  game.worldKernel = {
+    ...game.worldKernel,
+    knowledge: [...game.worldKernel.knowledge, {
+      id: "world-only-authority-secret",
+      subject: "幕后身份",
+      statement: "只有世界规则层掌握。",
+      truth: "confirmed",
+      visibility: "world",
+      holderIds: [],
+      holderRefs: [],
+      loreRecordIds: [],
+      acquiredWeek: game.week,
+    }],
+  };
+  const context = actions.createActionRuleContext(game);
+  assert.equal(context.knowledgeByRef.get("player")?.has("world-only-authority-secret"), false);
+  assert.equal(context.knowledgeByRef.get(`actor:${memberId}`)?.has("world-only-authority-secret"), false);
 });

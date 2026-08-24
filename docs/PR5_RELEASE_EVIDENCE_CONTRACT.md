@@ -14,7 +14,8 @@ PR5 把“完成”“未运行”“不可用”和“被阻塞”保持为可�
   "source": {
     "commit": "<当前提交 SHA>",
     "branch": "<分支或 DETACHED>",
-    "worktreeStatus": "clean"
+    "worktreeStatus": "clean",
+    "machineId": "<构建机身份>"
   },
   "claims": [
     {
@@ -43,6 +44,8 @@ PR5 把“完成”“未运行”“不可用”和“被阻塞”保持为可�
 
 `artifact` 证据必须使用仓库相对路径、64 位 SHA-256，并由校验器重新读取文件比对；路径穿越、绝对路径、缺文件或 hash 不匹配都会失败。`--match-head` 会再把 `source.commit` 与当前 Git HEAD 比对。
 
+`packaged` 及以上等级的 `PASS` 不能只给命令文本：必须同时提供已重新计算 SHA-256 的 `artifact` 和把该摘要绑定到完整 source commit 的 `provenance`，且 source worktree 必须为 `clean`。`clean-machine` 及以上还必须给出不同于构建机的执行机身份，并明确 `sourceCheckout=ABSENT`、`dependencyInstall=NOT_RUN`、`artifactTransferVerified=true`；这会阻止同一机器、源码 checkout 或临时安装依赖被冒充为干净机器证据。`production` 另需 HTTPS 部署地址与实际 artifact SHA-256；`human` 另需观察证据与正数会话时长。
+
 ## 校验
 
 ```powershell
@@ -50,4 +53,4 @@ node scripts/release/verify-evidence.mjs .runtime/release-evidence.json
 node scripts/release/verify-evidence.mjs .runtime/release-evidence.json --match-head
 ```
 
-PR4 的本机结果可以作为 `local-electron` claim；它不能替代 `packaged`、`clean-machine`、`production` 或 `human` 证据。当前 PR3 因授权 seed 缺失仍应记录为 `BLOCKED`/`NOT_RUN`，不能用空知识库、源码生成物或 adapter-only 结果填充。
+PR4 的本机结果可以作为 `local-electron` claim；它不能替代 `packaged`、`clean-machine`、`production` 或 `human` 证据。当前 PR3 因授权 seed 缺失仍应记录为 `BLOCKED`/`NOT_RUN`，不能用空知识库、源码生成物或 adapter-only 结果填充。第 5 阶段只强化了证据门禁，没有凭空生成安装包：截至 2026-08-23，installer smoke 仍为 `NOT_RUN`，clean-machine / production / human 仍为 `NOT_AVAILABLE`。

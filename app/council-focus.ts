@@ -1,5 +1,6 @@
 import type { GameState } from "./game-model";
 import { relevantCouncilMembers } from "./council-system.ts";
+import { projectWorldForAudience } from "./world-kernel.ts";
 
 export type CouncilMatterKind = "strategy" | "world-pressure" | "organization-exception";
 
@@ -73,13 +74,12 @@ function directiveTitle(game: GameState, actionId?: string) {
 
 function visibleEventTitles(game: GameState, eventIds: string[] = []) {
   const requested = new Set(eventIds);
-  const kernelTitles = game.worldKernel.events
+  const kernelTitles = projectWorldForAudience(game.worldKernel, { kind: "player", holderId: "player" }).events
     .filter((event) => requested.has(event.id))
-    .filter((event) => event.visibility === "public" || event.visibility === "player" || event.witnessRefs?.includes("player"))
     .map((event) => event.title);
   const ledgerTitles = game.worldLedger.events
     .filter((event) => requested.has(event.id))
-    .filter((event) => event.audience.visibility === "public" || event.audience.visibility === "player" || event.audience.holderRefs.includes("player") || event.witnessRefs.includes("player"))
+    .filter((event) => event.audience.visibility === "public" || event.audience.visibility === "player" || event.audience.holderRefs.includes("player"))
     .map((event) => event.summary);
   return [...new Set([...kernelTitles, ...ledgerTitles].map((title) => title.trim()).filter(Boolean))].slice(0, 3);
 }

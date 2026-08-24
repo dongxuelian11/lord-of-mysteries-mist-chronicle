@@ -15,10 +15,17 @@ test("AI API Key is bridged through Electron safeStorage, not persisted in local
 
   assert.match(main, /safeStorage/);
   assert.match(preload, /mistCredentials/);
+  assert.doesNotMatch(preload, /credentials:load|\.load\(/);
+  assert.match(preload, /mistInference/);
+  assert.doesNotMatch(preload, /apiKey.*invoke\("inference:request"/);
   assert.match(renderer, /saveAiSessionSettings/);
   assert.match(session, /serializeAiSettings/);
   assert.match(storage, /apiKey: "", rememberKey/);
   assert.doesNotMatch(`${renderer}\n${session}`, /apiKey:\s*rememberApiKey\s*\?/);
+  assert.match(main, /will-navigate/);
+  assert.match(main, /setWindowOpenHandler/);
+  assert.match(main, /setPermissionRequestHandler/);
+  assert.match(main, /Content-Security-Policy/);
 });
 
 test("persistence uses a Main-process SQLite bridge instead of renderer filesystem access", () => {

@@ -175,10 +175,12 @@ const qaKey = process.env.QA_KEY || "";
   };
   const stateJson = JSON.stringify(game);
   const { app, window, errors } = await launch(appData, 3623, path.join(appData, "灰雾纪事", "rag", "index"));
-  await window.evaluate(([state, key]) => {
+  await window.evaluate(async ([state, key]) => {
     window.localStorage.setItem("mist-chronicle-complete-v15", state);
     if (key) {
-      window.localStorage.setItem("mist-chronicle-save-v3-ai", JSON.stringify({ provider: "deepseek", endpoint: "https://api.deepseek.com", apiKey: key, model: "deepseek-chat", quality: "balanced", rememberKey: true }));
+      const stored = await window.mistCredentials?.set(key, true);
+      if (!stored?.configured) throw new Error(stored?.error ?? "qa-credential-stage-failed");
+      window.localStorage.setItem("mist-chronicle-save-v3-ai", JSON.stringify({ provider: "deepseek", endpoint: "https://api.deepseek.com", apiKey: "", model: "deepseek-chat", quality: "balanced", rememberKey: Boolean(stored.persistent) }));
     }
   }, [stateJson, qaKey]);
   await window.reload({ waitUntil: "load" });
@@ -216,9 +218,11 @@ if (qaKey) {
     schedule: [],
   };
   const stateJsonE = JSON.stringify(gameE);
-  await window.evaluate(([state, key]) => {
+  await window.evaluate(async ([state, key]) => {
     window.localStorage.setItem("mist-chronicle-complete-v15", state);
-    window.localStorage.setItem("mist-chronicle-save-v3-ai", JSON.stringify({ provider: "deepseek", endpoint: "https://api.deepseek.com", apiKey: key, model: "deepseek-v4-flash", quality: "balanced", rememberKey: true }));
+    const stored = await window.mistCredentials?.set(key, true);
+    if (!stored?.configured) throw new Error(stored?.error ?? "qa-credential-stage-failed");
+    window.localStorage.setItem("mist-chronicle-save-v3-ai", JSON.stringify({ provider: "deepseek", endpoint: "https://api.deepseek.com", apiKey: "", model: "deepseek-v4-flash", quality: "balanced", rememberKey: Boolean(stored.persistent) }));
   }, [stateJsonE, qaKey]);
   await window.reload({ waitUntil: "load" });
   await sleep(4000);

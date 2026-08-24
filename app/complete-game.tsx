@@ -23,7 +23,7 @@ import OrganizationManagementConsole from "./organization-management-console";
 import { advanceManagedBeyonder, promoteCandidate, recalculateBacklundControl, type OrganizationManagementState } from "./organization-management";
 import GreatSmogFinale from "./great-smog-finale";
 import AiSettings from "./ai-settings";
-import { AiConfig, DEEPSEEK_FLASH_PRESET, testModelConnection } from "./ai-client";
+import { AiConfig, DEEPSEEK_FLASH_PRESET, isLoopbackInferenceEndpoint, testModelConnection } from "./ai-client";
 import WeeklyCouncil from "./weekly-council";
 import OpeningPrologue from "./opening-prologue";
 import AbilityConsole from "./ability-console";
@@ -32,12 +32,12 @@ import { abilityForFreeIntent, continueAbilityScene, generateAbilityDraft, gener
 import { generateCouncilReplies, generateCouncilSummary, generateDecisionDraft } from "./council-ai";
 import { actingPrinciplesFor, advancementStatus } from "./progression-system";
 import { abilitiesFor } from "./pathway-abilities";
-import { createRecoveryCheckpointAsync, downloadSave, normalizeStoredGame, parseSaveEnvelope, savePreview } from "./save-system";
+import { createRecoveryCheckpointAsync, downloadSave, normalizeStoredGame, parseSaveEnvelope, readRecoveryCheckpointsAsync, savePreview, type RecoveryCheckpoint } from "./save-system";
 import { continueAsSuccessor } from "./succession-system";
 import ParticipationSceneOverlay from "./participation-scene-overlay";
 import { createParticipationScene, resolveParticipationSceneTurn } from "./participation-scene";
 import { stableEntityId, stableTextHash } from "./stable-id";
-import { clearAiSessionKey, loadGameSession, persistActiveGame, persistActiveGameAsync, saveAiSessionSettings } from "./game-session-controller";
+import { branchRecoveredGame, clearAiSessionKey, loadGameSession, persistActiveGame, persistActiveGameAsync, replaceActiveGameWithRecoveryAsync, saveAiSessionSettings, stageAiCredential } from "./game-session-controller";
 import { appendPlayerDialogue, applyDialogueDecision, applyDialogueModelResult, chooseDialogueScreeningAction, ensureDialogueThread } from "./dialogue-session-controller";
 import type { AttentionSimulationState } from "./attention-simulation.ts";
 
@@ -62,6 +62,20 @@ function authorizationLabel(contract: ActionContract) {
 }
 
 const PERSISTENCE_FATAL_MESSAGE = "本机存档数据库无法打开；为避免覆盖旧状态，已阻止需要持久化的推进。请修复数据库后重试。";
+
+async function lockDesktopWorldTurn(game: GameState, resolvingWeek: number) {
+  if (typeof window === "undefined" || typeof window.mistInference?.requestWorld !== "function") return;
+  if (typeof window.mistInference.lockWorld !== "function") throw new Error("WORLD_INFERENCE_LOCK_UNAVAILABLE");
+  const locked = await window.mistInference.lockWorld({ turnId: `world:${resolvingWeek}`, baseRevision: game.worldKernel.revision });
+  if (!locked.ok || typeof locked.snapshotHash !== "string" || !/^[0-9a-f]{64}$/.test(locked.snapshotHash)) throw new Error(locked.error ?? "WORLD_INFERENCE_LOCK_FAILED");
+}
+
+async function stageDesktopWorldTurn(game: GameState, resolvingWeek: number) {
+  if (typeof window === "undefined" || typeof window.mistInference?.requestWorld !== "function") return;
+  if (typeof window.mistInference.stageWorld !== "function") throw new Error("WORLD_INFERENCE_RESOLUTION_UNAVAILABLE");
+  const staged = await window.mistInference.stageWorld({ turnId: `world:${resolvingWeek}`, baseRevision: game.worldKernel.revision, resolution: game });
+  if (!staged.ok || typeof staged.resolutionHash !== "string" || !/^[0-9a-f]{64}$/.test(staged.resolutionHash)) throw new Error(staged.error ?? "WORLD_INFERENCE_RESOLUTION_FAILED");
+}
 
 function editableContractField(contract: ActionContract, setContract: (value: ActionContract) => void, key: keyof ActionContract, label: string, wide = false) {
   const value = contract[key];
@@ -109,7 +123,9 @@ export default function CompleteGame() {
   const [aiConfig, setAiConfig] = useState<AiConfig>({ ...DEEPSEEK_FLASH_PRESET });
   const [rememberApiKey, setRememberApiKey] = useState(false);
   const [secureStorageAvailable, setSecureStorageAvailable] = useState(false);
+  const [credentialConfigured, setCredentialConfigured] = useState(false);
   const [persistenceError, setPersistenceError] = useState("");
+  const [recoveryOptions, setRecoveryOptions] = useState<RecoveryCheckpoint[]>([]);
   const [connectionState, setConnectionState] = useState<{ status: "idle" | "testing" | "success" | "error"; message: string }>({ status: "idle", message: "" });
   const [connectionVerified, setConnectionVerified] = useState(false);
   const [draftPathway, setDraftPathway] = useState<PathwayId>("seer");
@@ -139,11 +155,21 @@ export default function CompleteGame() {
       if (loaded.game) setGame(loaded.game);
       setHasSave(loaded.hasSave);
       setSecureStorageAvailable(loaded.secureStorageAvailable);
+      setCredentialConfigured(loaded.credentialConfigured);
       if (loaded.aiConfig) setAiConfig(loaded.aiConfig);
       setRememberApiKey(loaded.rememberApiKey);
       if (loaded.persistenceError) {
         setPersistenceError(PERSISTENCE_FATAL_MESSAGE);
         setToast(PERSISTENCE_FATAL_MESSAGE);
+      }
+      try {
+        const recoveries = await readRecoveryCheckpointsAsync();
+        if (!cancelled) setRecoveryOptions(recoveries);
+      } catch {
+        if (!loaded.persistenceError) {
+          setPersistenceError(PERSISTENCE_FATAL_MESSAGE);
+          setToast(PERSISTENCE_FATAL_MESSAGE);
+        }
       }
       setHydrated(true);
     })(); }, 0);
@@ -163,7 +189,15 @@ export default function CompleteGame() {
   const currentSequence = pathway.sequences.find((sequence) => sequence.rank === game.currentSequence)!;
   const nextSequence = pathway.sequences.find((sequence) => sequence.rank === game.currentSequence - 1);
   const abilities = availableAbilities(game);
-  const aiReady = Boolean(aiConfig.endpoint.trim() && aiConfig.apiKey.trim() && aiConfig.model.trim());
+  const desktopInference = typeof window !== "undefined" && Boolean(window.mistInference && window.mistCredentials);
+  const provider = aiConfig.provider ?? "deepseek";
+  const aiReady = Boolean(aiConfig.endpoint.trim() && aiConfig.model.trim() && (
+    desktopInference
+      ? provider === "compatible"
+        ? isLoopbackInferenceEndpoint(aiConfig.endpoint)
+        : credentialConfigured || aiConfig.apiKey.trim()
+      : aiConfig.apiKey.trim()
+  ));
   const latestChapter = game.chronicle[0];
 
   function blockPersistence() {
@@ -273,6 +307,8 @@ export default function CompleteGame() {
     let simulatedState: GameState;
     const worldStartedAt = performance.now();
     try {
+      await lockDesktopWorldTurn(councilState, resolvedChapter.week);
+      await stageDesktopWorldTurn(councilState, resolvedChapter.week);
       simulatedState = await generateAiWorldDelta(aiConfig, councilState, resolvedChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
       setTurnStages([{ name: "世界推演", ms: Math.round(performance.now() - worldStartedAt), status: "ok" }]);
     } catch (error) {
@@ -288,6 +324,14 @@ export default function CompleteGame() {
       return;
     }
     const enrichedChapter = simulatedState.chronicle.find((chapter) => chapter.id === resolvedChapter.id) ?? resolvedChapter;
+    try {
+      await persistActiveGameAsync(simulatedState);
+    } catch {
+      blockPersistence();
+      setGenerationStage("");
+      setStreamPreview("");
+      return;
+    }
     setCouncilDecisionSignal(0);
     setTurnChapter(enrichedChapter);
     gameRef.current = simulatedState;
@@ -328,6 +372,12 @@ export default function CompleteGame() {
         setGenerationError("本周局面在保存恢复点期间发生了变化；本次结算已取消，请从当前局面重新发起。");
         return;
       }
+      try {
+        await lockDesktopWorldTurn(sourceGame, sourceGame.worldKernel.currentWeek);
+      } catch (error) {
+        setGenerationError(`${error instanceof Error ? error.message : "世界权威快照锁定失败"}；本周尚未结算，当前局面没有改变。`);
+        return;
+      }
       const resolved = resolveWeek(sourceGame);
       const councilState: GameState = {
         ...resolved.state,
@@ -336,6 +386,12 @@ export default function CompleteGame() {
           ...(resolved.state.councilRecords.some((record) => record.week === resolved.state.week) ? [] : [{ week: resolved.state.week, status: "convened" as const, decisions: [] }]),
         ],
       };
+      try {
+        await stageDesktopWorldTurn(councilState, resolved.chapter.week);
+      } catch (error) {
+        setGenerationError(`${error instanceof Error ? error.message : "本周规则结果冻结失败"}；本周尚未进入世界推演，当前局面没有改变。`);
+        return;
+      }
       const playerResult = resolved.chapter.results.find((result) => ["executed", "limited", "partially-completed", "interrupted"].includes(result.executionStatus ?? "") && (result.contract.leaderId === "player" || result.contract.executionMode === "player-led"));
       if (playerResult) {
         setGenerationError("");
@@ -424,15 +480,17 @@ export default function CompleteGame() {
   async function resolveFinaleStage() {
     if (generationStage || worldTurnInFlight.current) return;
     if (!ensurePersistenceReady()) return;
+    if (!aiReady) { setShowSettings(true); setToast("先连接人物与叙事模型，再继续终局世界回应"); return; }
     const sourceGame = game;
-    const next = resolveFinalePhase(sourceGame);
-    if (next === game) { setToast("三项并发危机都必须指派执行者"); return; }
+    const pendingFinale = sourceGame.pendingFinaleWorldTurn;
+    const next = pendingFinale ? sourceGame : resolveFinalePhase(sourceGame);
+    if (!pendingFinale && next === sourceGame) { setToast("三项并发危机都必须指派执行者"); return; }
     worldTurnInFlight.current = true;
     let finaleWorldFailed = true;
     let finaleLiteraryStartedAt = 0;
     const finaleWorldStartedAt = performance.now();
     try {
-      if (sourceGame.ending.campaign?.stage === 1 && !sourceGame.ending.campaign.reports.length) {
+      if (!pendingFinale && sourceGame.ending.campaign?.stage === 1 && !sourceGame.ending.campaign.reports.length) {
         try {
           await createRecoveryCheckpointAsync(sourceGame, "finale");
         } catch {
@@ -444,20 +502,44 @@ export default function CompleteGame() {
         setGenerationError("终局局面在保存恢复点期间发生了变化；本次结算已取消，请从当前局面重新发起。");
         return;
       }
-      const localChapter = next.chronicle[0];
+      const localChapter = pendingFinale
+        ? next.chronicle.find((chapter) => chapter.id === pendingFinale.chapterId)
+        : next.chronicle[0];
+      if (!localChapter) throw new Error("待处理的终局规则战报不存在");
+      await lockDesktopWorldTurn(sourceGame, localChapter.week);
+      const pendingState: GameState = pendingFinale ? next : {
+        ...next,
+        pendingFinaleWorldTurn: {
+          turnId: `world:${localChapter.week}`,
+          chapterId: localChapter.id,
+          baseRevision: sourceGame.worldKernel.revision,
+        },
+      };
+      await stageDesktopWorldTurn(pendingState, localChapter.week);
       setStreamPreview("");
-      gameRef.current = next;
-      setGame(next); setTurnChapter(localChapter); setGenerationError("");
-      if (next.ending.phase === "ended") setView("ending");
-      if (!aiReady || !localChapter || localChapter.id === game.chronicle[0]?.id) return;
-      const worldSimulated = await generateAiWorldDelta(aiConfig, next, localChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
-      if (!isCurrentGame(next, "终局局面在世界推演期间发生了变化；世界结果没有落地，请从当前局面重新发起。")) return;
+      try {
+        await persistActiveGameAsync(pendingState);
+      } catch {
+        blockPersistence();
+        return;
+      }
+      gameRef.current = pendingState;
+      setGame(pendingState); setTurnChapter(localChapter); setGenerationError("");
+      const worldSimulated = await generateAiWorldDelta(aiConfig, pendingState, localChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
+      if (!isCurrentGame(pendingState, "终局局面在世界推演期间发生了变化；世界结果没有落地，请从当前局面重新发起。")) return;
+      const simulated = { ...refreshFinaleFronts(worldSimulated), pendingFinaleWorldTurn: undefined };
+      const enrichedChapter = simulated.chronicle.find((chapter) => chapter.id === localChapter.id) ?? localChapter;
+      try {
+        await persistActiveGameAsync(simulated);
+      } catch {
+        blockPersistence();
+        return;
+      }
       finaleWorldFailed = false;
       setTurnStages([{ name: "重大事件世界推演", ms: Math.round(performance.now() - finaleWorldStartedAt), status: "ok" }]);
-      const simulated = refreshFinaleFronts(worldSimulated);
-      const enrichedChapter = simulated.chronicle.find((chapter) => chapter.id === localChapter.id) ?? localChapter;
       gameRef.current = simulated;
       setGame(simulated); setTurnChapter(enrichedChapter);
+      if (simulated.ending.phase === "ended") setView("ending");
       finaleLiteraryStartedAt = performance.now();
       const literary = await generateLiteraryChapter(aiConfig, simulated, enrichedChapter, setGenerationStage, (token) => setStreamPreview((prev) => `${prev}${token}`.slice(-6000)));
       if (!isCurrentGame(simulated, "终局世界事实已经保存，但界面局面在文学生成期间发生了变化；文学结果没有覆盖当前状态。")) return;
@@ -649,21 +731,13 @@ export default function CompleteGame() {
       if (!confirmed) return;
       if (!ensurePersistenceReady()) return;
       const sourceGame = game;
-      if (sourceGame.prologueComplete) {
-        try {
-          await createRecoveryCheckpointAsync(sourceGame, "import");
-        } catch {
-          blockPersistence();
-          return;
-        }
-      }
       if (gameRef.current !== sourceGame) {
-        setToast("当前局面在保存恢复点期间发生了变化，导入已取消");
+        setToast("当前局面在导入确认期间发生了变化，导入已取消");
         return;
       }
-      const next = normalizeStoredGame(envelope.game);
+      const next = branchRecoveredGame(normalizeStoredGame(envelope.game), "import");
       try {
-        await persistActiveGameAsync(next);
+        await replaceActiveGameWithRecoveryAsync(sourceGame, next, "import");
       } catch {
         blockPersistence();
         return;
@@ -671,6 +745,24 @@ export default function CompleteGame() {
       setGame(next); setHasSave(true); setEntry("title"); setToast("存档校验通过并已导入；仍从标题页进入游戏");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "导入失败；当前存档没有被覆盖");
+    }
+  }
+
+  async function restoreRecovery(checkpoint: RecoveryCheckpoint) {
+    const confirmed = window.confirm(`恢复第${checkpoint.game.week}周的安全存档？当前局面不会在确认完成前改变。`);
+    if (!confirmed) return;
+    const sourceGame = game;
+    const next = branchRecoveredGame(normalizeStoredGame(checkpoint.game), checkpoint.id);
+    try {
+      if (hasSave && sourceGame.prologueComplete) await replaceActiveGameWithRecoveryAsync(sourceGame, next, "history-branch");
+      else await persistActiveGameAsync(next);
+      setGame(next);
+      setHasSave(true);
+      setPersistenceError("");
+      setRecoveryOptions(await readRecoveryCheckpointsAsync());
+      setToast(`已恢复到第${next.week}周；请从标题页继续`);
+    } catch {
+      blockPersistence();
     }
   }
 
@@ -787,8 +879,10 @@ export default function CompleteGame() {
   }
 
   async function saveSettings() {
-    const { remembered } = await saveAiSessionSettings(aiConfig, rememberApiKey, secureStorageAvailable);
+    const { remembered, credentialConfigured: configured } = await saveAiSessionSettings(aiConfig, rememberApiKey, secureStorageAvailable);
     setRememberApiKey(remembered);
+    setCredentialConfigured(configured);
+    if (desktopInference) setAiConfig((current) => ({ ...current, apiKey: "" }));
     setConnectionVerified(false);
     setShowSettings(false);
     setToast(!rememberApiKey || remembered
@@ -799,6 +893,7 @@ export default function CompleteGame() {
   async function clearSavedKey() {
     await clearAiSessionKey(aiConfig);
     setAiConfig((current) => ({ ...current, apiKey: "" }));
+    setCredentialConfigured(false);
     setRememberApiKey(false);
     setConnectionVerified(false);
     setConnectionState({ status: "idle", message: "已清除本机保存的密钥" });
@@ -809,7 +904,13 @@ export default function CompleteGame() {
     if (!aiReady || connectionState.status === "testing") return;
     setConnectionState({ status: "testing", message: "正在发送最小测试请求，不会消耗游戏回合" });
     try {
-      const result = await testModelConnection(aiConfig);
+      const staged = await stageAiCredential(aiConfig, rememberApiKey, secureStorageAvailable);
+      if (desktopInference && provider === "deepseek" && !staged.configured) throw new Error(staged.error ?? "MODEL_CREDENTIAL_UNAVAILABLE");
+      if (desktopInference) {
+        setCredentialConfigured(Boolean(staged.configured));
+        setAiConfig((current) => ({ ...current, apiKey: "" }));
+      }
+      const result = await testModelConnection(desktopInference ? { ...aiConfig, apiKey: "" } : aiConfig);
       setConnectionState({ status: "success", message: `${aiConfig.model} 已回应 · ${result.latencyMs}ms` });
       setConnectionVerified(true);
     } catch (error) { setConnectionState({ status: "error", message: error instanceof Error ? error.message : "连接测试失败" }); }
@@ -954,7 +1055,8 @@ export default function CompleteGame() {
   if (entry === "title") return <>
     <TitleScreen hydrated={hydrated} hasSave={hasSave} save={game} onContinue={continueSavedGame} onNewGame={startNewGame} onSettings={() => setShowSettings(true)} onExport={() => downloadSave(game)} onImport={(file) => void importSave(file)} />
     {persistenceError && <div className="inline-warning persistence-warning" role="alert"><ShieldAlert size={15} /><span>{persistenceError}</span><button onClick={() => setShowSettings(true)}>检查数据库</button></div>}
-    {showSettings && <div className="complete-sheet-backdrop title-settings-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="title-settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本地配置</p><h2 id="title-settings-title">模型、世界推演与设定资料</h2></div><button onClick={() => setShowSettings(false)} aria-label="关闭设置"><X size={17} /></button></header><AiSettings config={aiConfig} rememberKey={rememberApiKey} secureStorageAvailable={secureStorageAvailable} connection={connectionState} turnStages={turnStages} showDiagnostics={DEV_MODE} autoDecision={autoExecuteDecision} onAutoDecision={(value) => { setAutoExecuteDecision(value); window.localStorage.setItem("mist-chronicle-auto-decision", value ? "1" : "0"); }} draftPathway={draftPathway} onChange={(patch) => { setAiConfig((current) => ({ ...current, ...patch })); setConnectionState({ status: "idle", message: "配置已改变，请重新测试" }); setConnectionVerified(false); }} onRememberKey={setRememberApiKey} onTest={() => void testConnection()} onSave={() => void saveSettings()} onClearKey={() => void clearSavedKey()} onPathway={setDraftPathway} onNewGame={startNewGame} /></section></div>}
+    {recoveryOptions.length > 0 && <section className="inline-warning persistence-warning recovery-options" aria-labelledby="recovery-options-title"><Archive size={15} /><span><strong id="recovery-options-title">可恢复的安全存档</strong><small>选择较早的安全节点后，当前局面才会被替换。</small></span>{recoveryOptions.map((checkpoint) => <button key={checkpoint.id} onClick={() => void restoreRecovery(checkpoint)}>恢复第{checkpoint.game.week}周</button>)}</section>}
+    {showSettings && <div className="complete-sheet-backdrop title-settings-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="title-settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本地配置</p><h2 id="title-settings-title">模型、世界推演与设定资料</h2></div><button onClick={() => setShowSettings(false)} aria-label="关闭设置"><X size={17} /></button></header><AiSettings config={aiConfig} rememberKey={rememberApiKey} secureStorageAvailable={secureStorageAvailable} credentialConfigured={credentialConfigured} connection={connectionState} turnStages={turnStages} showDiagnostics={DEV_MODE} autoDecision={autoExecuteDecision} onAutoDecision={(value) => { setAutoExecuteDecision(value); window.localStorage.setItem("mist-chronicle-auto-decision", value ? "1" : "0"); }} draftPathway={draftPathway} onChange={(patch) => { setAiConfig((current) => ({ ...current, ...patch })); setConnectionState({ status: "idle", message: "配置已改变，请重新测试" }); setConnectionVerified(false); }} onRememberKey={setRememberApiKey} onTest={() => void testConnection()} onSave={() => void saveSettings()} onClearKey={() => void clearSavedKey()} onPathway={setDraftPathway} onNewGame={startNewGame} /></section></div>}
   </>;
 
   if (hydrated && !game.prologueComplete) return <main className="complete-game-shell prologue-only">
@@ -985,6 +1087,7 @@ export default function CompleteGame() {
 
     <section className="complete-content" id="complete-content" key={view}>
       {persistenceError && <div className="inline-warning persistence-warning" role="alert"><ShieldAlert size={15} /><span>{persistenceError}</span><button onClick={() => setShowSettings(true)}>检查数据库</button></div>}
+      {game.pendingFinaleWorldTurn && <button className="offline-banner" onClick={() => void resolveFinaleStage()}><ShieldAlert size={15} /><span><strong>终局规则战报已锁定，世界回应尚未完成</strong><small>继续时会复用同一阶段、同一行动范围和已锁定结果，不会推进到下一阶段或重掷。</small></span><ChevronRight size={15} /></button>}
       {!aiReady && <button className="offline-banner" onClick={() => setShowSettings(true)}><ShieldAlert size={15} /><span><strong>世界回应已暂停</strong><small>连接人物与叙事模型后，成员才能回应自由决议，城市也才能走向下一周。</small></span><ChevronRight size={15} /></button>}
       {generationError && !contract && !turnChapter && <div className="inline-warning world-generation-warning" role="alert"><ShieldAlert size={15} /><span>{generationError}</span><button onClick={() => setShowSettings(true)}>检查模型</button></div>}
 
@@ -1040,7 +1143,7 @@ export default function CompleteGame() {
 
     {DEV_MODE && streamPreview && <div className="reader-stream-overlay" role="status" aria-live="polite"><div><Sparkles size={14} />模型正在生成，完成后自动排版</div><pre>{streamPreview}</pre></div>}
 
-    {(game.ending.phase === "major-event" || game.ending.phase === "finale") && <GreatSmogFinale game={game} busy={Boolean(generationStage)} onDoctrine={(doctrine) => setGame((current) => chooseFinaleDoctrine(current, doctrine))} onAssign={(crisisId, kind, id) => setGame((current) => assignFinaleResource(current, crisisId, kind, id))} onAutoDeploy={() => setGame((current) => autoDeployFinale(current))} onResolve={() => void resolveFinaleStage()} />}
+    {(game.ending.phase === "major-event" || game.ending.phase === "finale" || game.pendingFinaleWorldTurn) && <GreatSmogFinale game={game} busy={Boolean(generationStage)} locked={Boolean(game.pendingFinaleWorldTurn)} onDoctrine={(doctrine) => setGame((current) => current.pendingFinaleWorldTurn ? current : chooseFinaleDoctrine(current, doctrine))} onAssign={(crisisId, kind, id) => setGame((current) => current.pendingFinaleWorldTurn ? current : assignFinaleResource(current, crisisId, kind, id))} onAutoDeploy={() => setGame((current) => current.pendingFinaleWorldTurn ? current : autoDeployFinale(current))} onResolve={() => void resolveFinaleStage()} />}
 
     {game.fatalSituation && <div className="complete-sheet-backdrop fatal-backdrop"><section className="fatal-sheet" role="alertdialog" aria-modal="true" aria-labelledby="fatal-title"><header><ShieldAlert size={24} /><small>明确的高危局面</small><h2 id="fatal-title">{game.fatalSituation.title}</h2><p>{game.fatalSituation.threat}</p></header><div className="known-threats"><strong>目前已知</strong>{game.fatalSituation.knownThreats.map((threat) => <p key={threat}>{threat}</p>)}</div><div className="fatal-choices"><button onClick={() => chooseFatal("retreat")}><strong>立即撤退</strong><span>安全阈值 {game.fatalSituation.odds.retreat}%</span><small>放弃现场成果，优先保命。</small></button><button onClick={() => chooseFatal("help")}><strong>请求支援</strong><span>安全阈值 {game.fatalSituation.odds.help}%</span><small>消耗关系并暴露部分情报。</small></button><button className="continue" onClick={() => chooseFatal("continue")}><strong>继续深入</strong><span>安全阈值 {game.fatalSituation.odds.continue}%</span><small>可能获得更多成果；失败可导致死亡并结束本局。</small></button></div><footer>死亡只会在你选择后由最终检定产生；叙事模型无权越过这一步。</footer></section></div>}
 
@@ -1049,7 +1152,7 @@ export default function CompleteGame() {
 
     {activeReaderChapter && <div className="complete-reader-backdrop" onMouseDown={() => { if (!generationStage) { setTurnChapter(null); setSelectedChapter(null); } }}><section className="complete-reader" role="dialog" aria-modal="true" aria-labelledby="reader-title" onMouseDown={(event) => event.stopPropagation()}><header className="reader-commandbar"><div><small>第 {activeReaderChapter.week} 周 · {activeReaderChapter.date}</small><span>{activeReaderChapter.source === "ai" ? "文学模式" : readerChapterCommitted ? "世界事实已保存 · 待补写文学章节" : "本周尚未结算 · 可原样重试"}</span></div><div><button onClick={() => setReaderScale((value) => Math.max(.9, value - .1))}>A−</button><button onClick={() => setReaderScale(1)}>A</button><button onClick={() => setReaderScale((value) => Math.min(1.25, value + .1))}>A＋</button><button onClick={() => { if (!generationStage) { setTurnChapter(null); setSelectedChapter(null); } }}><X size={16} /></button></div></header>{generationStage && <div className="reader-generation"><Sparkles size={15} /><span><strong>{activeReaderChapter.source === "ai" ? "文学章节正在校订" : "世界事实正在安全结算"}</strong><small>{generationStage}；完成的阶段不会因后续失败而重复。</small></span><i /><i /><i /></div>}{generationError && <div className="inline-warning reader-warning"><ShieldAlert size={14} />{generationError}</div>}<article className="reader-page" style={{ "--reader-scale": readerScale } as React.CSSProperties}><div className="folio"><span>灰雾纪事</span><i /><span>W{String(activeReaderChapter.week).padStart(2, "0")}</span></div><h1 id="reader-title">{activeReaderChapter.title}</h1>{activeReaderChapter.sections.map((section, index) => <section key={`${section.heading}-${index}`}><h2>{section.heading}</h2>{section.paragraphs.map((paragraph, paragraphIndex) => <p key={`${index}-${paragraphIndex}`}>{paragraph}</p>)}</section>)}<div className="reader-end"><CloudFog size={18} /><span>本章完</span></div></article>{activeReaderChapter.results.length > 0 && <details className="reader-appendix"><summary><span><ListTodo size={15} />行动、证据与规则附录</span><small>{activeReaderChapter.summary}</small></summary><div>{activeReaderChapter.results.map((result) => <article key={result.id}><header><strong>{result.title}</strong><b className={result.outcome}>{result.outcome}</b></header><p>{result.contract.rawIntent}</p><ul>{result.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul><footer><span>消化 +{result.digestionGain}</span><span>任务推进 +{result.missionProgress}%</span><span>资金 {result.resourceChanges.money}</span></footer></article>)}</div></details>}<footer className="reader-actions"><button onClick={() => { if (generationStage) return; setTurnChapter(null); setSelectedChapter(null); setView("archive"); }} disabled={Boolean(generationStage)}><Archive size={14} />进入纪事档案</button>{readerChapterCommitted && aiReady && <button className="reader-retry-literary" onClick={() => void retryLiteraryChapter(activeReaderChapter)} disabled={Boolean(generationStage)}><Sparkles size={14} />{activeReaderChapter.source === "ai" ? "安全重写文学章节" : "只补写文学章节"}</button>}<button className="complete-primary compact" onClick={() => { setTurnChapter(null); setSelectedChapter(null); }} disabled={Boolean(generationStage)}>{game.ending.phase === "finale" ? "返回终局作战桌" : game.ending.phase === "ended" ? "查看最终结局" : `继续第 ${game.week} 周`} <ArrowRight size={15} /></button></footer></section></div>}
 
-    {showSettings && <div className="complete-sheet-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本机配置</p><h2 id="settings-title">AI推演与新游戏</h2></div><button onClick={() => setShowSettings(false)} aria-label="关闭设置"><X size={17} /></button></header><AiSettings config={aiConfig} rememberKey={rememberApiKey} secureStorageAvailable={secureStorageAvailable} connection={connectionState} turnStages={turnStages} showDiagnostics={DEV_MODE} autoDecision={autoExecuteDecision} onAutoDecision={(value) => { setAutoExecuteDecision(value); window.localStorage.setItem("mist-chronicle-auto-decision", value ? "1" : "0"); }} draftPathway={draftPathway} onChange={(patch) => { setAiConfig((current) => ({ ...current, ...patch })); setConnectionState({ status: "idle", message: "配置已改变，请重新测试" }); setConnectionVerified(false); }} onRememberKey={setRememberApiKey} onTest={() => void testConnection()} onSave={() => void saveSettings()} onClearKey={() => void clearSavedKey()} onPathway={setDraftPathway} onNewGame={startNewGame} /></section></div>}
+    {showSettings && <div className="complete-sheet-backdrop" onMouseDown={() => setShowSettings(false)}><section className="complete-sheet settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-grabber" /><header><div><p>本机配置</p><h2 id="settings-title">AI推演与新游戏</h2></div><button onClick={() => setShowSettings(false)} aria-label="关闭设置"><X size={17} /></button></header><AiSettings config={aiConfig} rememberKey={rememberApiKey} secureStorageAvailable={secureStorageAvailable} credentialConfigured={credentialConfigured} connection={connectionState} turnStages={turnStages} showDiagnostics={DEV_MODE} autoDecision={autoExecuteDecision} onAutoDecision={(value) => { setAutoExecuteDecision(value); window.localStorage.setItem("mist-chronicle-auto-decision", value ? "1" : "0"); }} draftPathway={draftPathway} onChange={(patch) => { setAiConfig((current) => ({ ...current, ...patch })); setConnectionState({ status: "idle", message: "配置已改变，请重新测试" }); setConnectionVerified(false); }} onRememberKey={setRememberApiKey} onTest={() => void testConnection()} onSave={() => void saveSettings()} onClearKey={() => void clearSavedKey()} onPathway={setDraftPathway} onNewGame={startNewGame} /></section></div>}
 
     {showOrganizationLedger && <div className="organization-ledger-backdrop" onMouseDown={() => setShowOrganizationLedger(false)}><div className="organization-ledger-modal" role="dialog" aria-modal="true" aria-label="组织经营账簿" onMouseDown={(event) => event.stopPropagation()}><OrganizationManagementConsole game={game} onChange={applyManagementChange} onAttentionChange={applyAttentionChange} onPromote={promoteOrganizationCandidate} onAdvanceMember={advanceOrganizationMember} onPropose={(intent, districtId) => applySuggestion(intent, districtId ?? selectedDistrictId)} onTalk={(memberId, seed) => { setShowOrganizationLedger(false); openMemberChat(memberId, seed, "council"); }} onClose={() => setShowOrganizationLedger(false)} /></div></div>}
 

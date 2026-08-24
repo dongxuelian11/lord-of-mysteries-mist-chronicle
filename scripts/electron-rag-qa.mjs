@@ -16,6 +16,8 @@ const playwrightIndex = path.join(
   "index.mjs"
 );
 const { _electron } = await import(pathToFileURL(playwrightIndex).href);
+const { createInitialGame } = await import(pathToFileURL(path.join(root, "app", "game-model.ts")).href);
+const seededGame = createInitialGame("seer");
 const app = await _electron.launch({
   executablePath: exePath,
   args: ["."],
@@ -36,18 +38,19 @@ window.on("pageerror", (e) => errors.push("pageerror: " + String(e)));
 await window.waitForLoadState("load");
 await window.waitForTimeout(2500);
 
-const result = await window.evaluate(async () => {
+const result = await window.evaluate(async (activeSave) => {
   const rag = window.mistRag;
-  if (!rag) return { bridge: false };
+  if (!rag || !window.mistPersistence) return { bridge: false };
+  const saved = await window.mistPersistence.commitTurn("mist-chronicle-complete-v21", activeSave, []);
+  if (!saved?.available || !saved?.saved || !saved?.durable) return { bridge: true, status: { available: false, error: saved?.error ?? "seed-save-failed" } };
   const status = await rag.status();
   const search = await rag.search({
     query: "占卜家途径的序列9",
-    audience: { kind: "player-known", knownLoreIds: [], topicGrants: ["pathways"] },
-    maxSpoilerScope: "all",
+    purpose: "player-ability",
+    principalRef: "player",
     limit: 5,
     maxChars: 2000,
   });
-  const ids = await rag.listChunkIds();
   return {
     bridge: true,
     status,
@@ -58,9 +61,8 @@ const result = await window.evaluate(async () => {
       contextHead: search.context.slice(0, 80),
       error: search.error ?? null,
     },
-    idCount: ids.length,
   };
-});
+}, JSON.stringify(seededGame));
 
 console.log("[rag-qa] bridge=" + JSON.stringify(result, null, 2));
 console.log("[rag-qa] errors=" + JSON.stringify(errors.slice(0, 8)));

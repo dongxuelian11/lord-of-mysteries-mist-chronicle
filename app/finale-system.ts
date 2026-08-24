@@ -108,10 +108,40 @@ function finaleActionResults(game: GameState, campaign: FinaleCampaign, crises: 
   return crises.map((crisis) => {
     const reported = report.results.find((item) => item.crisisId === crisis.id)!;
     const executor = crisis.assignedMemberId === "player" ? game.playerAddress : game.members.find((item) => item.id === crisis.assignedMemberId)?.name ?? "未记录执行者";
+    const actionId = `finale-action-${campaign.stage}-${crisis.id}`;
+    const proposalId = `proposal:${game.week}:${actionId}`;
+    const participantIds = crisis.assignedMemberId ? [crisis.assignedMemberId] : ["player"];
+    const participantRefs = participantIds.map((id) => id === "player" ? "player" : `actor:${id}`);
+    const authorization = {
+      scope: "strict" as const,
+      redLines: ["AI不得改写规则成败、资源、伤亡与玩家死亡边界", "不得让未公开的世界真相自动成为角色知识"],
+      mustEscalateWhen: ["玩家陷入致命处境"],
+      retreatCondition: "若玩家陷入致命处境，必须进入撤退、求援或继续的明确选择与最终检定。",
+    };
     return {
-      id: `finale-action-${campaign.stage}-${crisis.id}`,
+      id: actionId,
       title: reported.title,
       outcome: reported.outcome === "失败" ? "受阻" : reported.outcome,
+      executionStatus: "executed" as const,
+      executionPlan: {
+        proposalId,
+        attemptId: `attempt:${proposalId}:1`,
+        executable: true,
+        participantIds,
+        participantRefs,
+        targetRefs: [`location:${crisis.districtId}`],
+        commitments: { money: 0, manpower: 0, extraordinaryMaterials: 0, spirituality: 0 },
+        timeWindow: { startDay: 1, days: 1 },
+        authorization,
+        visibility: "player" as const,
+        holderRefs: [...new Set(["player", "organization", ...participantRefs])],
+        causeEventIds: [],
+        adjustments: ["终局规则已在模型调用前锁定成败、资源、伤亡与死亡边界"],
+        disposition: "executed" as const,
+        progressDelta: 100,
+        remainingDays: 0,
+        nextEligibleWeek: null,
+      },
       contract: {
         id: `finale-contract-${campaign.stage}-${crisis.id}`,
         rawIntent: `终局立场“${campaign.doctrine}”：由${executor}处理${crisis.title}；服从已知威胁、既有证据与撤退边界，不越权改写世界事实。`,
@@ -128,12 +158,7 @@ function finaleActionResults(game: GameState, campaign: FinaleCampaign, crises: 
         days: 1,
         budget: 0,
         resourceCommitment: { posture: "all-in", money: 0, manpower: 0, extraordinaryMaterials: 0 },
-        authorization: {
-          scope: "strict",
-          redLines: ["AI不得改写规则成败、资源、伤亡与玩家死亡边界", "不得让未公开的世界真相自动成为角色知识"],
-          mustEscalateWhen: ["玩家陷入致命处境"],
-          retreatCondition: "若玩家陷入致命处境，必须进入撤退、求援或继续的明确选择与最终检定。",
-        },
+        authorization,
         requiredKnowledgeIds: [],
         causeEventIds: crisis.sourceFactIds ?? [],
         risk: crisis.risk,

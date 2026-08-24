@@ -43,6 +43,11 @@ test("literary causal packs keep only player-visible events and compress the fou
   assert.match(pack.summary, /发生变化：/);
   assert.match(pack.summary, /谁知道：你/);
   assert.match(pack.summary, /后续因果：/);
+  assert.equal("actorIds" in pack.events[0], false);
+  assert.equal("factionIds" in pack.events[0], false);
+  assert.equal("witnessRefs" in pack.events[0], false);
+  assert.equal("sourceProposalIds" in pack.events[0], false);
+  assert.deepEqual(pack.events[0].knownActorIds, []);
   assert.doesNotMatch(JSON.stringify(pack), /event-hidden|幕后追踪/);
 });
 

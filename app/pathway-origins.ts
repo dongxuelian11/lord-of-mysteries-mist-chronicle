@@ -1,6 +1,7 @@
 import { callModel, type AiConfig } from "./ai-client.ts";
 import { LORE_RECORDS } from "./generated-lore-compendium.ts";
 import { PATHWAY_OPENING_DOSSIERS, STANDARD_PATHWAY_IDS, type StandardPathwayId } from "./pathway-catalog.ts";
+import { stableTextHash } from "./stable-id.ts";
 
 export type OriginDifficulty = {
   sourceAccess: number;
@@ -220,15 +221,6 @@ export function difficultyLabel(value: number) {
 
 const LORE_IDS = new Set(LORE_RECORDS.map((record) => record.id));
 
-function stableOriginHash(value: string) {
-  let output = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    output ^= value.charCodeAt(index);
-    output = Math.imul(output, 16777619);
-  }
-  return (output >>> 0).toString(36);
-}
-
 function parseJsonObject(raw: string): Record<string, unknown> {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
@@ -265,7 +257,7 @@ export function validateDynamicPathwayOrigin(value: unknown, pathwayId: Standard
   const burden = specialBurden || text("burden");
   const factionIds = new Set(["night-church", "steam-church", "royal-project", "witch-sect", "aurora-order", "police", "press", "black-market"]);
   const hostileFactionId = typeof raw.hostileFactionId === "string" && factionIds.has(raw.hostileFactionId) ? raw.hostileFactionId : "police";
-  const identity = stableOriginHash(JSON.stringify({
+  const identity = stableTextHash(JSON.stringify({
     pathwayId,
     title: text("title", 48),
     summary: text("summary", 280),
@@ -313,7 +305,7 @@ export async function generateDynamicPathwayOrigin(config: AiConfig, pathwayId: 
   let lastError: Error | undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const raw = await callModel(config, "你为《灰雾纪事》生成知识库约束的贝克兰德开局出身。不得改变途径，不得让玩家选择序列。序列9最常见，序列8必须有既有经历与债务，序列7只允许极少数来源可信的特殊背景，并必须附带足以改变长期玩法的追捕、污染、官方控制、旧伤或政治债。只返回JSON。", `为${dossier.name}途径生成一个与两套固定出身不同的动态出身。玩家补充背景：${playerBackground || "未补充"}\n知识依据：${JSON.stringify(lore.map((record) => ({ id: record.id, title: record.title, content: record.content.slice(0, 520) })))}\n返回字段：title,summary,startingSequence,source,contact,enemy,firstCrisis,districtId,blockNumber,locationLabel,resources:{manpower,money,extraordinaryMaterials},exposure,reputation,hostileFactionId,hostilityDelta,hostilityCause,advantageName,advantage,advantageTriggers,burdenName,burden,burdenTriggers,specialBurden,loreEvidenceIds。`, { json: true, maxTokens: 2200, temperature: attempt ? 0.55 : 0.82 });
+      const raw = await callModel(config, "你为《灰雾纪事》生成知识库约束的贝克兰德开局出身。不得改变途径，不得让玩家选择序列。序列9最常见，序列8必须有既有经历与债务，序列7只允许极少数来源可信的特殊背景，并必须附带足以改变长期玩法的追捕、污染、官方控制、旧伤或政治债。只返回JSON。", `为${dossier.name}途径生成一个与两套固定出身不同的动态出身。玩家补充背景：${playerBackground || "未补充"}\n知识依据：${JSON.stringify(lore.map((record) => ({ id: record.id, title: record.title, content: record.content.slice(0, 520) })))}\n返回字段：title,summary,startingSequence,source,contact,enemy,firstCrisis,districtId,blockNumber,locationLabel,resources:{manpower,money,extraordinaryMaterials},exposure,reputation,hostileFactionId,hostilityDelta,hostilityCause,advantageName,advantage,advantageTriggers,burdenName,burden,burdenTriggers,specialBurden,loreEvidenceIds。`, { task: "dynamic-origin", json: true, maxTokens: 2200, temperature: attempt ? 0.55 : 0.82 });
       return validateDynamicPathwayOrigin(parseJsonObject(raw), pathwayId);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("动态出身生成失败");

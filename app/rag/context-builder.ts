@@ -105,6 +105,85 @@ export function buildEvidenceContext(
   return lines.join("\n");
 }
 
+export type ExactPromptEvidenceEntry = {
+  recordId: string;
+  promptText: string;
+  startChar: number;
+  endChar: number;
+  utf8Bytes: number;
+};
+
+export type ExactPromptEvidence<T> = {
+  context: string;
+  includedRecords: T[];
+  omittedRecordIds: string[];
+  entries: ExactPromptEvidenceEntry[];
+};
+
+/**
+ * Build the exact evidence block sent to a model.
+ *
+ * Records after the character boundary are omitted rather than keeping their
+ * IDs in a wider authority set. Only the first record may be content-truncated
+ * when it alone exceeds the budget; the returned record is cloned with exactly
+ * the content bytes that survived into the prompt.
+ */
+export function buildExactPromptEvidence<T extends {
+  id: string;
+  sourceId: string;
+  sourceGrade: string;
+  canonLayer: string;
+  title: string;
+  content: string;
+}>(records: T[], maxChars = 12_000): ExactPromptEvidence<T> {
+  const budget = Math.max(0, Math.floor(maxChars));
+  const includedRecords: T[] = [];
+  const omittedRecordIds: string[] = [];
+  const lines: string[] = [];
+  const entries: ExactPromptEvidenceEntry[] = [];
+  let used = 0;
+
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    const citation = record.sourceId?.length
+      ? `${record.sourceId}·${record.sourceGrade ?? "?"}`
+      : `资料库·${record.sourceGrade ?? "?"}`;
+    const prefix = `[${citation}] ${record.title}：`;
+    const content = record.content.trim();
+    const separatorLength = lines.length ? 1 : 0;
+    const fullLine = `${prefix}${content}`;
+    const remaining = budget - used - separatorLength;
+
+    if (fullLine.length > remaining) {
+      if (lines.length || remaining <= prefix.length) {
+        omittedRecordIds.push(...records.slice(index).map((item) => item.id));
+        break;
+      }
+      const exactContent = content.slice(0, Math.max(0, remaining - prefix.length));
+      if (!exactContent) {
+        omittedRecordIds.push(...records.slice(index).map((item) => item.id));
+        break;
+      }
+      const promptText = `${prefix}${exactContent}`;
+      const startChar = used;
+      lines.push(promptText);
+      includedRecords.push({ ...record, content: exactContent });
+      used += promptText.length;
+      entries.push({ recordId: record.id, promptText, startChar, endChar: used, utf8Bytes: new TextEncoder().encode(promptText).byteLength });
+      omittedRecordIds.push(...records.slice(index + 1).map((item) => item.id));
+      break;
+    }
+
+    const startChar = used + separatorLength;
+    lines.push(fullLine);
+    includedRecords.push({ ...record, content });
+    used += separatorLength + fullLine.length;
+    entries.push({ recordId: record.id, promptText: fullLine, startChar, endChar: used, utf8Bytes: new TextEncoder().encode(fullLine).byteLength });
+  }
+
+  return { context: lines.join("\n"), includedRecords, omittedRecordIds, entries };
+}
+
 export function renderContextPackage(
   pkg: ContextPackage,
   roleLabel?: string

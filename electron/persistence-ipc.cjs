@@ -35,14 +35,15 @@ function registerPersistenceIpc({ ipcMain, store, isTrustedSender = () => false,
     if (!isAllowedPersistenceKey(key)) return invalidRequest();
     try {
       guard(_event);
-      return { available: true, value: store.getItem(key) };
+      const result = typeof store.readItem === "function" ? store.readItem(key) : { value: store.getItem(key) };
+      return { available: true, ...result };
     } catch (error) {
-      return store ? { available: true, value: null, error: String(error?.message ?? error) } : unavailable();
+      return store ? { available: true, value: null, fatal: true, error: String(error?.message ?? error) } : unavailable();
     }
   });
 
   ipcMain.handle("persistence:set", (_event, key, payload) => {
-    if (!isAllowedPersistenceKey(key) || typeof payload !== "string" || Buffer.byteLength(payload, "utf8") > MAX_PERSISTENCE_PAYLOAD_BYTES) return invalidRequest();
+    if (!isAllowedPersistenceKey(key) || key.includes("-complete-") || typeof payload !== "string" || Buffer.byteLength(payload, "utf8") > MAX_PERSISTENCE_PAYLOAD_BYTES) return invalidRequest();
     try {
       guard(_event);
       store.setItem(key, payload);
@@ -53,7 +54,7 @@ function registerPersistenceIpc({ ipcMain, store, isTrustedSender = () => false,
   });
 
   ipcMain.handle("persistence:remove", (_event, key) => {
-    if (!isAllowedPersistenceKey(key)) return invalidRequest();
+    if (!isAllowedPersistenceKey(key) || key.includes("-complete-")) return invalidRequest();
     try {
       guard(_event);
       store.removeItem(key);
@@ -71,6 +72,68 @@ function registerPersistenceIpc({ ipcMain, store, isTrustedSender = () => false,
       return { available: true, saved: true };
     } catch (error) {
       return store ? { available: true, saved: false, fatal: true, error: String(error?.message ?? error) } : unavailable();
+    }
+  });
+
+  ipcMain.handle("persistence:commit-turn", (_event, key, payload, traces = []) => {
+    if (!isAllowedPersistenceKey(key) || !key.includes("-complete-") || typeof payload !== "string" || Buffer.byteLength(payload, "utf8") > MAX_PERSISTENCE_PAYLOAD_BYTES || !Array.isArray(traces) || traces.length > 128) return invalidRequest();
+    try {
+      guard(_event);
+      const acknowledgement = store.commitTurn(key, payload, traces);
+      return { available: true, saved: true, ...acknowledgement };
+    } catch (error) {
+      return store ? { available: true, saved: false, durable: false, fatal: true, error: String(error?.message ?? error) } : unavailable();
+    }
+  });
+
+  ipcMain.handle("persistence:runtime-traces", (_event, originId, limit = 128) => {
+    if (typeof originId !== "string" || !originId.trim() || originId.length > 1024 || !Number.isInteger(limit) || limit < 1 || limit > 128) return invalidRequest();
+    try {
+      guard(_event);
+      return { available: true, traces: store.readRuntimeTraces(originId.trim(), limit) };
+    } catch (error) {
+      return store ? { available: true, traces: [], fatal: true, error: String(error?.message ?? error) } : unavailable();
+    }
+  });
+
+  ipcMain.handle("persistence:append-runtime-traces", (_event, key, traces) => {
+    if (!isAllowedPersistenceKey(key) || !key.includes("-complete-") || !Array.isArray(traces) || traces.length < 1 || traces.length > 128) return invalidRequest();
+    try {
+      guard(_event);
+      return { available: true, ...store.appendRuntimeTraces(key, traces) };
+    } catch (error) {
+      return store ? { available: true, saved: false, error: String(error?.message ?? error) } : unavailable();
+    }
+  });
+
+  ipcMain.handle("persistence:list-quarantine", (_event, key) => {
+    if (!isAllowedPersistenceKey(key)) return invalidRequest();
+    try {
+      guard(_event);
+      return { available: true, records: store.listQuarantine(key) };
+    } catch (error) {
+      return store ? { available: true, records: [], fatal: true, error: String(error?.message ?? error) } : unavailable();
+    }
+  });
+
+  ipcMain.handle("persistence:quarantine", (_event, key, reason) => {
+    if (!isAllowedPersistenceKey(key) || typeof reason !== "string" || !reason || reason.length > 512) return invalidRequest();
+    try {
+      guard(_event);
+      return { available: true, ...store.quarantineItem(key, reason) };
+    } catch (error) {
+      return store ? { available: true, quarantined: false, fatal: true, error: String(error?.message ?? error) } : unavailable();
+    }
+  });
+
+  ipcMain.handle("persistence:replace-with-recovery", (_event, activeKey, payload, recoveryKey, checkpoint, maxEntries = 3) => {
+    if (!isAllowedPersistenceKey(activeKey) || !activeKey.includes("-complete-") || !isAllowedPersistenceKey(recoveryKey) || !recoveryKey.includes("-recovery-") || typeof payload !== "string" || Buffer.byteLength(payload, "utf8") > MAX_PERSISTENCE_PAYLOAD_BYTES || !checkpoint || typeof checkpoint !== "object") return invalidRequest();
+    try {
+      guard(_event);
+      const acknowledgement = store.replaceWithRecovery(activeKey, payload, recoveryKey, checkpoint, maxEntries);
+      return { available: true, saved: true, ...acknowledgement };
+    } catch (error) {
+      return store ? { available: true, saved: false, durable: false, fatal: true, error: String(error?.message ?? error) } : unavailable();
     }
   });
 

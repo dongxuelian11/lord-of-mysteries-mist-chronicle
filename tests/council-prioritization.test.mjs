@@ -77,6 +77,18 @@ test("authorization exceptions become a player-facing ruling with visible causal
     { id: "event-visible-secret", week: game.week, title: "码头出现重复的失踪者签名", detail: "玩家已经获知。", actorIds: [], factionIds: [], causeIds: [], visibility: "player" },
     { id: "event-hidden-secret", week: game.week, title: "幕后人物的真实安排", detail: "玩家不可知。", actorIds: [], factionIds: [], causeIds: [], visibility: "world" },
   );
+  game.worldKernel.observations.push({
+    id: "observation-visible-secret",
+    week: game.week,
+    eventId: "event-visible-secret",
+    channel: "码头出现重复的失踪者签名",
+    text: "玩家已经从可靠回报中获知码头出现重复的失踪者签名。",
+    visibility: "player",
+    holderIds: ["player"],
+    holderRefs: ["player"],
+    perceivedRefs: [],
+    acquisitionKind: "communication",
+  });
   game.worldLedger.events.push(
     { id: "ledger-visible-secret", summary: "可靠成员确认了第二处交会点", witnessRefs: [], audience: { visibility: "actors", holderRefs: ["player"] } },
     { id: "ledger-hidden-secret", summary: "敌对势力的隐秘裁定", witnessRefs: [], audience: { visibility: "world", holderRefs: [] } },

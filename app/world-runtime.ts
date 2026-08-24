@@ -380,7 +380,8 @@ export function fitWorldAdjudicatorPayload<T extends Record<string, unknown>>(in
   trimPayloadArray(payload, "pivots", 8, true);
   trimPayloadArray(payload, "timeline", 16, true);
   trimPayloadText(payload, "dynamicMemory", 7_000);
-  trimPayloadText(payload, "authorizedLore", 10_000);
+  // ExactPromptEvidence is authority-bearing input. Never independently slice
+  // its text after the retrieval receipt has bound IDs and context hash.
   trimPayloadText(payload, "designerSupplement", 4_000);
 
   const organization = recordOf(payload.organizationState);
@@ -401,7 +402,6 @@ export function fitWorldAdjudicatorPayload<T extends Record<string, unknown>>(in
 
   if (JSON.stringify(payload).length > maximum) {
     trimPayloadText(payload, "dynamicMemory", 4_000);
-    trimPayloadText(payload, "authorizedLore", 6_000);
     trimPayloadText(payload, "designerSupplement", 1_500);
     trimPayloadArray(adjudicator, "recentEvents", 16, true);
     trimPayloadArray(adjudicator, "projects", 16);
@@ -416,7 +416,6 @@ export function fitWorldAdjudicatorPayload<T extends Record<string, unknown>>(in
     trimPayloadArray(payload, "pivots", 4, true);
     trimPayloadArray(payload, "timeline", 8, true);
     trimPayloadText(payload, "dynamicMemory", 2_000);
-    trimPayloadText(payload, "authorizedLore", 3_500);
     trimPayloadText(payload, "designerSupplement", 500);
 
     trimPayloadArray(organization, "offices", 8);

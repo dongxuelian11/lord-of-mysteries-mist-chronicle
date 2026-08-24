@@ -1,3 +1,5 @@
+import { sha256Hex } from "./sha256.ts";
+
 /**
  * Bounded, privacy-safe runtime observability.
  *
@@ -34,6 +36,8 @@ export type RuntimeTraceContext = {
 
 export type RuntimeTrace = {
   schemaVersion: typeof RUNTIME_TRACE_SCHEMA_VERSION;
+  traceInstanceId: string;
+  recordedAt: string;
   traceId: string;
   operation: RuntimeTraceOperation;
   requestId: string | null;
@@ -58,6 +62,8 @@ export type RuntimeTrace = {
 };
 
 export type RuntimeTraceInput = {
+  traceInstanceId?: string;
+  recordedAt?: string;
   traceId: string;
   operation: RuntimeTraceOperation;
   requestId?: string | null;
@@ -120,8 +126,13 @@ export function createRuntimeTrace(input: RuntimeTraceInput): RuntimeTrace {
   if (!COMMIT_STATUSES.has(input.commitStatus ?? "NOT_APPLICABLE")) throw new Error("runtime trace commitStatus is not registered");
   if (input.retrievalMode !== undefined && input.retrievalMode !== null && !RETRIEVAL_MODES.has(input.retrievalMode)) throw new Error("runtime trace retrievalMode is not registered");
   const repairCount = metric(input.repairCount ?? 0, "repairCount", true) ?? 0;
+  const recordedAt = typeof input.recordedAt === "string" && Number.isFinite(Date.parse(input.recordedAt)) ? new Date(input.recordedAt).toISOString() : new Date().toISOString();
+  const traceInstanceId = identifier(input.traceInstanceId, "traceInstanceId")
+    ?? `trace-instance:${globalThis.crypto?.randomUUID?.() ?? sha256Hex(`${traceId}|${recordedAt}|${Math.random()}`)}`;
   return {
     schemaVersion: RUNTIME_TRACE_SCHEMA_VERSION,
+    traceInstanceId,
+    recordedAt,
     traceId,
     operation: input.operation,
     requestId: identifier(input.requestId, "requestId"),
@@ -150,6 +161,14 @@ export function recordRuntimeTrace(input: RuntimeTraceInput | RuntimeTrace): voi
   const trace = createRuntimeTrace(input);
   ring.push(trace);
   if (ring.length > RUNTIME_TRACE_LIMIT) ring.shift();
+  const awaitsDurableTurnAck = trace.operation === "turn"
+    && ["PENDING", "COMMITTED", "REPLAYED"].includes(trace.commitStatus);
+  if (awaitsDurableTurnAck) return;
+  try {
+    void window.mistRuntimeTrace?.record(trace as unknown as Record<string, unknown>).catch(() => undefined);
+  } catch {
+    // Browser preview and early startup have no durable trace bridge.
+  }
 }
 
 /** Instrumentation must never change model, retrieval or commit semantics. */
@@ -165,6 +184,28 @@ export function recentRuntimeTraces(): RuntimeTrace[] {
   return ring.map((trace) => ({ ...trace, rejectionReasons: [...trace.rejectionReasons] }));
 }
 
+export function runtimeTracesForDurableCommit(): RuntimeTrace[] {
+  return recentRuntimeTraces().filter((trace) => trace.operation !== "turn"
+    || !["COMMITTED", "REPLAYED"].includes(trace.commitStatus));
+}
+
+/**
+ * Promote only Main-acknowledged turn candidates. This deliberately performs
+ * no IPC write: Main already persisted the final status inside commitTurn.
+ */
+export function acknowledgeDurableTurnTrace(turnId: string, replayed: boolean): number {
+  const normalized = identifier(turnId, "turnId");
+  if (!normalized) return 0;
+  let updated = 0;
+  for (let index = 0; index < ring.length; index += 1) {
+    const trace = ring[index];
+    if (trace.operation !== "turn" || trace.turnId !== normalized || trace.commitStatus !== "PENDING") continue;
+    ring[index] = { ...trace, commitStatus: replayed ? "REPLAYED" : "COMMITTED" };
+    updated += 1;
+  }
+  return updated;
+}
+
 export function runtimeTraceCount(): number {
   return ring.length;
 }
@@ -177,6 +218,8 @@ export function clearRuntimeTraces(): void {
 export function runtimeTraceSummary(trace: RuntimeTrace): Record<string, unknown> {
   return {
     schemaVersion: trace.schemaVersion,
+    traceInstanceId: trace.traceInstanceId,
+    recordedAt: trace.recordedAt,
     traceId: trace.traceId,
     operation: trace.operation,
     requestId: trace.requestId,
@@ -200,11 +243,6 @@ export function runtimeTraceSummary(trace: RuntimeTrace): Record<string, unknown
 
 /** Deterministic, non-reversible correlation id for calls without a caller id. */
 export function deriveRuntimeTraceId(prefix: string, value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
   const safePrefix = prefix.trim().replace(/[^a-z0-9:_-]/gi, "-").slice(0, 32) || "runtime";
-  return `${safePrefix}:${(hash >>> 0).toString(16).padStart(8, "0")}`;
+  return `${safePrefix}:${sha256Hex(value)}`;
 }

@@ -12,6 +12,7 @@ import { stableHash } from "../fate/roll.ts";
 import { controlRiskScore, shouldEvaluateControl, type ControlRiskInput } from "./risk.ts";
 import type { FateAberrationContract } from "../fate/types.ts";
 import type { ControlStage, ControlState, LossOfControlContract } from "./types.ts";
+import { stableEntityId } from "../stable-id.ts";
 
 export type ControlEvaluationInput = {
   resolutionId: string;
@@ -82,7 +83,7 @@ export function evaluateControlContract(input: ControlEvaluationInput): LossOfCo
   const stageAfter = triggered
     ? nextStage(stageBefore, riskScore, roll, flags)
     : stageBefore;
-  const id = `control-${stableHash(seed).toString(16)}`;
+  const id = stableEntityId("control", seed);
   const symptoms = triggered ? symptomsFor(stageAfter, seed) : [];
   const stateChanges = triggered
     ? [

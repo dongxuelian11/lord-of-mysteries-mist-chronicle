@@ -51,6 +51,7 @@ test("world adjudicator input exposes one entity authority and omits legacy acto
   assert.deepEqual(input.worldAuthority, {
     entityState: "adjudicatorWorld",
     stateMutation: "kernelDelta",
+    baseRevision: game.worldKernel.revision,
     compatibilityOutputs: ["factionMoves", "canonMoves"],
   });
   assert.equal(Object.hasOwn(input, "factions"), false);

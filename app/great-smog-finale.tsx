@@ -6,6 +6,7 @@ import { DISTRICTS, FinaleDoctrine, GameState } from "./game-model";
 type Props = {
   game: GameState;
   busy?: boolean;
+  locked?: boolean;
   onDoctrine: (doctrine: FinaleDoctrine) => void;
   onAssign: (crisisId: string, kind: "member" | "faction" | "facility", id: string) => void;
   onAutoDeploy: () => void;
@@ -33,7 +34,7 @@ function preparationLabel(game: GameState, crisisId: string) {
   return total >= 4 ? "准备充分" : total >= 2 ? "具备支点" : "情报薄弱";
 }
 
-export default function GreatSmogFinale({ game, busy, onDoctrine, onAssign, onAutoDeploy, onResolve }: Props) {
+export default function GreatSmogFinale({ game, busy, locked, onDoctrine, onAssign, onAutoDeploy, onResolve }: Props) {
   const campaign = game.ending.campaign;
   if (!campaign) return null;
   const ready = Boolean(campaign.doctrine && campaign.crises.every((item) => item.assignedMemberId));
@@ -65,13 +66,13 @@ export default function GreatSmogFinale({ game, busy, onDoctrine, onAssign, onAu
 
       {!campaign.doctrine ? <section className="smog-doctrine">
         <header><Route size={17} /><div><strong>先确定组织立场</strong><span>这是方向，不是预设任务。危机前线与阶段数量会由世界状态继续生成。</span></div></header>
-        <div>{DOCTRINES.map((item) => <button key={item.id} onClick={() => onDoctrine(item.id)}>
+        <div>{DOCTRINES.map((item) => <button key={item.id} disabled={busy || locked} onClick={() => onDoctrine(item.id)}>
           <span>{item.id}</span><strong>{item.title}</strong><p>{item.description}</p><small>{item.cost}</small>
         </button>)}</div>
       </section> : <>
         <section className="smog-current-order">
           <div><Route size={16} /><span>当前路线</span><strong>{campaign.doctrine}</strong><small>{DOCTRINES.find((item) => item.id === campaign.doctrine)?.description}</small></div>
-          <button onClick={onAutoDeploy}>按专长建议部署</button>
+          <button disabled={busy || locked} onClick={onAutoDeploy}>按专长建议部署</button>
         </section>
 
         <section className="smog-crises" aria-label="本阶段并发危机">
@@ -96,14 +97,14 @@ export default function GreatSmogFinale({ game, busy, onDoctrine, onAssign, onAu
                 </div>
               </details>
               <div className="crisis-deployment">
-                <label><span><UsersRound size={13} />执行者</span><select value={crisis.assignedMemberId ?? ""} onChange={(event) => onAssign(crisis.id, "member", event.target.value)}>
+                <label><span><UsersRound size={13} />执行者</span><select disabled={busy || locked} value={crisis.assignedMemberId ?? ""} onChange={(event) => onAssign(crisis.id, "member", event.target.value)}>
                   <option value="">必须选择</option><option value="player">你 · 组织负责人（亲自行动）</option>
                   {livingMembers.map((member) => <option key={member.id} value={member.id} disabled={Boolean(member.injury)}>{member.name} · {member.specialty}{member.injury ? "（负伤）" : ""}</option>)}
                 </select></label>
-                <label><span><Landmark size={13} />势力支援</span><select value={crisis.assignedFactionId ?? ""} onChange={(event) => onAssign(crisis.id, "faction", event.target.value)}>
+                <label><span><Landmark size={13} />势力支援</span><select disabled={busy || locked} value={crisis.assignedFactionId ?? ""} onChange={(event) => onAssign(crisis.id, "faction", event.target.value)}>
                   <option value="">不调用</option>{allies.map((item) => <option key={item.id} value={item.id}>{item.name} · 信任{item.trust}</option>)}
                 </select></label>
-                <label><span><Sparkles size={13} />设施支点</span><select value={crisis.assignedFacilityId ?? ""} onChange={(event) => onAssign(crisis.id, "facility", event.target.value)}>
+                <label><span><Sparkles size={13} />设施支点</span><select disabled={busy || locked} value={crisis.assignedFacilityId ?? ""} onChange={(event) => onAssign(crisis.id, "facility", event.target.value)}>
                   <option value="">不调用</option>{facilities.map((item) => <option key={item.id} value={item.id}>{item.name} · Lv.{item.level}</option>)}
                 </select></label>
               </div>
@@ -126,7 +127,7 @@ export default function GreatSmogFinale({ game, busy, onDoctrine, onAssign, onAu
 
         <footer className="smog-resolve-bar">
           <div><strong>{ready ? "部署已经形成可执行方案" : "仍有危机没有执行者"}</strong><span>结算后城市与敌对势力会继续行动；完成大雾霾后仍会回到长期世界推演。</span></div>
-          <button disabled={!ready || busy} onClick={onResolve}>{busy ? "正在写入历史…" : `结算第${campaign.stage}阶段`}</button>
+          <button disabled={busy || (!locked && !ready)} onClick={onResolve}>{busy ? "正在写入历史…" : locked ? "继续已锁定的世界回应" : `结算第${campaign.stage}阶段`}</button>
         </footer>
       </>}
     </main>

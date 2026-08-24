@@ -42,6 +42,32 @@ test("runtime trace contract is bounded, redacted and preserves unknown metrics"
   assert.notStrictEqual(recent[0].rejectionReasons, recentRuntimeTraces()[0].rejectionReasons);
 });
 
+test("runtime traces use unique instances and forward a redacted record to durable desktop storage", async () => {
+  const { recordRuntimeTrace, recentRuntimeTraces } = await loadRuntimeModule("app/runtime-trace.ts");
+  const forwarded = [];
+  globalThis.window = { mistRuntimeTrace: { async record(trace) { forwarded.push(trace); return { available: true, saved: true }; } } };
+  recordRuntimeTrace({ traceId: "same-correlation", operation: "model", rejectionReasons: ["MODEL_TIMEOUT"] });
+  recordRuntimeTrace({ traceId: "same-correlation", operation: "model", rejectionReasons: ["MODEL_RETRY"] });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const traces = recentRuntimeTraces();
+  assert.notEqual(traces[0].traceInstanceId, traces[1].traceInstanceId);
+  assert.equal(forwarded.length, 2);
+  assert.equal("prompt" in forwarded[0], false);
+});
+
+test("only a durable acknowledgement can promote a pending turn trace to REPLAYED", async () => {
+  const { acknowledgeDurableTurnTrace, recordRuntimeTrace, recentRuntimeTraces } = await loadRuntimeModule("app/runtime-trace.ts");
+  const forwarded = [];
+  globalThis.window = { mistRuntimeTrace: { async record(trace) { forwarded.push(trace); return { available: true, saved: true }; } } };
+  recordRuntimeTrace({ traceInstanceId: "trace-instance:retry", traceId: "turn:world:1", operation: "turn", turnId: "world:1", outcome: "PASS", commitStatus: "PENDING" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(recentRuntimeTraces().at(-1)?.commitStatus, "PENDING");
+  assert.equal(forwarded.length, 0);
+  assert.equal(acknowledgeDurableTurnTrace("world:1", true), 1);
+  assert.equal(recentRuntimeTraces().at(-1)?.commitStatus, "REPLAYED");
+  assert.equal(forwarded.length, 0);
+});
+
 test("model calls emit correlation and outcome traces without retaining prompt text", async () => {
   const { recentRuntimeTraces } = await loadRuntimeModule("app/runtime-trace.ts");
   const { callModel } = await loadRuntimeModule("app/ai-client.ts");
@@ -59,6 +85,7 @@ test("model calls emit correlation and outcome traces without retaining prompt t
       "private system prompt should never enter trace",
       "private user prompt should never enter trace",
       {
+        task: "world-adjudication",
         json: true,
         trace: {
           traceId: "turn:1:model",
@@ -86,6 +113,30 @@ test("model calls emit correlation and outcome traces without retaining prompt t
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;
   }
+});
+
+test("desktop model calls send typed requests without renderer credentials", async () => {
+  const { callModel } = await loadRuntimeModule("app/ai-client.ts");
+  let captured;
+  globalThis.window = {
+    mistInference: {
+      async request(request) {
+        captured = request;
+        return { ok: true, content: "READY", usage: { inputTokens: 1, outputTokens: 1 } };
+      },
+    },
+  };
+  const result = await callModel(
+    { provider: "deepseek", endpoint: "https://attacker.invalid", apiKey: "renderer-secret", model: "deepseek-test" },
+    "system",
+    "user",
+    { task: "connection-test", maxTokens: 16 },
+  );
+  assert.equal(result, "READY");
+  assert.equal(captured.task, "connection-test");
+  assert.equal(captured.config.endpoint, "https://attacker.invalid");
+  assert.equal("apiKey" in captured.config, false);
+  assert.equal(JSON.stringify(captured).includes("renderer-secret"), false);
 });
 
 test("retrieval and world commit traces share request/turn identifiers", async () => {
@@ -129,7 +180,7 @@ test("retrieval and world commit traces share request/turn identifiers", async (
   assert.equal(retrievalTrace?.turnId, "turn:1");
   assert.equal(turnTrace?.requestId, retrieval.receipt.requestId);
   assert.equal(turnTrace?.turnId, "turn:1");
-  assert.equal(turnTrace?.commitStatus, "COMMITTED");
+  assert.equal(turnTrace?.commitStatus, "PENDING");
   assert.throws(() => applyWorldTurn(kernel, delta), /事务/);
   const rejectedTrace = recentRuntimeTraces().at(-1);
   assert.equal(rejectedTrace?.operation, "turn");

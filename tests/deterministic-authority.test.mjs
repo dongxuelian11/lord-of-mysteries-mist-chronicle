@@ -34,6 +34,19 @@ test("scheduled action identity is independent of wall clock and uses a persiste
   }
 });
 
+test("scheduled action identity resists the legacy 32-bit FNV collision", async () => {
+  const engine = await loadRuntimeModule("app/game-engine.ts");
+  const model = await loadRuntimeModule("app/game-model.ts");
+  const game = model.createInitialGame("seer");
+  const base = engine.localContract(contractArgs(game, "base-intent"));
+  const first = engine.scheduleContract(game, { ...base, rawIntent: "intent-4fd" });
+  const second = engine.scheduleContract(game, { ...base, rawIntent: "intent-48h0" });
+
+  assert.notEqual(first.id, second.id);
+  assert.match(first.id, /^action:1:1:[0-9a-f]{64}$/);
+  assert.match(second.id, /^action:1:1:[0-9a-f]{64}$/);
+});
+
 test("local week chapters are deterministic across an uncommitted retry", async () => {
   const engine = await loadRuntimeModule("app/game-engine.ts");
   const model = await loadRuntimeModule("app/game-model.ts");
@@ -103,7 +116,7 @@ test("dynamic origin identity is derived from validated content rather than crea
     Date.now = () => 2;
     const second = origins.validateDynamicPathwayOrigin(candidate, "seer");
     assert.equal(first.id, second.id);
-    assert.match(first.id, /^seer-dynamic-[a-z0-9]+$/);
+    assert.match(first.id, /^seer-dynamic-[0-9a-f]{64}$/);
   } finally {
     Date.now = originalNow;
   }

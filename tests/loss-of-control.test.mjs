@@ -200,6 +200,7 @@ test("control outcome is reproducible from the same seed", async () => {
   const risk = baseRisk({ pollution: 40, mentalLoad: 30, spirituality: 20, forcedCast: true });
   const first = evaluate(state, risk, "repro-seed");
   const second = evaluate(state, risk, "repro-seed");
+  assert.match(first.id, /^control:[0-9a-f]{64}$/);
   assert.equal(first.stageAfter, second.stageAfter);
   assert.equal(first.riskScore, second.riskScore);
   assert.deepEqual(first.symptoms, second.symptoms);

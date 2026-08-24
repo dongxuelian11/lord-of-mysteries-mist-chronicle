@@ -270,6 +270,7 @@ test("fate seed is independent from the ability seed and bound to resolution", a
   await modules();
   const success = await resolveContract("spirit-vision");
   const contract = await resolveFate(success);
+  assert.match(contract.fateId, /^fate:[0-9a-f]{64}$/);
   assert.notEqual(contract.deterministicSeed, success.deterministicSeed);
   assert.ok(contract.deterministicSeed.includes(success.resolutionId));
   assert.ok(contract.deterministicSeed.includes("fate-aberration-v1"));

@@ -367,7 +367,7 @@ test("co-location does not authorize a hidden target until an explicit perceptio
   assert.ok(perceivedFrame?.allowedTargetRefs.includes("actor:hidden"));
 });
 
-test("materiality signatures include condition, local risk, memory content and synchronized faction risk", () => {
+test("materiality signatures ignore unobserved location truth but include condition, memory and synchronized faction risk", () => {
   const kernel = createWorldKernel({
     week: 5,
     date: "1349-week-5",
@@ -387,7 +387,7 @@ test("materiality signatures include condition, local risk, memory content and s
   assert.notEqual(signature(conditionChanged, memoryA, "actor:observer")?.planningSignature, actorBase.planningSignature);
   const riskChanged = structuredClone(kernel);
   riskChanged.locations[0].risk += 15;
-  assert.notEqual(signature(riskChanged, memoryA, "actor:observer")?.planningSignature, actorBase.planningSignature);
+  assert.equal(signature(riskChanged, memoryA, "actor:observer")?.planningSignature, actorBase.planningSignature);
   assert.notEqual(signature(kernel, memoryB, "actor:observer")?.planningSignature, actorBase.planningSignature);
 
   const factionBase = signature(kernel, memoryA, "faction:press");
@@ -477,6 +477,7 @@ test("optional world history is relevance-compacted before the hard prompt budge
   assert.ok(assertWorldAdjudicatorPayloadBudget(fitted) <= 72_000);
   assert.equal(fitted.adjudicatorWorld.proposals[0].intent, "必须保留的主体提案");
   assert.ok(fitted.adjudicatorWorld.recentEvents.length <= 28);
+  assert.equal(fitted.authorizedLore, payload.authorizedLore, "authority-bearing lore must not be independently truncated after receipt binding");
 });
 
 test("late-campaign compaction preserves current contracts and every adjudicator proposal", () => {

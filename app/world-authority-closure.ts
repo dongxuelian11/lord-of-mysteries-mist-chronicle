@@ -7,6 +7,8 @@
  */
 
 export type RetrievalReceipt = {
+  /** Durable owner assigned by WorldKernel when the turn commits. */
+  turnId?: string;
   requestId: string;
   indexVersion: string;
   audienceRef: string;
@@ -28,10 +30,18 @@ export type MutationEffectKind =
   | "faction-state"
   | "location-state"
   | "project-progress"
+  | "organization-state"
+  | "mission"
   | "knowledge"
   | "event";
 
+export type MutationCapability =
+  | "CREATE_PUBLIC_EVENT"
+  | "MUTATE_AMBIENT_WORLD_STATE";
+
 export type MutationClaim = {
+  /** Durable owner assigned by WorldKernel when the turn commits. */
+  turnId?: string;
   proposalId: string;
   effectKind: MutationEffectKind;
   subjectRef: string;
@@ -47,6 +57,8 @@ export type ExecutionPlanScope = {
   holderRefs?: string[];
   commitments?: ResourceDelta;
   causeEventIds?: string[];
+  /** Rule-issued capabilities. Model output cannot add to this list. */
+  capabilities?: MutationCapability[];
   /** Legacy callers that only supplied authorization boundaries remain readable. */
   legacyScope?: boolean;
 };
@@ -73,11 +85,15 @@ export type MutationValidationContext = {
   allowedLoreIds?: ReadonlySet<string>;
   /** Event ids normalized from the current world-adjudication response. */
   currentTurnEventIds?: ReadonlySet<string>;
+  /** Subjects created by this same normalized delta, before they exist in the kernel. */
+  createdEntityRefs?: ReadonlySet<string>;
+  /** Persistent/new project refs mapped to their rule-owned actor/faction/organization owner. */
+  entityOwnerRefs?: ReadonlyMap<string, string>;
 };
 
 export type MutationValidationResult = {
   ok: boolean;
-  code?: "UNRELATED_PROPOSAL_MUTATION_REJECTED" | "MUTATION_EVIDENCE_REJECTED" | "MUTATION_RESOURCE_REJECTED";
+  code?: "UNRELATED_PROPOSAL_MUTATION_REJECTED" | "MUTATION_CLAIM_MISMATCH_REJECTED" | "MUTATION_EVIDENCE_REJECTED" | "MUTATION_RESOURCE_REJECTED";
   reasons: string[];
   escalation: boolean;
 };
@@ -87,6 +103,8 @@ const EFFECT_KINDS = new Set<MutationEffectKind>([
   "faction-state",
   "location-state",
   "project-progress",
+  "organization-state",
+  "mission",
   "knowledge",
   "event",
 ]);
@@ -95,8 +113,7 @@ function nonEmpty(values: readonly string[] | undefined) {
   return [...new Set((values ?? []).map((value) => String(value).trim()).filter(Boolean))];
 }
 
-function hasReference(allowed: ReadonlySet<string>, reference: string, allowWorldWildcard = false) {
-  if (allowWorldWildcard && allowed.has("world:world")) return true;
+function hasReference(allowed: ReadonlySet<string>, reference: string) {
   if (allowed.has(reference)) return true;
   // District and location are the same world scope at different API layers.
   if (reference.startsWith("location:") && allowed.has(`district:${reference.slice("location:".length)}`)) return true;
@@ -120,7 +137,8 @@ function validateResources(claim: MutationClaim, scope: ExecutionPlanScope): Mut
       continue;
     }
     const approved = commitments[key];
-    if (approved !== undefined && Number.isFinite(approved) && Math.abs(value) > Math.max(0, approved)) {
+    const approvedMagnitude = approved !== undefined && Number.isFinite(approved) ? Math.max(0, approved) : 0;
+    if (Math.abs(value) > approvedMagnitude) {
       reasons.push(`资源影响 ${key} 超过已批准投入`);
     }
   }
@@ -158,15 +176,35 @@ export function validateMutationClaim(
   const targets = nonEmpty(scope.targetRefs);
   const holders = nonEmpty(scope.holderRefs);
   const hasScope = participants.length > 0 || targets.length > 0 || holders.length > 0;
-  const allowed = new Set([...participants, ...targets, ...holders]);
+  // `world:world` used to be a string wildcard. It is intentionally never an
+  // entity reference now: ambient authority must come from a rule-issued
+  // capability that the model cannot mint for itself.
+  const allowed = new Set([...participants, ...targets, ...holders].filter((reference) => reference !== "world:world"));
+  const capabilities = new Set(scope.capabilities ?? []);
   if (hasScope && !scope.legacyScope) {
-    const claimRefs = [claim.subjectRef, ...targetRefs];
-    const allowWorldWildcard = claim.effectKind === "event" || claim.effectKind === "location-state" || claim.effectKind === "knowledge";
-    const related = claimRefs.some((reference) => hasReference(allowed, reference, allowWorldWildcard));
-    const collateralEventWithoutDeclaredTarget = claim.effectKind === "event" && targets.length === 0;
-    if (!related && !collateralEventWithoutDeclaredTarget) {
+    const createdEntityRefs = context.createdEntityRefs ?? new Set<string>();
+    const ownedWithinScope = (reference: string) => {
+      const ownerRef = context.entityOwnerRefs?.get(reference);
+      return Boolean(ownerRef && hasReference(allowed, ownerRef));
+    };
+    const ambientLocationRef = (reference: string) => claim.effectKind === "location-state"
+      && capabilities.has("MUTATE_AMBIENT_WORLD_STATE")
+      && reference.startsWith("location:");
+    const subjectNeedsScope = claim.effectKind !== "event"
+      && claim.effectKind !== "knowledge"
+      && !createdEntityRefs.has(claim.subjectRef)
+      && !ownedWithinScope(claim.subjectRef)
+      && !ambientLocationRef(claim.subjectRef);
+    const unauthorizedRefs = [
+      ...(subjectNeedsScope ? [claim.subjectRef] : []),
+      ...targetRefs.filter((reference) => !(claim.effectKind === "knowledge" && reference.startsWith("lore:"))),
+    ].filter((reference) => !createdEntityRefs.has(reference)
+      && !ownedWithinScope(reference)
+      && !ambientLocationRef(reference)
+      && !hasReference(allowed, reference));
+    if (unauthorizedRefs.length) {
       return result("UNRELATED_PROPOSAL_MUTATION_REJECTED", [
-        `${claim.effectKind} 的 subject/target 不在 ExecutionPlan 参与者、目标或持有者范围内`,
+        `${claim.effectKind} 含有不在 ExecutionPlan 参与者、目标或持有者范围内的引用：${unauthorizedRefs.join("、")}`,
       ]);
     }
   }
@@ -187,7 +225,6 @@ export function validateMutationClaim(
   }
   if (claim.effectKind === "location-state") {
     if (!claim.sourceEventId || !sourceEvent) {
-      if (hasReference(allowed, "world:world", true)) return { ok: true, reasons: [], escalation: false };
       return result("MUTATION_EVIDENCE_REJECTED", ["地点变化必须绑定本轮已存在的 sourceEventId"]);
     }
     const locationId = claim.subjectRef.startsWith("location:") ? claim.subjectRef.slice("location:".length) : "";
@@ -214,8 +251,7 @@ export function validateMutationClaim(
     return result("MUTATION_EVIDENCE_REJECTED", [`sourceEventId 不存在：${claim.sourceEventId}`]);
   }
   if (claim.effectKind === "event" && hasScope && !scope.legacyScope) {
-    const eventTargets = [claim.subjectRef, ...targetRefs];
-    if (!eventTargets.some((reference) => hasReference(allowed, reference, true))) {
+    if (!targetRefs.length && !capabilities.has("CREATE_PUBLIC_EVENT")) {
       return result("UNRELATED_PROPOSAL_MUTATION_REJECTED", ["事件的参与主体与目标均不属于提案范围"]);
     }
   }

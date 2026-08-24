@@ -865,6 +865,7 @@ export type GameState = {
   hiddenWorldFacts: HiddenWorldFact[];
   activeAbilityScene: AbilityScene | null;
   activeParticipationScene: ParticipationScene | null;
+  pendingFinaleWorldTurn?: { turnId: string; chapterId: string; baseRevision: number };
   formulaKnowledge: number;
   materials: Material[];
   advancementProcess: AdvancementProcess | null;
@@ -1416,6 +1417,7 @@ export function createInitialGame(pathwayId: PathwayId = "seer", origin?: Pick<P
   const opening = createOpeningState(openingOrigin);
   const initialState = {
     version: 21,
+    saveId: `save:${globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`,
     prologueComplete: false,
     playerName: "",
     playerAddress: "会长阁下",

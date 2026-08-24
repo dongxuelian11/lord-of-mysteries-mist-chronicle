@@ -15,19 +15,36 @@ test("desktop UI enforces a readable type floor instead of preserving micro text
 
 test("world state commits before literary prose and a failed chapter can be retried alone", async () => {
   const app = await read("app/complete-game.tsx");
+  const durableCommit = app.indexOf("await persistActiveGameAsync(simulatedState)");
   const worldCommit = app.indexOf("setGame(simulatedState)");
   const literaryCall = app.indexOf("generateLiteraryChapter(aiConfig, simulatedState");
-  assert.ok(worldCommit > 0 && literaryCall > worldCommit, "world state must commit before literary generation starts");
+  assert.ok(durableCommit > 0 && worldCommit > durableCommit && literaryCall > worldCommit, "durable acknowledgement must precede UI advance and literary generation");
   assert.match(app, /世界事实与本周结算已经安全保存，可稍后只重试文学章节/);
   assert.match(app, /async function retryLiteraryChapter/);
   assert.match(app, /只补写文学章节/);
   assert.match(app, /世界事实没有回滚，也不会重复结算/);
 });
 
+test("finale rule and world outcomes receive durable acknowledgement before becoming visible", async () => {
+  const app = await read("app/complete-game.tsx");
+  const start = app.indexOf("async function resolveFinaleStage()");
+  const end = app.indexOf("function applyManagementChange", start);
+  const finale = app.slice(start, end);
+  const ruleCommit = finale.indexOf("await persistActiveGameAsync(pendingState)");
+  const ruleVisible = finale.indexOf("setGame(pendingState)");
+  const worldCommit = finale.indexOf("await persistActiveGameAsync(simulated)");
+  const worldVisible = finale.indexOf("setGame(simulated)");
+  const literaryCall = finale.indexOf("generateLiteraryChapter(aiConfig, simulated");
+  assert.ok(ruleCommit > 0 && ruleVisible > ruleCommit, "finale rule resolution and its pending world-turn identity must be durable before they advance the UI");
+  assert.ok(worldCommit > ruleVisible && worldVisible > worldCommit, "finale world resolution must be durable before it advances the UI");
+  assert.ok(literaryCall > worldVisible, "finale literary generation must begin only after the durable world result is visible");
+});
+
 test("malformed world envelopes receive one bounded structural retry", async () => {
   const [engine, envelope] = await Promise.all([read("app/game-engine.ts"), read("app/world-envelope.ts")]);
   assert.match(envelope, /function worldEnvelopeIssue/);
-  assert.match(envelope, /for \(let attempt = 0; attempt < 2; attempt \+= 1\)/);
+  assert.match(envelope, /while \(durableAttempt < 2 && preModelFailures < 2\)/);
+  assert.match(envelope, /worldAttemptStarted/);
   assert.match(envelope, /正在进行一次结构修复/);
   assert.match(envelope, /结构修复后仍未达到世界回合最低要求/);
   assert.match(engine, /requestWorldEnvelope\(worldConfig/);
