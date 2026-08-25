@@ -202,60 +202,26 @@ jobs:
           $app = Join-Path $env:GITHUB_WORKSPACE "release/win-unpacked/MistChronicle.exe"
           if (-not (Test-Path -LiteralPath $app -PathType Leaf)) { throw "Unpacked application executable is missing" }
 
-          $signToolCommand = Get-Command signtool.exe -ErrorAction SilentlyContinue
-          if ($signToolCommand) {
-            $signTool = $signToolCommand.Source
-          } else {
-            $kitsRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
-            $signTool = Get-ChildItem -LiteralPath $kitsRoot -Filter signtool.exe -Recurse -File |
-              Where-Object { $_.Directory.Name -eq "x64" } |
-              Sort-Object FullName -Descending |
-              Select-Object -First 1 -ExpandProperty FullName
-          }
-          if ([string]::IsNullOrWhiteSpace($signTool)) { throw "Windows SDK signtool.exe was not found" }
-
-          function Invoke-BoundedAuthenticodeVerification {
-            param(
-              [Parameter(Mandatory = $true)][string]$File,
-              [Parameter(Mandatory = $true)][string]$Label
-            )
-            $stdout = Join-Path $env:RUNNER_TEMP "$Label-signtool.stdout.log"
-            $stderr = Join-Path $env:RUNNER_TEMP "$Label-signtool.stderr.log"
-            $log = Join-Path $env:GITHUB_WORKSPACE "release/$Label-signtool.log"
-            $arguments = "verify /pa /all /v /tw /r `"Mist Chronicle Self-Signed Test Publisher`" `"$File`""
-            $process = Start-Process -FilePath $signTool -ArgumentList $arguments -NoNewWindow -PassThru `
-              -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-            if (-not $process.WaitForExit(180000)) {
-              $process.Kill($true)
-              throw "SignTool verification exceeded 180 seconds for $File"
-            }
-            $process.WaitForExit()
-            @(
-              Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue
-              Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue
-            ) | Set-Content -LiteralPath $log -Encoding utf8
-            if ($process.ExitCode -ne 0) {
-              throw "SignTool verification failed for ${File} with exit code $($process.ExitCode). See $log"
-            }
-            return [ordered]@{
-              file = [IO.Path]::GetFileName($File)
-              signerThumbprint = $thumbprint
-              signatureStatus = "Valid"
-              timestampPresent = $true
-              verificationTool = $signTool
-              verificationPolicy = "Default Authenticode / all embedded signatures / timestamp required"
-              verificationLog = [IO.Path]::GetFileName($log)
-            }
-          }
+          $verifier = Join-Path $env:GITHUB_WORKSPACE "release/verify-self-signed-authenticode.ps1"
+          git cat-file -e "${{ github.sha }}^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw "Workflow commit is unavailable for verifier extraction" }
+          git show "${{ github.sha }}:scripts/release/verify-self-signed-authenticode.ps1" |
+            Set-Content -LiteralPath $verifier -Encoding utf8
 
           foreach ($store in @("Root", "TrustedPublisher")) {
             Import-Certificate -FilePath $env:SELF_SIGNED_CER -CertStoreLocation "Cert:\CurrentUser\$store" | Out-Null
           }
           try {
+            $installerEvidencePath = Join-Path $env:GITHUB_WORKSPACE "release/installer-authenticode.json"
+            $appEvidencePath = Join-Path $env:GITHUB_WORKSPACE "release/unpacked-application-authenticode.json"
+            & $verifier -File $installer[0].FullName -ExpectedSignerThumbprint $thumbprint `
+              -EvidencePath $installerEvidencePath | Out-Host
+            & $verifier -File $app -ExpectedSignerThumbprint $thumbprint `
+              -EvidencePath $appEvidencePath | Out-Host
             $signatureEvidence = [ordered]@{
               schemaVersion = 1
-              installer = Invoke-BoundedAuthenticodeVerification -File $installer[0].FullName -Label "installer"
-              unpackedApplication = Invoke-BoundedAuthenticodeVerification -File $app -Label "unpacked-application"
+              installer = Get-Content -LiteralPath $installerEvidencePath -Raw | ConvertFrom-Json
+              unpackedApplication = Get-Content -LiteralPath $appEvidencePath -Raw | ConvertFrom-Json
             }
             $signatureEvidence | ConvertTo-Json -Depth 8 |
               Set-Content -LiteralPath release/self-signed-signature-evidence.json -Encoding utf8
@@ -340,7 +306,8 @@ jobs:
             release/self-signed-test.cer
             release/self-signed-build-evidence.json
             release/self-signed-signature-evidence.json
-            release/*-signtool.log
+            release/*-authenticode.json
+            release/verify-self-signed-authenticode.ps1
             scripts/release/clean-machine-qualification.ps1
             scripts/release/smoke-installer.ps1
             scripts/release/verify-persistence-db.mjs
@@ -387,46 +354,9 @@ jobs:
           $installer = @(Get-ChildItem -LiteralPath (Join-Path $delivery "release") -Filter "*-Setup-0.5.0.exe" -File)
           if ($installer.Count -ne 1) { throw "Expected exactly one transferred installer" }
 
-          $signToolCommand = Get-Command signtool.exe -ErrorAction SilentlyContinue
-          if ($signToolCommand) {
-            $signTool = $signToolCommand.Source
-          } else {
-            $kitsRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
-            $signTool = Get-ChildItem -LiteralPath $kitsRoot -Filter signtool.exe -Recurse -File |
-              Where-Object { $_.Directory.Name -eq "x64" } |
-              Sort-Object FullName -Descending |
-              Select-Object -First 1 -ExpandProperty FullName
-          }
-          if ([string]::IsNullOrWhiteSpace($signTool)) { throw "Windows SDK signtool.exe was not found" }
-
-          function Invoke-BoundedAuthenticodeVerification {
-            param(
-              [Parameter(Mandatory = $true)][string]$File,
-              [Parameter(Mandatory = $true)][string]$Label
-            )
-            $stdout = Join-Path $env:RUNNER_TEMP "$Label-signtool.stdout.log"
-            $stderr = Join-Path $env:RUNNER_TEMP "$Label-signtool.stderr.log"
-            $log = Join-Path $delivery "$Label-signtool.log"
-            $arguments = "verify /pa /all /v /tw /r `"Mist Chronicle Self-Signed Test Publisher`" `"$File`""
-            $process = Start-Process -FilePath $signTool -ArgumentList $arguments -NoNewWindow -PassThru `
-              -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-            if (-not $process.WaitForExit(180000)) {
-              $process.Kill($true)
-              throw "SignTool verification exceeded 180 seconds for $File"
-            }
-            $process.WaitForExit()
-            @(
-              Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue
-              Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue
-            ) | Set-Content -LiteralPath $log -Encoding utf8
-            if ($process.ExitCode -ne 0) {
-              throw "SignTool verification failed for ${File} with exit code $($process.ExitCode). See $log"
-            }
-            return [ordered]@{
-              signatureStatus = "Valid"
-              timestampPresent = $true
-              verificationLog = [IO.Path]::GetFileName($log)
-            }
+          $verifier = Join-Path $delivery "release/verify-self-signed-authenticode.ps1"
+          if (-not (Test-Path -LiteralPath $verifier -PathType Leaf)) {
+            throw "Transferred offline Authenticode verifier is missing"
           }
 
           foreach ($store in @("Root", "TrustedPublisher")) {
@@ -437,7 +367,10 @@ jobs:
             if ($imported.Thumbprint -ne $thumbprint) { throw "Imported certificate thumbprint mismatch in $store" }
           }
           try {
-            $installerSignature = Invoke-BoundedAuthenticodeVerification -File $installer[0].FullName -Label "clean-installer"
+            $installerSignaturePath = Join-Path $delivery "clean-installer-authenticode.json"
+            & $verifier -File $installer[0].FullName -ExpectedSignerThumbprint $thumbprint `
+              -EvidencePath $installerSignaturePath | Out-Host
+            $installerSignature = Get-Content -LiteralPath $installerSignaturePath -Raw | ConvertFrom-Json
 
             $probe = Join-Path $delivery "scripts/release/clean-machine-qualification.ps1"
             & $probe `
@@ -459,8 +392,14 @@ jobs:
             if (-not $installedApp) { throw "Installed application executable was not found" }
             if (-not $uninstaller) { throw "Installed uninstaller executable was not found" }
 
-            $installedAppSignature = Invoke-BoundedAuthenticodeVerification -File $installedApp.FullName -Label "clean-installed-application"
-            $uninstallerSignature = Invoke-BoundedAuthenticodeVerification -File $uninstaller.FullName -Label "clean-installed-uninstaller"
+            $installedAppSignaturePath = Join-Path $delivery "clean-installed-application-authenticode.json"
+            $uninstallerSignaturePath = Join-Path $delivery "clean-installed-uninstaller-authenticode.json"
+            & $verifier -File $installedApp.FullName -ExpectedSignerThumbprint $thumbprint `
+              -EvidencePath $installedAppSignaturePath | Out-Host
+            & $verifier -File $uninstaller.FullName -ExpectedSignerThumbprint $thumbprint `
+              -EvidencePath $uninstallerSignaturePath | Out-Host
+            $installedAppSignature = Get-Content -LiteralPath $installedAppSignaturePath -Raw | ConvertFrom-Json
+            $uninstallerSignature = Get-Content -LiteralPath $uninstallerSignaturePath -Raw | ConvertFrom-Json
 
             $uninstall = Start-Process -FilePath $uninstaller.FullName -ArgumentList @("/S") -PassThru -Wait
             if ($uninstall.ExitCode -ne 0) { throw "Silent uninstaller failed with exit code $($uninstall.ExitCode)" }
@@ -486,17 +425,20 @@ jobs:
                 sha256 = (Get-FileHash -LiteralPath $installer[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
                 signatureStatus = $installerSignature.signatureStatus
                 timestampPresent = $installerSignature.timestampPresent
-                verificationLog = $installerSignature.verificationLog
+                verificationMode = $installerSignature.verificationMode
+                onlineRevocationCheck = $installerSignature.onlineRevocationCheck
               }
               installedApplication = [ordered]@{
                 signatureStatus = $installedAppSignature.signatureStatus
                 timestampPresent = $installedAppSignature.timestampPresent
-                verificationLog = $installedAppSignature.verificationLog
+                verificationMode = $installedAppSignature.verificationMode
+                onlineRevocationCheck = $installedAppSignature.onlineRevocationCheck
               }
               installedUninstaller = [ordered]@{
                 signatureStatus = $uninstallerSignature.signatureStatus
                 timestampPresent = $uninstallerSignature.timestampPresent
-                verificationLog = $uninstallerSignature.verificationLog
+                verificationMode = $uninstallerSignature.verificationMode
+                onlineRevocationCheck = $uninstallerSignature.onlineRevocationCheck
               }
               firstLaunch = "PASS"
               knowledgeSeedDeployment = "PASS"
@@ -599,6 +541,16 @@ jobs:
               -not $evidence.installedApplication.timestampPresent -or
               -not $evidence.installedUninstaller.timestampPresent) {
             throw "Self-signed timestamp evidence is incomplete"
+          }
+          foreach ($signature in @(
+            $evidence.installer,
+            $evidence.installedApplication,
+            $evidence.installedUninstaller
+          )) {
+            if ($signature.verificationMode -ne "OFFLINE_CACHE_ONLY_NO_REVOCATION_NETWORK" -or
+                $signature.onlineRevocationCheck -ne "NOT_RUN") {
+              throw "Self-signed verification mode is overstated or ambiguous"
+            }
           }
           if (-not $evidence.certificateRemovedAfterQualification) {
             throw "Ephemeral clean-machine certificate cleanup was not proven"
