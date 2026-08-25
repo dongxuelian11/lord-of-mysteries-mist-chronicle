@@ -6,6 +6,9 @@ param(
   [string]$ExpectedSignerThumbprint,
 
   [Parameter(Mandatory = $true)]
+  [string]$TrustedRootCertificateFile,
+
+  [Parameter(Mandatory = $true)]
   [string]$EvidencePath
 )
 
@@ -235,13 +238,23 @@ function Get-OfflineCertificateChainEvidence {
     [Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
     [Parameter(Mandatory = $true)]
     [string]$RequiredApplicationOid,
+    [Parameter(Mandatory = $true)]
+    [Security.Cryptography.X509Certificates.X509Certificate2]$TrustedRootCertificate,
     [Security.Cryptography.X509Certificates.X509Certificate2Collection]$ExtraCertificates
   )
 
   $chain = [Security.Cryptography.X509Certificates.X509Chain]::new()
   try {
+    if (-not [Security.Cryptography.CryptographicOperations]::FixedTimeEquals(
+      $Certificate.RawData,
+      $TrustedRootCertificate.RawData
+    )) {
+      throw "Explicit custom root is not the exact embedded self-signed signer certificate"
+    }
     $chain.ChainPolicy.RevocationMode = [Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
     $chain.ChainPolicy.DisableCertificateDownloads = $true
+    $chain.ChainPolicy.TrustMode = [Security.Cryptography.X509Certificates.X509ChainTrustMode]::CustomRootTrust
+    [void]$chain.ChainPolicy.CustomTrustStore.Add($TrustedRootCertificate)
     [void]$chain.ChainPolicy.ApplicationPolicy.Add([Security.Cryptography.Oid]::new($RequiredApplicationOid))
     if ($null -ne $ExtraCertificates) {
       $chain.ChainPolicy.ExtraStore.AddRange($ExtraCertificates)
@@ -256,6 +269,8 @@ function Get-OfflineCertificateChainEvidence {
       rootThumbprint = $root.Thumbprint.ToUpperInvariant()
       revocationMode = "NoCheck"
       certificateDownloads = "DISABLED"
+      trustMode = "CustomRootTrust"
+      trustedRootMatchesSignerCertificate = $true
     }
   } finally {
     $chain.Dispose()
@@ -317,10 +332,24 @@ if ($signer.Certificate.HasPrivateKey) {
   throw "Embedded signer unexpectedly exposes a private key"
 }
 Write-Host "AUTHENTICODE_PHASE=signer-valid thumbprint=$normalizedThumbprint"
-$signerTrustChain = Get-OfflineCertificateChainEvidence `
-  -Certificate $signer.Certificate `
-  -RequiredApplicationOid "1.3.6.1.5.5.7.3.3" `
-  -ExtraCertificates $signedCms.Certificates
+$trustedRootCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+  (Resolve-Path -LiteralPath $TrustedRootCertificateFile).Path
+)
+try {
+  if ($trustedRootCertificate.Thumbprint.ToUpperInvariant() -ne $normalizedThumbprint) {
+    throw "Trusted root certificate thumbprint does not match the expected signer"
+  }
+  if ($trustedRootCertificate.HasPrivateKey) {
+    throw "Trusted root certificate unexpectedly contains a private key"
+  }
+  $signerTrustChain = Get-OfflineCertificateChainEvidence `
+    -Certificate $signer.Certificate `
+    -RequiredApplicationOid "1.3.6.1.5.5.7.3.3" `
+    -TrustedRootCertificate $trustedRootCertificate `
+    -ExtraCertificates $signedCms.Certificates
+} finally {
+  $trustedRootCertificate.Dispose()
+}
 if ($signerTrustChain.rootThumbprint -ne $normalizedThumbprint) {
   throw "Embedded signer does not terminate at the explicitly trusted self-signed certificate"
 }
@@ -393,7 +422,7 @@ $evidence = [ordered]@{
   authenticodeDigestAlgorithmOid = $digestAlgorithmOid
   authenticodeDigest = [Convert]::ToHexString($computedAuthenticodeDigest).ToLowerInvariant()
   verificationApi = "CryptCATAdminCalcHashFromFileHandle2 + CryptQueryObject + SignedCms"
-  verificationMode = "OFFLINE_PE_DIGEST_AND_CMS_NO_TRUST_NETWORK"
+  verificationMode = "OFFLINE_PE_DIGEST_CMS_AND_CUSTOM_ROOT_NO_TRUST_NETWORK"
   onlineRevocationCheck = "NOT_RUN"
 }
 

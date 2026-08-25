@@ -203,42 +203,25 @@ jobs:
           if (-not (Test-Path -LiteralPath $app -PathType Leaf)) { throw "Unpacked application executable is missing" }
 
           $verifier = Join-Path $env:GITHUB_WORKSPACE "release/verify-self-signed-authenticode.ps1"
-          $storeManager = Join-Path $env:GITHUB_WORKSPACE "release/manage-self-signed-cert-store.ps1"
           git cat-file -e "${{ github.sha }}^{commit}"
           if ($LASTEXITCODE -ne 0) { throw "Workflow commit is unavailable for verifier extraction" }
           git show "${{ github.sha }}:scripts/release/verify-self-signed-authenticode.ps1" |
             Set-Content -LiteralPath $verifier -Encoding utf8
-          git show "${{ github.sha }}:scripts/release/manage-self-signed-cert-store.ps1" |
-            Set-Content -LiteralPath $storeManager -Encoding utf8
-
-          $addedStores = [Collections.Generic.List[string]]::new()
-          try {
-            foreach ($store in @("Root", "TrustedPublisher")) {
-              Write-Host "AUTHENTICODE_WORKFLOW_PHASE=import-$store"
-              & $storeManager -Action Add -StoreName $store -ExpectedThumbprint $thumbprint `
-                -CertificateFile $env:SELF_SIGNED_CER | Out-Host
-              [void]$addedStores.Add($store)
-            }
-            $installerEvidencePath = Join-Path $env:GITHUB_WORKSPACE "release/installer-authenticode.json"
-            $appEvidencePath = Join-Path $env:GITHUB_WORKSPACE "release/unpacked-application-authenticode.json"
-            Write-Host "AUTHENTICODE_WORKFLOW_PHASE=verify-installer"
-            & $verifier -File $installer[0].FullName -ExpectedSignerThumbprint $thumbprint `
-              -EvidencePath $installerEvidencePath | Out-Host
-            Write-Host "AUTHENTICODE_WORKFLOW_PHASE=verify-unpacked-application"
-            & $verifier -File $app -ExpectedSignerThumbprint $thumbprint `
-              -EvidencePath $appEvidencePath | Out-Host
-            $signatureEvidence = [ordered]@{
-              schemaVersion = 1
-              installer = Get-Content -LiteralPath $installerEvidencePath -Raw | ConvertFrom-Json
-              unpackedApplication = Get-Content -LiteralPath $appEvidencePath -Raw | ConvertFrom-Json
-            }
-            $signatureEvidence | ConvertTo-Json -Depth 8 |
-              Set-Content -LiteralPath release/self-signed-signature-evidence.json -Encoding utf8
-          } finally {
-            foreach ($store in $addedStores) {
-              & $storeManager -Action Remove -StoreName $store -ExpectedThumbprint $thumbprint | Out-Host
-            }
+          $installerEvidencePath = Join-Path $env:GITHUB_WORKSPACE "release/installer-authenticode.json"
+          $appEvidencePath = Join-Path $env:GITHUB_WORKSPACE "release/unpacked-application-authenticode.json"
+          Write-Host "AUTHENTICODE_WORKFLOW_PHASE=verify-installer"
+          & $verifier -File $installer[0].FullName -ExpectedSignerThumbprint $thumbprint `
+            -TrustedRootCertificateFile $env:SELF_SIGNED_CER -EvidencePath $installerEvidencePath | Out-Host
+          Write-Host "AUTHENTICODE_WORKFLOW_PHASE=verify-unpacked-application"
+          & $verifier -File $app -ExpectedSignerThumbprint $thumbprint `
+            -TrustedRootCertificateFile $env:SELF_SIGNED_CER -EvidencePath $appEvidencePath | Out-Host
+          $signatureEvidence = [ordered]@{
+            schemaVersion = 1
+            installer = Get-Content -LiteralPath $installerEvidencePath -Raw | ConvertFrom-Json
+            unpackedApplication = Get-Content -LiteralPath $appEvidencePath -Raw | ConvertFrom-Json
           }
+          $signatureEvidence | ConvertTo-Json -Depth 8 |
+            Set-Content -LiteralPath release/self-signed-signature-evidence.json -Encoding utf8
           Copy-Item -LiteralPath $env:SELF_SIGNED_CER -Destination release/self-signed-test.cer -Force
 
       - name: Write provenance and self-signed build evidence
@@ -258,6 +241,9 @@ jobs:
             certificateNotBefore = "${{ steps.certificate.outputs.not-before }}"
             certificateNotAfter = "${{ steps.certificate.outputs.not-after }}"
             certificateCerSha256 = (Get-FileHash -LiteralPath release/self-signed-test.cer -Algorithm SHA256).Hash.ToLowerInvariant()
+            certificateTrustMode = "CustomRootTrust"
+            certificateTrustScope = "PROCESS_ONLY"
+            workflowCertificateStoreMutation = "NOT_PERFORMED"
             installer = [ordered]@{
               file = $installer.Name
               bytes = $installer.Length
@@ -347,7 +333,7 @@ jobs:
           path: ${{ runner.temp }}/mist-chronicle-self-signed-delivery
           merge-multiple: true
 
-      - name: Trust, install, launch, verify persistence, and remove trust
+      - name: Use custom root, install, launch, and verify persistence
         timeout-minutes: 15
         shell: pwsh
         run: |
@@ -367,22 +353,10 @@ jobs:
           if (-not (Test-Path -LiteralPath $verifier -PathType Leaf)) {
             throw "Transferred offline Authenticode verifier is missing"
           }
-          $storeManager = Join-Path $delivery "release/manage-self-signed-cert-store.ps1"
-          if (-not (Test-Path -LiteralPath $storeManager -PathType Leaf)) {
-            throw "Transferred certificate-store manager is missing"
-          }
-
-          $addedStores = [Collections.Generic.List[string]]::new()
           try {
-            foreach ($store in @("Root", "TrustedPublisher")) {
-              & $storeManager -Action AssertAbsent -StoreName $store -ExpectedThumbprint $thumbprint | Out-Host
-              & $storeManager -Action Add -StoreName $store -ExpectedThumbprint $thumbprint `
-                -CertificateFile $cer | Out-Host
-              [void]$addedStores.Add($store)
-            }
             $installerSignaturePath = Join-Path $delivery "clean-installer-authenticode.json"
             & $verifier -File $installer[0].FullName -ExpectedSignerThumbprint $thumbprint `
-              -EvidencePath $installerSignaturePath | Out-Host
+              -TrustedRootCertificateFile $cer -EvidencePath $installerSignaturePath | Out-Host
             $installerSignature = Get-Content -LiteralPath $installerSignaturePath -Raw | ConvertFrom-Json
 
             $probe = Join-Path $delivery "scripts/release/clean-machine-qualification.ps1"
@@ -408,9 +382,9 @@ jobs:
             $installedAppSignaturePath = Join-Path $delivery "clean-installed-application-authenticode.json"
             $uninstallerSignaturePath = Join-Path $delivery "clean-installed-uninstaller-authenticode.json"
             & $verifier -File $installedApp.FullName -ExpectedSignerThumbprint $thumbprint `
-              -EvidencePath $installedAppSignaturePath | Out-Host
+              -TrustedRootCertificateFile $cer -EvidencePath $installedAppSignaturePath | Out-Host
             & $verifier -File $uninstaller.FullName -ExpectedSignerThumbprint $thumbprint `
-              -EvidencePath $uninstallerSignaturePath | Out-Host
+              -TrustedRootCertificateFile $cer -EvidencePath $uninstallerSignaturePath | Out-Host
             $installedAppSignature = Get-Content -LiteralPath $installedAppSignaturePath -Raw | ConvertFrom-Json
             $uninstallerSignature = Get-Content -LiteralPath $uninstallerSignaturePath -Raw | ConvertFrom-Json
 
@@ -432,8 +406,9 @@ jobs:
               sourceCheckout = "ABSENT"
               dependencyInstall = "NOT_RUN"
               certificateThumbprint = $thumbprint
-              certificateImportedIntoEphemeralCurrentUserRoot = $true
-              certificateImportedIntoEphemeralTrustedPublisher = $true
+              certificateTrustMode = "CustomRootTrust"
+              certificateTrustScope = "PROCESS_ONLY"
+              workflowCertificateStoreMutation = "NOT_PERFORMED"
               installer = [ordered]@{
                 sha256 = (Get-FileHash -LiteralPath $installer[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
                 signatureStatus = $installerSignature.signatureStatus
@@ -479,16 +454,10 @@ jobs:
             $evidence | ConvertTo-Json -Depth 8 |
               Set-Content -LiteralPath (Join-Path $delivery "self-signed-clean-machine-evidence.json") -Encoding utf8
           } finally {
-            foreach ($store in $addedStores) {
-              & $storeManager -Action Remove -StoreName $store -ExpectedThumbprint $thumbprint | Out-Host
-            }
-          }
-          foreach ($store in @("Root", "TrustedPublisher")) {
-            & $storeManager -Action AssertAbsent -StoreName $store -ExpectedThumbprint $thumbprint | Out-Host
+            Write-Host "CUSTOM_ROOT_TRUST_SCOPE=PROCESS_ONLY"
           }
           $evidencePath = Join-Path $delivery "self-signed-clean-machine-evidence.json"
           $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
-          $evidence | Add-Member -NotePropertyName certificateRemovedAfterQualification -NotePropertyValue $true
           $evidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidencePath -Encoding utf8
 
       - uses: actions/upload-artifact@v7
@@ -578,15 +547,19 @@ jobs:
                 $signature.signerTrustChain.rootThumbprint -ne $evidence.certificateThumbprint -or
                 $signature.signerTrustChain.revocationMode -ne "NoCheck" -or
                 $signature.signerTrustChain.certificateDownloads -ne "DISABLED" -or
+                $signature.signerTrustChain.trustMode -ne "CustomRootTrust" -or
+                -not $signature.signerTrustChain.trustedRootMatchesSignerCertificate -or
                 -not $signature.timestampTokenSignatureValid -or
                 $signature.timestampAuthorityChainTrust -ne "NOT_RUN" -or
-                $signature.verificationMode -ne "OFFLINE_PE_DIGEST_AND_CMS_NO_TRUST_NETWORK" -or
+                $signature.verificationMode -ne "OFFLINE_PE_DIGEST_CMS_AND_CUSTOM_ROOT_NO_TRUST_NETWORK" -or
                 $signature.onlineRevocationCheck -ne "NOT_RUN") {
               throw "Self-signed verification mode is overstated or ambiguous"
             }
           }
-          if (-not $evidence.certificateRemovedAfterQualification) {
-            throw "Ephemeral clean-machine certificate cleanup was not proven"
+          if ($evidence.certificateTrustMode -ne "CustomRootTrust" -or
+              $evidence.certificateTrustScope -ne "PROCESS_ONLY" -or
+              $evidence.workflowCertificateStoreMutation -ne "NOT_PERFORMED") {
+            throw "Self-signed trust escaped the process-local custom-root boundary"
           }
           if ($evidence.formalAuthenticode -ne "NOT_PROVEN" -or
               $evidence.productionDeployment -ne "NOT_AVAILABLE / NOT_RUN") {
