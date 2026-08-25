@@ -164,7 +164,7 @@ test("release workflow qualifies the transferred installer on a checkout-free cl
   const dDrivePreflights = workflow.match(/name: Enforce D-drive runner roots/g) ?? [];
   assert.equal(dDrivePreflights.length, 4, "every Windows release job must preflight its write roots");
   assert.match(cleanMachineJob, /needs:\s*installer/);
-  assert.match(cleanMachineJob, /actions\/download-artifact@v4/);
+  assert.match(cleanMachineJob, /actions\/download-artifact@v8/);
   assert.match(cleanMachineJob, /artifact-ids:\s*\$\{\{ needs\.installer\.outputs\.artifact-id \}\}/);
   assert.match(cleanMachineJob, /merge-multiple:\s*true/, "Job B must flatten the immutable artifact into DeliveryRoot");
   assert.match(evidenceVerifyJob, /merge-multiple:\s*true/, "Job C must flatten the evidence artifact into EvidenceRoot");
@@ -182,7 +182,7 @@ test("release workflow qualifies the transferred installer on a checkout-free cl
   assert.match(cleanMachineJob, /CLEAN_MACHINE_DEPENDENCY_INSTALL:\s*NOT_RUN/);
   assert.doesNotMatch(cleanMachineJob, /actions\/checkout|actions\/setup-node|npm (?:ci|install)/);
   assert.ok(
-    cleanMachineJob.indexOf("name: Enforce D-drive runner roots") < cleanMachineJob.indexOf("actions/download-artifact@v4"),
+    cleanMachineJob.indexOf("name: Enforce D-drive runner roots") < cleanMachineJob.indexOf("actions/download-artifact@v8"),
     "clean-machine must reject a non-D runner before downloading the artifact"
   );
   const fullTest = workflow.indexOf("- run: npm test");
@@ -191,6 +191,26 @@ test("release workflow qualifies the transferred installer on a checkout-free cl
   assert.ok(fullTest !== -1 && fullTest < finalSeedStage && finalSeedStage < installerBuild,
     "the authorized seed must be revalidated after tests and immediately before packaging");
   assert.doesNotMatch(workflow, /materialize-lore-from-seed/);
+});
+
+test("GitHub-owned JavaScript actions use Node 24-compatible generations", () => {
+  const ciWorkflow = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8");
+  const releaseWorkflow = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "release.yml"), "utf8");
+  const workflows = `${ciWorkflow}\n${releaseWorkflow}`;
+
+  assert.doesNotMatch(
+    workflows,
+    /actions\/(?:checkout|setup-node|upload-artifact|download-artifact)@v4\b/,
+    "workflows must not restore action generations that run on deprecated Node 20"
+  );
+  assert.match(ciWorkflow, /actions\/checkout@v7/);
+  assert.match(ciWorkflow, /actions\/setup-node@v7/);
+  assert.match(releaseWorkflow, /actions\/checkout@v7/);
+  assert.match(releaseWorkflow, /actions\/setup-node@v7/);
+  assert.match(releaseWorkflow, /actions\/upload-artifact@v7/);
+  assert.match(releaseWorkflow, /actions\/download-artifact@v8/);
+  assert.match(releaseWorkflow, /actions\/attest@v4/,
+    "attestation must stay on its current Node 24-compatible generation");
 });
 
 test("installer smoke binds the packaged app to its isolated D-drive storage root", () => {

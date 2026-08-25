@@ -143,7 +143,9 @@ source commit 上复验通过，因此不是同机 smoke 冒充 clean-machine。
 - 正式 Authenticode 签名：`NOT_RUN`
 - production deployment：`NOT_AVAILABLE / NOT_RUN`
 - human long-play：`NOT_AVAILABLE / NOT_RUN`
-- GitHub Actions 的 Node 20 action runtime deprecation 注解：`NON_BLOCKING_FOLLOW_UP`
+- GitHub Actions 的 Node 20 action runtime deprecation 注解：历史 `v0.5.0` run 注解不改写；
+  后续 workflow 的 `ACTIONS-01` Node 24-compatible 升级已本地通过，当前为
+  `LOCAL_PASS / HOSTED_CI_PENDING`
 
 若未来获得正式证书，应创建新的签名发布版本和新的独立证据链；不得原地把本次
 `v0.5.0` unsigned prerelease 改写成已签名或 production 证据。
