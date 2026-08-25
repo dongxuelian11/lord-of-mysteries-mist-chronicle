@@ -236,16 +236,17 @@ test("production deployment must use a verified artifact with matching provenanc
 });
 
 test("artifact provenance command fails closed with a diagnosable seed gate when release inputs are absent", () => {
-  const missingSeed = path.join("D:\\gmzz\\.runtime", `release-seed-missing-${crypto.randomUUID()}`);
+  const runtimeRoot = path.join(repositoryRoot, ".runtime");
+  const missingSeed = path.join(runtimeRoot, `release-seed-missing-${crypto.randomUUID()}`);
   assert.equal(fs.existsSync(missingSeed), false);
   const result = spawnSync(process.execPath, [path.join(repositoryRoot, "scripts/release/verify-release.mjs"), "artifact"], {
     cwd: repositoryRoot,
     encoding: "utf8",
     env: releaseTestEnv({
-      GMZZ_STORAGE_ROOT: "D:\\gmzz\\.runtime",
+      GMZZ_STORAGE_ROOT: runtimeRoot,
       KNOWLEDGE_SEED_DIR: missingSeed,
-      TEMP: "D:\\gmzz\\.runtime\\tmp",
-      TMP: "D:\\gmzz\\.runtime\\tmp",
+      TEMP: path.join(runtimeRoot, "tmp"),
+      TMP: path.join(runtimeRoot, "tmp"),
     }),
   });
   assert.notEqual(result.status, 0);
