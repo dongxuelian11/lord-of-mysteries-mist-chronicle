@@ -131,6 +131,12 @@ jobs:
       - run: npm run bundle:budget
       - run: npm audit --audit-level=high
 
+      # The test suite includes release-seed fixtures. Revalidate and restage the
+      # authorized input at the final build boundary so packaging can never
+      # inherit test-owned staging state.
+      - name: Restage authorized knowledge seed after test isolation
+        run: npm run release:verify:seed
+
       - name: Build installer without implicit publishing
         shell: pwsh
         run: |
@@ -226,6 +232,7 @@ jobs:
         with:
           artifact-ids: ${{ needs.installer.outputs.artifact-id }}
           path: ${{ runner.temp }}/mist-chronicle-delivery
+          merge-multiple: true
 
       - name: Qualify transferred installer without checkout or dependency install
         shell: pwsh
@@ -275,6 +282,7 @@ jobs:
         with:
           artifact-ids: ${{ needs.clean-machine.outputs.evidence-artifact-id }}
           path: ${{ runner.temp }}/clean-machine-evidence
+          merge-multiple: true
 
       - name: Verify evidence contract against exact source HEAD
         shell: pwsh
@@ -305,6 +313,7 @@ jobs:
         with:
           artifact-ids: ${{ needs.clean-machine.outputs.evidence-artifact-id }}
           path: ${{ runner.temp }}/qualified-release
+          merge-multiple: true
 
       - name: Recheck signature and create or update GitHub Release
         shell: pwsh
@@ -327,13 +336,13 @@ jobs:
             (Join-Path $root "clean-machine-evidence.json")
           )
 
-          gh release view $env:RELEASE_TAG *> $null
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
           $releaseExists = $LASTEXITCODE -eq 0
           if ($releaseExists) {
-            gh release upload $env:RELEASE_TAG @assets --clobber
-            if ($env:UNSIGNED_PRERELEASE -eq "true") { gh release edit $env:RELEASE_TAG --prerelease }
+            gh release upload $env:RELEASE_TAG @assets --clobber --repo $env:GITHUB_REPOSITORY
+            if ($env:UNSIGNED_PRERELEASE -eq "true") { gh release edit $env:RELEASE_TAG --prerelease --repo $env:GITHUB_REPOSITORY }
           } else {
-            $releaseArgs = @("release", "create", $env:RELEASE_TAG) + $assets + @("--verify-tag", "--generate-notes", "--title", "灰雾纪事 $env:RELEASE_TAG")
+            $releaseArgs = @("release", "create", $env:RELEASE_TAG, "--repo", $env:GITHUB_REPOSITORY) + $assets + @("--verify-tag", "--generate-notes", "--title", "灰雾纪事 $env:RELEASE_TAG")
             if ($env:UNSIGNED_PRERELEASE -eq "true") { $releaseArgs += "--prerelease" }
             gh @releaseArgs
           }

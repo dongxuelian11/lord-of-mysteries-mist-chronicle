@@ -154,14 +154,30 @@ test("release workflow qualifies the transferred installer on a checkout-free cl
   const workflow = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "release.yml"), "utf8");
   const cleanMachineStart = workflow.indexOf("\n  clean-machine:");
   const evidenceVerifyStart = workflow.indexOf("\n  evidence-verify:");
+  const publishStart = workflow.indexOf("\n  publish:");
   assert.notEqual(cleanMachineStart, -1, "release workflow must define a clean-machine job");
   assert.notEqual(evidenceVerifyStart, -1, "release workflow must independently verify the clean-machine manifest");
+  assert.notEqual(publishStart, -1, "release workflow must define a publish job");
   const cleanMachineJob = workflow.slice(cleanMachineStart, evidenceVerifyStart);
+  const evidenceVerifyJob = workflow.slice(evidenceVerifyStart, publishStart);
+  const publishJob = workflow.slice(publishStart);
   const dDrivePreflights = workflow.match(/name: Enforce D-drive runner roots/g) ?? [];
   assert.equal(dDrivePreflights.length, 4, "every Windows release job must preflight its write roots");
   assert.match(cleanMachineJob, /needs:\s*installer/);
   assert.match(cleanMachineJob, /actions\/download-artifact@v4/);
   assert.match(cleanMachineJob, /artifact-ids:\s*\$\{\{ needs\.installer\.outputs\.artifact-id \}\}/);
+  assert.match(cleanMachineJob, /merge-multiple:\s*true/, "Job B must flatten the immutable artifact into DeliveryRoot");
+  assert.match(evidenceVerifyJob, /merge-multiple:\s*true/, "Job C must flatten the evidence artifact into EvidenceRoot");
+  assert.match(publishJob, /merge-multiple:\s*true/, "Publish must flatten the qualified artifact into QualifiedReleaseRoot");
+  assert.doesNotMatch(publishJob, /actions\/checkout/, "Publish must operate only on independently qualified bytes");
+  assert.match(publishJob, /gh release view[^\r\n]+--repo \$env:GITHUB_REPOSITORY/,
+    "checkout-free publish must bind release lookup to the explicit repository");
+  assert.match(publishJob, /gh release upload[^\r\n]+--repo \$env:GITHUB_REPOSITORY/,
+    "checkout-free publish must bind release upload to the explicit repository");
+  assert.match(publishJob, /gh release edit[^\r\n]+--repo \$env:GITHUB_REPOSITORY/,
+    "checkout-free publish must bind release edits to the explicit repository");
+  assert.match(publishJob, /"release", "create", \$env:RELEASE_TAG, "--repo", \$env:GITHUB_REPOSITORY/,
+    "checkout-free publish must bind release creation to the explicit repository");
   assert.match(cleanMachineJob, /CLEAN_MACHINE_SOURCE_CHECKOUT:\s*ABSENT/);
   assert.match(cleanMachineJob, /CLEAN_MACHINE_DEPENDENCY_INSTALL:\s*NOT_RUN/);
   assert.doesNotMatch(cleanMachineJob, /actions\/checkout|actions\/setup-node|npm (?:ci|install)/);
@@ -169,6 +185,11 @@ test("release workflow qualifies the transferred installer on a checkout-free cl
     cleanMachineJob.indexOf("name: Enforce D-drive runner roots") < cleanMachineJob.indexOf("actions/download-artifact@v4"),
     "clean-machine must reject a non-D runner before downloading the artifact"
   );
+  const fullTest = workflow.indexOf("- run: npm test");
+  const finalSeedStage = workflow.indexOf("name: Restage authorized knowledge seed after test isolation");
+  const installerBuild = workflow.indexOf("name: Build installer without implicit publishing");
+  assert.ok(fullTest !== -1 && fullTest < finalSeedStage && finalSeedStage < installerBuild,
+    "the authorized seed must be revalidated after tests and immediately before packaging");
   assert.doesNotMatch(workflow, /materialize-lore-from-seed/);
 });
 
@@ -255,8 +276,9 @@ test("artifact provenance command fails closed with a diagnosable seed gate when
 });
 
 test("release seed verifier accepts an explicit D-drive seed directory and stages manifest-listed files", () => {
-  const runtimeRoot = path.join(repositoryRoot, ".runtime");
-  fs.mkdirSync(runtimeRoot, { recursive: true });
+  const baseRuntimeRoot = path.join(repositoryRoot, ".runtime");
+  fs.mkdirSync(baseRuntimeRoot, { recursive: true });
+  const runtimeRoot = fs.mkdtempSync(path.join(baseRuntimeRoot, "release-seed-test-"));
   const fixtureParent = fs.mkdtempSync(path.join(runtimeRoot, "release-seed-input-"));
   const fixtureDir = path.join(fixtureParent, "index");
   const stagedDir = path.join(runtimeRoot, "release-seed");
@@ -290,6 +312,7 @@ test("release seed verifier accepts an explicit D-drive seed directory and stage
       encoding: "utf8",
       env: releaseTestEnv({
         GMZZ_STORAGE_ROOT: runtimeRoot,
+        GMZZ_USER_DATA: path.join(runtimeRoot, "user-data"),
         GMZZ_REQUIRE_D_DRIVE: "1",
         KNOWLEDGE_SEED_DIR: fixtureDir,
         TEMP: path.join(runtimeRoot, "tmp"),
@@ -300,8 +323,7 @@ test("release seed verifier accepts an explicit D-drive seed directory and stage
     assert.match(`${result.stdout}\n${result.stderr}`, /\[release:seed\].*buildId=/);
     assert.equal(fs.existsSync(path.join(stagedDir, "vectors.json")), true);
   } finally {
-    fs.rmSync(fixtureParent, { recursive: true, force: true });
-    fs.rmSync(stagedDir, { recursive: true, force: true });
+    fs.rmSync(runtimeRoot, { recursive: true, force: true });
   }
 });
 
