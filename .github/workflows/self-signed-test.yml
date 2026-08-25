@@ -193,6 +193,7 @@ jobs:
           npx electron-builder --win nsis --publish never --config $config
 
       - name: Verify installer and unpacked application signatures
+        timeout-minutes: 8
         shell: pwsh
         run: |
           $thumbprint = "${{ steps.certificate.outputs.thumbprint }}"
@@ -200,16 +201,68 @@ jobs:
           if ($installer.Count -ne 1) { throw "Expected exactly one installer, found $($installer.Count)" }
           $app = Join-Path $env:GITHUB_WORKSPACE "release/win-unpacked/MistChronicle.exe"
           if (-not (Test-Path -LiteralPath $app -PathType Leaf)) { throw "Unpacked application executable is missing" }
-          Import-Certificate -FilePath $env:SELF_SIGNED_CER -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
-          try {
-            foreach ($file in @($app, $installer[0].FullName)) {
-              $signature = Get-AuthenticodeSignature -LiteralPath $file
-              if ($signature.Status -ne "Valid") { throw "Signature is not valid for ${file}: $($signature.Status)" }
-              if ($signature.SignerCertificate.Thumbprint -ne $thumbprint) { throw "Unexpected signer for $file" }
-              if ($null -eq $signature.TimeStamperCertificate) { throw "Timestamp is missing for $file" }
+
+          $signToolCommand = Get-Command signtool.exe -ErrorAction SilentlyContinue
+          if ($signToolCommand) {
+            $signTool = $signToolCommand.Source
+          } else {
+            $kitsRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+            $signTool = Get-ChildItem -LiteralPath $kitsRoot -Filter signtool.exe -Recurse -File |
+              Where-Object { $_.Directory.Name -eq "x64" } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if ([string]::IsNullOrWhiteSpace($signTool)) { throw "Windows SDK signtool.exe was not found" }
+
+          function Invoke-BoundedAuthenticodeVerification {
+            param(
+              [Parameter(Mandatory = $true)][string]$File,
+              [Parameter(Mandatory = $true)][string]$Label
+            )
+            $stdout = Join-Path $env:RUNNER_TEMP "$Label-signtool.stdout.log"
+            $stderr = Join-Path $env:RUNNER_TEMP "$Label-signtool.stderr.log"
+            $log = Join-Path $env:GITHUB_WORKSPACE "release/$Label-signtool.log"
+            $arguments = "verify /pa /all /v /tw /r `"Mist Chronicle Self-Signed Test Publisher`" `"$File`""
+            $process = Start-Process -FilePath $signTool -ArgumentList $arguments -NoNewWindow -PassThru `
+              -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            if (-not $process.WaitForExit(180000)) {
+              $process.Kill($true)
+              throw "SignTool verification exceeded 180 seconds for $File"
             }
+            $process.WaitForExit()
+            @(
+              Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue
+              Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue
+            ) | Set-Content -LiteralPath $log -Encoding utf8
+            if ($process.ExitCode -ne 0) {
+              throw "SignTool verification failed for ${File} with exit code $($process.ExitCode). See $log"
+            }
+            return [ordered]@{
+              file = [IO.Path]::GetFileName($File)
+              signerThumbprint = $thumbprint
+              signatureStatus = "Valid"
+              timestampPresent = $true
+              verificationTool = $signTool
+              verificationPolicy = "Default Authenticode / all embedded signatures / timestamp required"
+              verificationLog = [IO.Path]::GetFileName($log)
+            }
+          }
+
+          foreach ($store in @("Root", "TrustedPublisher")) {
+            Import-Certificate -FilePath $env:SELF_SIGNED_CER -CertStoreLocation "Cert:\CurrentUser\$store" | Out-Null
+          }
+          try {
+            $signatureEvidence = [ordered]@{
+              schemaVersion = 1
+              installer = Invoke-BoundedAuthenticodeVerification -File $installer[0].FullName -Label "installer"
+              unpackedApplication = Invoke-BoundedAuthenticodeVerification -File $app -Label "unpacked-application"
+            }
+            $signatureEvidence | ConvertTo-Json -Depth 8 |
+              Set-Content -LiteralPath release/self-signed-signature-evidence.json -Encoding utf8
           } finally {
-            Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$thumbprint" -Force -ErrorAction SilentlyContinue
+            foreach ($store in @("Root", "TrustedPublisher")) {
+              Remove-Item -LiteralPath "Cert:\CurrentUser\$store\$thumbprint" -Force -ErrorAction SilentlyContinue
+            }
           }
           Copy-Item -LiteralPath $env:SELF_SIGNED_CER -Destination release/self-signed-test.cer -Force
 
@@ -220,8 +273,7 @@ jobs:
           npm run release:provenance
           $installer = @(Get-ChildItem -LiteralPath release -Filter "*-Setup-0.5.0.exe" -File)[0]
           $app = Get-Item -LiteralPath release/win-unpacked/MistChronicle.exe
-          $installerSignature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
-          $appSignature = Get-AuthenticodeSignature -LiteralPath $app.FullName
+          $signatureEvidence = Get-Content -LiteralPath release/self-signed-signature-evidence.json -Raw | ConvertFrom-Json
           $evidence = [ordered]@{
             schemaVersion = 1
             truthLevel = "SELF_SIGNED_TEST_ONLY"
@@ -235,15 +287,17 @@ jobs:
               file = $installer.Name
               bytes = $installer.Length
               sha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-              signerThumbprint = $installerSignature.SignerCertificate.Thumbprint
-              timestampPresent = $null -ne $installerSignature.TimeStamperCertificate
+              signerThumbprint = $signatureEvidence.installer.signerThumbprint
+              signatureStatus = $signatureEvidence.installer.signatureStatus
+              timestampPresent = $signatureEvidence.installer.timestampPresent
             }
             unpackedApplication = [ordered]@{
               file = "MistChronicle.exe"
               bytes = $app.Length
               sha256 = (Get-FileHash -LiteralPath $app.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-              signerThumbprint = $appSignature.SignerCertificate.Thumbprint
-              timestampPresent = $null -ne $appSignature.TimeStamperCertificate
+              signerThumbprint = $signatureEvidence.unpackedApplication.signerThumbprint
+              signatureStatus = $signatureEvidence.unpackedApplication.signatureStatus
+              timestampPresent = $signatureEvidence.unpackedApplication.timestampPresent
             }
             privateKeyRetention = "EPHEMERAL_UNTIL_JOB_CLEANUP"
             githubReleaseModified = $false
@@ -285,6 +339,8 @@ jobs:
             release/provenance.json
             release/self-signed-test.cer
             release/self-signed-build-evidence.json
+            release/self-signed-signature-evidence.json
+            release/*-signtool.log
             scripts/release/clean-machine-qualification.ps1
             scripts/release/smoke-installer.ps1
             scripts/release/verify-persistence-db.mjs
@@ -316,6 +372,7 @@ jobs:
           merge-multiple: true
 
       - name: Trust, install, launch, verify persistence, and remove trust
+        timeout-minutes: 15
         shell: pwsh
         run: |
           $delivery = Join-Path $env:RUNNER_TEMP "mist-chronicle-self-signed-delivery"
@@ -329,6 +386,49 @@ jobs:
           $thumbprint = "${{ needs.build-self-signed.outputs.certificate-thumbprint }}"
           $installer = @(Get-ChildItem -LiteralPath (Join-Path $delivery "release") -Filter "*-Setup-0.5.0.exe" -File)
           if ($installer.Count -ne 1) { throw "Expected exactly one transferred installer" }
+
+          $signToolCommand = Get-Command signtool.exe -ErrorAction SilentlyContinue
+          if ($signToolCommand) {
+            $signTool = $signToolCommand.Source
+          } else {
+            $kitsRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+            $signTool = Get-ChildItem -LiteralPath $kitsRoot -Filter signtool.exe -Recurse -File |
+              Where-Object { $_.Directory.Name -eq "x64" } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if ([string]::IsNullOrWhiteSpace($signTool)) { throw "Windows SDK signtool.exe was not found" }
+
+          function Invoke-BoundedAuthenticodeVerification {
+            param(
+              [Parameter(Mandatory = $true)][string]$File,
+              [Parameter(Mandatory = $true)][string]$Label
+            )
+            $stdout = Join-Path $env:RUNNER_TEMP "$Label-signtool.stdout.log"
+            $stderr = Join-Path $env:RUNNER_TEMP "$Label-signtool.stderr.log"
+            $log = Join-Path $delivery "$Label-signtool.log"
+            $arguments = "verify /pa /all /v /tw /r `"Mist Chronicle Self-Signed Test Publisher`" `"$File`""
+            $process = Start-Process -FilePath $signTool -ArgumentList $arguments -NoNewWindow -PassThru `
+              -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            if (-not $process.WaitForExit(180000)) {
+              $process.Kill($true)
+              throw "SignTool verification exceeded 180 seconds for $File"
+            }
+            $process.WaitForExit()
+            @(
+              Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue
+              Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue
+            ) | Set-Content -LiteralPath $log -Encoding utf8
+            if ($process.ExitCode -ne 0) {
+              throw "SignTool verification failed for ${File} with exit code $($process.ExitCode). See $log"
+            }
+            return [ordered]@{
+              signatureStatus = "Valid"
+              timestampPresent = $true
+              verificationLog = [IO.Path]::GetFileName($log)
+            }
+          }
+
           foreach ($store in @("Root", "TrustedPublisher")) {
             if (Test-Path -LiteralPath "Cert:\CurrentUser\$store\$thumbprint") {
               throw "Clean-machine runner already contains the self-signed certificate in $store"
@@ -337,10 +437,7 @@ jobs:
             if ($imported.Thumbprint -ne $thumbprint) { throw "Imported certificate thumbprint mismatch in $store" }
           }
           try {
-            $installerSignature = Get-AuthenticodeSignature -LiteralPath $installer[0].FullName
-            if ($installerSignature.Status -ne "Valid") { throw "Transferred installer signature is not valid" }
-            if ($installerSignature.SignerCertificate.Thumbprint -ne $thumbprint) { throw "Transferred installer signer mismatch" }
-            if ($null -eq $installerSignature.TimeStamperCertificate) { throw "Transferred installer timestamp is missing" }
+            $installerSignature = Invoke-BoundedAuthenticodeVerification -File $installer[0].FullName -Label "clean-installer"
 
             $probe = Join-Path $delivery "scripts/release/clean-machine-qualification.ps1"
             & $probe `
@@ -362,12 +459,8 @@ jobs:
             if (-not $installedApp) { throw "Installed application executable was not found" }
             if (-not $uninstaller) { throw "Installed uninstaller executable was not found" }
 
-            foreach ($file in @($installedApp, $uninstaller)) {
-              $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
-              if ($signature.Status -ne "Valid") { throw "Installed executable signature is not valid: $($file.FullName)" }
-              if ($signature.SignerCertificate.Thumbprint -ne $thumbprint) { throw "Installed executable signer mismatch: $($file.FullName)" }
-              if ($null -eq $signature.TimeStamperCertificate) { throw "Installed executable timestamp is missing: $($file.FullName)" }
-            }
+            $installedAppSignature = Invoke-BoundedAuthenticodeVerification -File $installedApp.FullName -Label "clean-installed-application"
+            $uninstallerSignature = Invoke-BoundedAuthenticodeVerification -File $uninstaller.FullName -Label "clean-installed-uninstaller"
 
             $uninstall = Start-Process -FilePath $uninstaller.FullName -ArgumentList @("/S") -PassThru -Wait
             if ($uninstall.ExitCode -ne 0) { throw "Silent uninstaller failed with exit code $($uninstall.ExitCode)" }
@@ -391,16 +484,19 @@ jobs:
               certificateImportedIntoEphemeralTrustedPublisher = $true
               installer = [ordered]@{
                 sha256 = (Get-FileHash -LiteralPath $installer[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-                signatureStatus = "Valid"
-                timestampPresent = $true
+                signatureStatus = $installerSignature.signatureStatus
+                timestampPresent = $installerSignature.timestampPresent
+                verificationLog = $installerSignature.verificationLog
               }
               installedApplication = [ordered]@{
-                signatureStatus = "Valid"
-                timestampPresent = $true
+                signatureStatus = $installedAppSignature.signatureStatus
+                timestampPresent = $installedAppSignature.timestampPresent
+                verificationLog = $installedAppSignature.verificationLog
               }
               installedUninstaller = [ordered]@{
-                signatureStatus = "Valid"
-                timestampPresent = $true
+                signatureStatus = $uninstallerSignature.signatureStatus
+                timestampPresent = $uninstallerSignature.timestampPresent
+                verificationLog = $uninstallerSignature.verificationLog
               }
               firstLaunch = "PASS"
               knowledgeSeedDeployment = "PASS"
