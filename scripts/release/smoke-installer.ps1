@@ -15,6 +15,12 @@ if ([string]::IsNullOrWhiteSpace($Installer)) {
 
 $temporaryRoot = if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) { $env:TEMP } else { $env:RUNNER_TEMP }
 $smokeRoot = Join-Path $temporaryRoot ("mist-chronicle-installer-smoke-" + [Guid]::NewGuid().ToString("N"))
+$smokeDrive = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($smokeRoot)).TrimEnd('\').ToUpperInvariant()
+if ($smokeDrive -ne "D:") {
+  throw "Installer smoke storage root must be on D:, received $smokeRoot"
+}
+$env:GMZZ_STORAGE_ROOT = $smokeRoot
+$env:GMZZ_REQUIRE_D_DRIVE = "1"
 $installRoot = Join-Path $smokeRoot "app"
 $userData = Join-Path $smokeRoot "user-data"
 New-Item -ItemType Directory -Force -Path $installRoot, $userData | Out-Null

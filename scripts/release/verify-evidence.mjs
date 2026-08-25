@@ -150,6 +150,7 @@ function validatePassEvidenceLevel(claim, location, source, errors) {
 
 export function validateEvidenceManifest(manifest, options = {}) {
   const root = path.resolve(options.root ?? repositoryRoot);
+  const gitRoot = path.resolve(options.gitRoot ?? root);
   const errors = [];
   if (!isRecord(manifest)) {
     return { ok: false, errors: ["manifest: must be an object"] };
@@ -167,7 +168,7 @@ export function validateEvidenceManifest(manifest, options = {}) {
     if (!["clean", "dirty", "unknown"].includes(source.worktreeStatus)) error(errors, "source.worktreeStatus", "must be clean, dirty, or unknown");
     if (options.matchHead) {
       try {
-        const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+        const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: gitRoot, encoding: "utf8" }).trim();
         if (head.toLowerCase() !== String(source.commit).toLowerCase()) error(errors, "source.commit", `does not match current HEAD ${head}`);
       } catch (cause) {
         error(errors, "source.commit", `cannot resolve current HEAD: ${cause?.message ?? cause}`);
@@ -229,11 +230,12 @@ function option(name) {
 
 async function main() {
   const manifestPath = process.argv[2];
-  if (!manifestPath || manifestPath.startsWith("--")) throw new Error("usage: node scripts/release/verify-evidence.mjs <manifest.json> [--root <repo>] [--match-head]");
+  if (!manifestPath || manifestPath.startsWith("--")) throw new Error("usage: node scripts/release/verify-evidence.mjs <manifest.json> [--root <evidence-root>] [--git-root <checkout>] [--match-head]");
   const root = path.resolve(option("--root") ?? repositoryRoot);
+  const gitRoot = path.resolve(option("--git-root") ?? root);
   const absolute = path.resolve(manifestPath);
   const manifest = JSON.parse(fs.readFileSync(absolute, "utf8"));
-  const result = validateEvidenceManifest(manifest, { root, matchHead: process.argv.includes("--match-head") });
+  const result = validateEvidenceManifest(manifest, { root, gitRoot, matchHead: process.argv.includes("--match-head") });
   if (!result.ok) {
     for (const item of result.errors) console.error(`[release:evidence] ${item}`);
     process.exitCode = 1;

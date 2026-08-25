@@ -7,19 +7,25 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Existing v* tag to build and publish"
+        description: "Existing v* tag to build and qualify"
         required: true
         type: string
       unsigned_prerelease:
-        description: "Publish an explicitly unsigned prerelease build"
+        description: "Build an explicitly unsigned prerelease candidate"
         required: true
         default: true
+        type: boolean
+      publish_release:
+        description: "Publish GitHub Release assets after clean-machine evidence passes"
+        required: true
+        default: false
         type: boolean
 
 permissions:
   contents: write
   id-token: write
   attestations: write
+  artifact-metadata: write
 
 concurrency:
   group: release-${{ github.event.inputs.release_tag || github.ref }}
@@ -29,6 +35,13 @@ jobs:
   installer:
     runs-on: windows-latest
     environment: release
+    outputs:
+      artifact-id: ${{ steps.delivery-upload.outputs.artifact-id }}
+      artifact-digest: ${{ steps.delivery-upload.outputs.artifact-digest }}
+      source-commit: ${{ steps.delivery-metadata.outputs.source-commit }}
+      installer-sha256: ${{ steps.delivery-metadata.outputs.installer-sha256 }}
+      installer-bytes: ${{ steps.delivery-metadata.outputs.installer-bytes }}
+      build-machine-id: ${{ steps.delivery-metadata.outputs.build-machine-id }}
     env:
       RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
       UNSIGNED_PRERELEASE: ${{ github.event.inputs.unsigned_prerelease || 'false' }}
@@ -41,6 +54,18 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.release_tag || github.ref }}
+
+      - name: Bind release tag to exact clean main
+        shell: pwsh
+        run: |
+          git fetch origin main --no-tags
+          $head = (git rev-parse HEAD).Trim()
+          $main = (git rev-parse origin/main).Trim()
+          $tag = (git rev-parse "$env:RELEASE_TAG^{commit}").Trim()
+          if ($head -ne $main) { throw "Release source $head is not exact origin/main $main" }
+          if ($tag -ne $head) { throw "Release tag $env:RELEASE_TAG resolves to $tag, expected $head" }
+          $trackedChanges = @(git status --porcelain --untracked-files=no)
+          if ($trackedChanges.Count -ne 0) { throw "Release source checkout is not clean" }
 
       - uses: actions/setup-node@v4
         with:
@@ -86,13 +111,11 @@ jobs:
 
       - run: npm run release:verify:seed
 
-      - name: Materialize knowledge-backed game ledgers from authorized seed
+      - name: Preserve the authorized tracked lore source
         shell: pwsh
         run: |
-          $tool = Join-Path $env:RUNNER_TEMP "materialize-lore-from-seed.mjs"
-          git fetch --no-tags --depth=1 origin $env:GITHUB_SHA
-          git show "${env:GITHUB_SHA}:scripts/release/materialize-lore-from-seed.mjs" | Set-Content -LiteralPath $tool -Encoding utf8
-          node $tool private/rag/index app/generated-lore-compendium.ts
+          git diff --exit-code -- app/generated-lore-compendium.ts
+          if ($LASTEXITCODE -ne 0) { throw "Release preparation modified the tracked lore source" }
 
       - run: npm run typecheck
       - run: npm run lint
@@ -129,7 +152,29 @@ jobs:
         run: npm run release:smoke
 
       - name: Write source/installer provenance manifest
-        run: npm run release:provenance
+        shell: pwsh
+        run: |
+          $env:SOURCE_COMMIT = (git rev-parse HEAD).Trim()
+          npm run release:provenance
+
+      - name: Record immutable delivery metadata
+        id: delivery-metadata
+        shell: pwsh
+        run: |
+          $sourceCommit = (git rev-parse HEAD).Trim()
+          $provenance = Get-Content -LiteralPath release/provenance.json -Raw | ConvertFrom-Json
+          $installer = @(Get-ChildItem -LiteralPath release -Filter "*-Setup-*.exe" -File)
+          if ($installer.Count -ne 1) { throw "Expected exactly one installer, found $($installer.Count)" }
+          $sha256 = (Get-FileHash -LiteralPath $installer[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ([string]$provenance.sourceCommit -ne $sourceCommit) { throw "Provenance sourceCommit does not match exact HEAD" }
+          if ([string]$provenance.installer.sha256 -ne $sha256) { throw "Provenance SHA-256 does not match the installer" }
+          if ([long]$provenance.installer.bytes -ne $installer[0].Length) { throw "Provenance byte count does not match the installer" }
+          $trackedChanges = @(git status --porcelain --untracked-files=no)
+          if ($trackedChanges.Count -ne 0) { throw "Release build modified tracked source files" }
+          "source-commit=$sourceCommit" >> $env:GITHUB_OUTPUT
+          "installer-sha256=$sha256" >> $env:GITHUB_OUTPUT
+          "installer-bytes=$($installer[0].Length)" >> $env:GITHUB_OUTPUT
+          "build-machine-id=$env:COMPUTERNAME|$env:RUNNER_NAME|$env:ImageOS" >> $env:GITHUB_OUTPUT
 
       - name: Attest installer build provenance
         uses: actions/attest@v4
@@ -137,35 +182,124 @@ jobs:
           subject-path: release/*.exe
 
       - uses: actions/upload-artifact@v4
+        id: delivery-upload
         with:
           name: mist-chronicle-${{ env.RELEASE_TAG }}
           path: |
             release/*.exe
             release/provenance.json
+            scripts/release/clean-machine-qualification.ps1
+            scripts/release/smoke-installer.ps1
+            scripts/release/verify-persistence-db.mjs
           if-no-files-found: error
           retention-days: 30
 
-      - name: Create or update GitHub Release
+  clean-machine:
+    needs: installer
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+      CLEAN_MACHINE_SOURCE_CHECKOUT: ABSENT
+      CLEAN_MACHINE_DEPENDENCY_INSTALL: NOT_RUN
+    outputs:
+      evidence-artifact-id: ${{ steps.evidence-upload.outputs.artifact-id }}
+      evidence-artifact-digest: ${{ steps.evidence-upload.outputs.artifact-digest }}
+    steps:
+      - name: Download immutable Job A delivery
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.installer.outputs.artifact-id }}
+          path: ${{ runner.temp }}/mist-chronicle-delivery
+
+      - name: Qualify transferred installer without checkout or dependency install
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          $version = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
-          $installer = @(Get-ChildItem -LiteralPath release -Filter "*-Setup-$version.exe" -File)
-          if ($installer.Count -ne 1) { throw "Expected exactly one installer, found $($installer.Count)" }
-          $portableName = Join-Path (Resolve-Path release) "Mist-Chronicle-Setup-$version.exe"
-          if ($installer[0].FullName -ne $portableName) {
-            Copy-Item -LiteralPath $installer[0].FullName -Destination $portableName -Force
+          $delivery = Join-Path $env:RUNNER_TEMP "mist-chronicle-delivery"
+          $probe = Join-Path $delivery "scripts/release/clean-machine-qualification.ps1"
+          & $probe `
+            -DeliveryRoot $delivery `
+            -ExpectedSourceCommit "${{ needs.installer.outputs.source-commit }}" `
+            -ExpectedArtifactSha256 "${{ needs.installer.outputs.installer-sha256 }}" `
+            -ExpectedArtifactBytes ([long]"${{ needs.installer.outputs.installer-bytes }}") `
+            -BuildMachineId "${{ needs.installer.outputs.build-machine-id }}" `
+            -SourceRef $env:RELEASE_TAG
+
+      - name: Upload clean-machine evidence and exact tested bytes
+        id: evidence-upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: clean-machine-evidence-${{ env.RELEASE_TAG }}
+          path: ${{ runner.temp }}/mist-chronicle-delivery
+          if-no-files-found: error
+          retention-days: 30
+
+  evidence-verify:
+    needs: [installer, clean-machine]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.installer.outputs.source-commit }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download clean-machine evidence by immutable artifact ID
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.clean-machine.outputs.evidence-artifact-id }}
+          path: ${{ runner.temp }}/clean-machine-evidence
+
+      - name: Verify evidence contract against exact source HEAD
+        shell: pwsh
+        run: |
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP "clean-machine-evidence"
+          $manifest = Join-Path $evidenceRoot "clean-machine-evidence.json"
+          node scripts/release/verify-evidence.mjs $manifest --root $evidenceRoot --git-root $env:GITHUB_WORKSPACE --match-head
+
+  publish:
+    needs: [installer, clean-machine, evidence-verify]
+    if: ${{ github.event_name == 'push' || inputs.publish_release == true }}
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+      UNSIGNED_PRERELEASE: ${{ github.event.inputs.unsigned_prerelease || 'false' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download independently qualified release bytes
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.clean-machine.outputs.evidence-artifact-id }}
+          path: ${{ runner.temp }}/qualified-release
+
+      - name: Recheck signature and create or update GitHub Release
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "qualified-release"
+          $installer = @(Get-ChildItem -LiteralPath (Join-Path $root "release") -Filter "*-Setup-*.exe" -File)
+          if ($installer.Count -ne 1) { throw "Expected exactly one qualified installer, found $($installer.Count)" }
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer[0].FullName
+          if ($env:UNSIGNED_PRERELEASE -eq "true") {
+            if ($signature.Status -ne "NotSigned") { throw "Unsigned prerelease has an unexpected signature status: $($signature.Status)" }
+          } elseif ($signature.Status -ne "Valid") {
+            throw "Qualified installer signature is not valid: $($signature.Status)"
           }
-          $assets = @($portableName, (Join-Path (Resolve-Path release) "provenance.json"))
+          $version = $env:RELEASE_TAG.TrimStart([char]'v')
+          $portableName = Join-Path $root "Mist-Chronicle-Setup-$version.exe"
+          Copy-Item -LiteralPath $installer[0].FullName -Destination $portableName -Force
+          $assets = @(
+            $portableName,
+            (Join-Path $root "release/provenance.json"),
+            (Join-Path $root "clean-machine-evidence.json")
+          )
 
           gh release view $env:RELEASE_TAG *> $null
           $releaseExists = $LASTEXITCODE -eq 0
           if ($releaseExists) {
             gh release upload $env:RELEASE_TAG @assets --clobber
-            if ($env:UNSIGNED_PRERELEASE -eq "true") {
-              gh release edit $env:RELEASE_TAG --prerelease
-            }
+            if ($env:UNSIGNED_PRERELEASE -eq "true") { gh release edit $env:RELEASE_TAG --prerelease }
           } else {
             $releaseArgs = @("release", "create", $env:RELEASE_TAG) + $assets + @("--verify-tag", "--generate-notes", "--title", "灰雾纪事 $env:RELEASE_TAG")
             if ($env:UNSIGNED_PRERELEASE -eq "true") { $releaseArgs += "--prerelease" }

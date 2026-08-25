@@ -124,6 +124,56 @@ test("PR5 optional head matching rejects stale source commit", () => {
   assert.match(result.errors.join("\n"), /does not match current HEAD/);
 });
 
+test("head matching can use a Git checkout separate from the transferred evidence root", () => {
+  const manifest = baseManifest([{
+    id: "pr5.separate-git-root",
+    status: "NOT_RUN",
+    evidenceLevel: "local",
+    summary: "Evidence and source checkout are intentionally stored in separate roots.",
+    reason: "fixture only",
+    observedAt: new Date().toISOString(),
+  }]);
+  const result = validateEvidenceManifest(manifest, {
+    root: path.parse(repositoryRoot).root,
+    gitRoot: repositoryRoot,
+    matchHead: true,
+  });
+  assert.equal(result.ok, true, result.errors.join("; "));
+});
+
+test("release workflow qualifies the transferred installer on a checkout-free clean machine", () => {
+  const workflow = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "release.yml"), "utf8");
+  const cleanMachineStart = workflow.indexOf("\n  clean-machine:");
+  const evidenceVerifyStart = workflow.indexOf("\n  evidence-verify:");
+  assert.notEqual(cleanMachineStart, -1, "release workflow must define a clean-machine job");
+  assert.notEqual(evidenceVerifyStart, -1, "release workflow must independently verify the clean-machine manifest");
+  const cleanMachineJob = workflow.slice(cleanMachineStart, evidenceVerifyStart);
+  assert.match(cleanMachineJob, /needs:\s*installer/);
+  assert.match(cleanMachineJob, /actions\/download-artifact@v4/);
+  assert.match(cleanMachineJob, /artifact-ids:\s*\$\{\{ needs\.installer\.outputs\.artifact-id \}\}/);
+  assert.match(cleanMachineJob, /CLEAN_MACHINE_SOURCE_CHECKOUT:\s*ABSENT/);
+  assert.match(cleanMachineJob, /CLEAN_MACHINE_DEPENDENCY_INSTALL:\s*NOT_RUN/);
+  assert.doesNotMatch(cleanMachineJob, /actions\/checkout|actions\/setup-node|npm (?:ci|install)/);
+  assert.doesNotMatch(workflow, /materialize-lore-from-seed/);
+});
+
+test("installer smoke binds the packaged app to its isolated D-drive storage root", () => {
+  const smoke = fs.readFileSync(path.join(repositoryRoot, "scripts", "release", "smoke-installer.ps1"), "utf8");
+  assert.match(smoke, /\$env:GMZZ_STORAGE_ROOT\s*=\s*\$smokeRoot/);
+  assert.match(smoke, /\$env:GMZZ_REQUIRE_D_DRIVE\s*=\s*"1"/);
+  assert.match(smoke, /smoke storage root must be on D:/i);
+});
+
+test("clean-machine identity cannot become distinct merely because the job name changed", () => {
+  const workflow = fs.readFileSync(path.join(repositoryRoot, ".github", "workflows", "release.yml"), "utf8");
+  const qualification = fs.readFileSync(
+    path.join(repositoryRoot, "scripts", "release", "clean-machine-qualification.ps1"),
+    "utf8"
+  );
+  assert.doesNotMatch(workflow, /build-machine-id=.*GITHUB_JOB/);
+  assert.doesNotMatch(qualification, /executionMachineId\s*=.*GITHUB_JOB/);
+});
+
 test("high evidence levels cannot be upgraded from a local command or same-machine run", () => {
   const manifest = baseManifest([{
     id: "release.false-clean-machine",

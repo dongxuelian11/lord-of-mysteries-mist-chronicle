@@ -1,6 +1,6 @@
 # 《灰雾纪事》当前开发计划与技术债闭环账本
 
-状态：`IMPLEMENTING / REL-01 (LOCAL_UNSIGNED_ARTIFACT_COMPLETE; FORMAL_SIGNED_RELEASE_BLOCKED)`
+状态：`DELIVERY_IN_PROGRESS / CLEAN_PR_EXACT_MAIN_THEN_REL-01.4`
 
 最后更新：2026-08-25
 
@@ -10,18 +10,18 @@
 
 ```text
 REPOSITORY=D:\gmzz
-AUDITED_LOCAL_BRANCH=codex/technical-debt-closure
-AUDITED_LOCAL_HEAD=1aed3d86c6ce3375e8beb9982722e5b05568cbab
-CURRENT_WORKTREE=DIRTY_UNCOMMITTED (DSK-01/AUTH-01/SEC-01/COV-01/CTX-01/PROMPT-01/LEAK-01/ARCH-01A/ARCH-01B/ARCH-01C/ARCH-01D/GATE-01/SCHED-01/PROV-01 complete; REL-01 local unsigned candidate complete; formal signed/external evidence blocked; protected QA logs preserved)
-REMOTE_MAIN_CURRENT=NOT_AVAILABLE (latest read-only git ls-remote failed with exit 128; last known SHA is retained separately; tree not fetched)
-REMOTE_MAIN_LAST_KNOWN=c75eb6b03c6529d3eb14d536cb4a73e086f12e40
-AUDITED_TREE=DIRTY_UNCOMMITTED (no tree hash claimed; source/test/docs/release edits remain uncommitted)
-REMOTE_MAIN_TREE=NOT_QUERIED
-REMOTE_MAIN_TREE_BASIS=COMMIT_ID_ONLY (no fetch or merge performed)
+AUDITED_LOCAL_BRANCH=codex/technical-debt-delivery
+DELIVERY_BASE=origin/main@c75eb6b03c6529d3eb14d536cb4a73e086f12e40
+DELIVERY_BASE_COMMIT=2e9d8d5ae71b51e7905a46c0a4e37a3fd2c0235b (parent is exact DELIVERY_BASE; tree matched authorized 930a771 commit before delivery-workflow edits)
+CURRENT_WORKTREE=DIRTY_INTENTIONAL_DELIVERY_EDITS (release Job B/Job C, evidence verifier, D-drive smoke, tests and docs; protected QA logs preserved)
+REMOTE_MAIN_CURRENT=c75eb6b03c6529d3eb14d536cb4a73e086f12e40 (verified before clean delivery branch creation; must be refreshed before push/PR/merge)
+AUDITED_TREE=PENDING_FINAL_COMMIT
+REMOTE_MAIN_TREE=PENDING_EXACT_HEAD_RECHECK
+REMOTE_MAIN_TREE_BASIS=CLEAN_BRANCH_PARENT_IS_EXACT_VERIFIED_MAIN
 LATEST_MERGED_DELIVERY=GitHub PR #4
-CURRENT_NEXT_PACKAGE=REL-01
-CURRENT_NEXT_ACTION=REL-01.4（签名与独立证据）：保留已验证的 D 盘 unsigned C-grade candidate；取得代码签名证书后重签并重算 provenance，再由独立 clean-machine/production/human 流程补证；不把同机 smoke 或宿主 GPU 阻塞升级为通过
-PACKAGE_PROGRESS=17/17 LOCAL_IMPLEMENTATION_AND_ARTIFACT_COMPLETE (100%); FORMAL_SIGNED_RELEASE_BLOCKED; EXTERNAL_EVIDENCE_PENDING
+CURRENT_NEXT_PACKAGE=DELIVERY-01 then REL-01.4
+CURRENT_NEXT_ACTION=完成全量 D 盘门禁和源码级 diff 审核；显式暂存交付文件并提交；刷新 GitHub CURRENT 后推送新分支、创建新 PR、等待 CI/审核；仅在锁定精确 head 后按仓库允许方式合并并验证 resulting main；之后才进入版本/tag、签名、Job B/Job C 和发布证据
+PACKAGE_PROGRESS=IMPLEMENTATION_COMPLETE; DELIVERY_VALIDATION_IN_PROGRESS; PR_NOT_CREATED; HOSTED_CI_NOT_RUN; EXACT_MAIN_NOT_MERGED; SIGNED_RELEASE_AND_EXTERNAL_EVIDENCE_PENDING
 ```
 
 本地审计分支与远端 `main` 的 commit identity 不同；本轮只读 `git ls-remote` 得到 `c75eb6b03c6529d3eb14d536cb4a73e086f12e40`，没有 fetch，因此不宣称远端 tree 与本地相同。开始提交/推送前仍必须重新查询 GitHub CURRENT，不能把上面的 SHA 当成永久事实。
@@ -39,7 +39,7 @@ PACKAGE_PROGRESS=17/17 LOCAL_IMPLEMENTATION_AND_ARTIFACT_COMPLETE (100%); FORMAL
 2. 模型只能提出候选；规则、授权、受众投影、持久化和最终展示权威继续由确定性代码拥有。
 3. `NOT_RUN`、`NOT_AVAILABLE`、`PENDING`、`BLOCKED`、`UNVERIFIED` 必须保持字面真值。本机测试不能升级成安装包、干净机器、生产或真人长线证据。
 4. 不得伪造知识库、市场数据、模型输出或发布证据；依赖、网络、seed 或模型不可用时必须失败关闭。
-5. 不得自动提交、推送、创建 PR、合并或修改分支保护；这些动作需要用户另行明确授权。
+5. 不得自动提交、推送、创建 PR、合并或修改分支保护；这些动作需要用户明确授权。本轮用户已明确授权“干净交付分支 → 新 PR/CI/审核 → exact-head 合并 → exact-main → 签名和独立发布证据”，但仍不得绕过失败检查、必要审核、版本确认、证书或发布输入门禁。
 6. 每次只推进一个工作包。共享权威模块上的任务不得并行改写。
 7. 每个工作包开始、遇到阻塞、完成验证时，都要先更新本文件的状态、证据和 `CURRENT_NEXT_ACTION`。
 
@@ -822,18 +822,19 @@ renderer UI、clean-machine、production 与真人证据仍未完成，不能把
 
 ```text
 LAST_COMPLETED=DSK-01A and DSK-01B.1/DSK-01B.2/DSK-01B.3/DSK-01B.4 runtime storage migration, AUTH-01 canonical audience projection, SEC-01 CSP code closure, COV-01 real source-aware report/baseline/regression gate, CTX-01 causal entity closure compiler, PROMPT-01 quiet-week public signal provenance contract, NLP-01.1 gold fixture/parser/evaluator baseline, NLP-01.2 rule convergence, NLP-01.3 kind-only production façade migration, NLP-01.4 target-only production façade migration, NLP-01.5 resource-only production façade migration, NLP-01.6 authorization-scope-only production façade migration, NLP-01.7 red-line evidence merge, NLP-01.8 retreat-condition migration and source-bound evidence correction, NLP-01 parser closeout revalidation with resource posture gate and façade negated posture consumption, NLP-01.9 colloquial negation and alternative-target fail-closed hardening, LEAK-01.1 gold-fixture-and-policy, ARCH-01A.1 characterization, ARCH-01A.2 action-contract extraction, ARCH-01A.3 extraction validation, ARCH-01B.1 characterization, ARCH-01B.2 dialogue-orchestration extraction, ARCH-01B.3 extraction validation, ARCH-01C.1 characterization, ARCH-01C.2 week-resolution extraction, ARCH-01C.3 extraction validation, ARCH-01D.1 characterization, ARCH-01D.2 production extraction, ARCH-01D.3 extraction validation, GATE-01.1 provider capability characterization, GATE-01.2 renderer capability gate/token-accounting accuracy/schema boundary, SCHED-01.1 provider-aware scheduler characterization and implementation, SCHED-01.2 Main scheduler/durable integration characterization and full D gate, COV-01 provider capability source inclusion and lazy SSR registry fix, PROV-01.1 read-only provenance/readability API and IPC contract, REL-01 source-stage fail-closed release verification, REL-01.1 local D-bound seed input path and manifest staging fix, REL-01.2 authorized C-grade seed materialization, REL-01.3 Electron 43.3.0 NSIS build/provenance/install smoke, SEC-01 CSP URL-pattern runtime fix and security contract refresh
-IN_PROGRESS=REL-01.4 FORMAL_SIGNED_RELEASE_AND_EXTERNAL_EVIDENCE
-START_HEAD=1aed3d86c6ce3375e8beb9982722e5b05568cbab
-NEXT=REL-01
-NEXT_COMMAND=若取得代码签名证书，先在同一 D 盘环境重签 NSIS 并重跑 release:provenance/release:smoke；然后把精确 artifact/hash 交给独立无 checkout clean-machine Job B，最后分别取得 production 与 human evidence。证书和外部资源缺失时保持 BLOCKED，不伪造高等级证据；正式签名发布仍不执行 commit/push/merge，代码交付是否提交/推送按用户对当前分支的明确授权单独处理
-KNOWN_BLOCKERS=PACKAGE_SIGNATURE_NOT_SIGNED; INSTALLER_UI_QA_BLOCKED_BY_HOST_GPU_VIRTUALIZATION; CLEAN_MACHINE_JOB_B_NOT_AVAILABLE; PRODUCTION_EVIDENCE_NOT_AVAILABLE; HUMAN_LONG_PLAY_NOT_AVAILABLE; ELECTRON_MAIN_UI_SMOKE_BLOCKED_BY_LOCAL_GPU; REMOTE_TREE_NOT_FETCHED_FOR_THIS_AUDIT; HOSTED_CI_NOT_RUN_WITHOUT_PUSH
-FINAL_RECHECK=REL-01 C-grade seed/build/provenance/same-machine smoke PASS; final full test 571 total/565 pass/6 skip/0 fail duration=457865.3649ms; release-evidence targeted 9/9 PASS; typecheck/lint/coverage(14 sources, 8,921 counters)/strict NLP/strict leak/D-storage/bundle/git-diff-check PASS; installer sha256=e028bc59c15b6e18ab1f975d6e7be24a2c4d4ef4c886791be0d038a46d926152 bytes=114676071; signature=NotSigned; formal signed release not delivered; current-branch code delivery authorized only after final write-set review
+IN_PROGRESS=DELIVERY-01 CLEAN_PR_EXACT_MAIN
+START_HEAD=c75eb6b03c6529d3eb14d536cb4a73e086f12e40
+DELIVERY_MIGRATION_COMMIT=2e9d8d5ae71b51e7905a46c0a4e37a3fd2c0235b
+NEXT=DELIVERY-01_LOCAL_GATES_AND_SOURCE_REVIEW
+NEXT_COMMAND=在 D 盘环境完成 typecheck/lint/full test/coverage/strict NLP+leak/storage/bundle/audit/diff/PowerShell+YAML 门禁；更新精确计数；显式暂存且排除两个 QA 日志；提交后刷新远端 main 和 GitHub 保护/CI，推送 codex/technical-debt-delivery 并创建新 PR。任何检查或审核失败先修复，不合并
+KNOWN_BLOCKERS=PR_NOT_CREATED; HOSTED_CI_NOT_RUN; INDEPENDENT_PR_REVIEW_PENDING; PACKAGE_SIGNATURE_NOT_SIGNED; HOSTED_RELEASE_SEED_SECRETS_NOT_VERIFIED; INSTALLER_UI_QA_BLOCKED_BY_HOST_GPU_VIRTUALIZATION; PRODUCTION_EVIDENCE_NOT_AVAILABLE; HUMAN_LONG_PLAY_NOT_AVAILABLE
+FINAL_RECHECK=LOCAL_DELIVERY_GATE_PASS; full test first run 575 total/568 pass/6 skip/1 fail exposed stale release-workflow contract, fixed and rerun 575 total/569 pass/6 skip/0 fail duration=489558.1933ms; release+security targeted 20/20 PASS; typecheck/lint/build PASS; coverage 14 sources/8,921 counters, 35.67% statements/24.02% branches/28.67% functions/41.02% lines, manifest SHA-256=81e317c590ce9337116d25d89f1c1a4550971b9f889e6714e5986532176ff2f0; strict NLP 160/160 PASS; strict leak 120/120 PASS; leak p95=11.652ms; D-storage/bundle/release-source/authorized-seed/PowerShell/YAML/diff gates PASS; npm audit high gate PASS with 4 moderate transitive esbuild findings and no high/critical; no clean-machine PASS claimed before hosted Job B
 SOURCE_PATH_RECHECK=PASS (façade exports owners without reverse import; Main exits on runtimePathError before userData/server/RAG use; provenance remains read-only behind bounded IPC; release verifier accepts only validated absolute D-bound seed input and stages before artifact writes)
 REL_INPUT_PATH_RECHECK=PASS (explicit KNOWLEDGE_SEED_DIR, manifest-listed optional files, D-drive rejection and no-fallback behavior covered by 9/9 release evidence tests)
-REL_BLOCKER_RECHECK=PASS (authorized C-grade seed validated/staged on D; NSIS artifact and provenance written; smoke PASS; signature and independent evidence remain blocked)
-BLOCKER_CLASSIFICATION=CODE_CLEARED / FORMAL_SIGNATURE_AND_EXTERNAL_EVIDENCE_PENDING
-REMOTE_RECHECK=NOT_AVAILABLE (latest git ls-remote origin refs/heads/main failed with exit 128: unable to connect to github.com; last known SHA remains c75eb6b03c6529d3eb14d536cb4a73e086f12e40; remote tree not fetched)
-CONTINUATION_RECHECK=PASS (HEAD unchanged; source execution paths re-audited for façade ownership, Main inference authority, read-only provenance, D-drive roots, URL-pattern validity and release ordering; C-grade candidate exists; final full-test/quality refresh complete; signature and external evidence remain blocked)
+REL_BLOCKER_RECHECK=IN_PROGRESS (Job B/Job C code exists and local contracts pass; hosted execution, signature and external evidence remain literal PENDING/NOT_AVAILABLE)
+BLOCKER_CLASSIFICATION=DELIVERY_VALIDATION_AND_REMOTE_REVIEW_PENDING / FORMAL_SIGNATURE_AND_EXTERNAL_EVIDENCE_PENDING
+REMOTE_RECHECK=PASS_AT_BRANCH_CREATION (origin/main=c75eb6b03c6529d3eb14d536cb4a73e086f12e40; refresh required immediately before push/PR/merge)
+CONTINUATION_RECHECK=PASS (clean branch is based directly on exact main; authorized implementation tree migration matched; current edits are bounded to release evidence closure and documentation; final full gate still pending)
 
 ### 2026-08-24 · REL-01.1 受控本地 seed 输入路径修复
 
@@ -867,6 +868,39 @@ CONTINUATION_RECHECK=PASS (HEAD unchanged; source execution paths re-audited for
 PROTECTED_UNTRACKED=.qa-prodserver3.err.log,.qa-prodserver3.out.log
 REAL_MODEL_REQUESTS_AUTHORIZED=NO
 NETWORK_DEPENDENCY_INSTALL_AUTHORIZED=YES_FOR_COV01_ONLY (vitest@4.1.11 and coverage-v8@4.1.11; cache=D:\gmzz\.runtime\npm-cache)
-COMMIT_PUSH_PR_MERGE_AUTHORIZED=YES_CURRENT_BRANCH_ONLY (user authorized after final audit; no PR/merge/formal release)
-PUSH_STATUS=AUTHORIZED_CURRENT_BRANCH_ONLY (remote CURRENT must be rechecked before push; formal signed release remains blocked)
+COMMIT_PUSH_PR_MERGE_AUTHORIZED=YES_FOR_CLEAN_DELIVERY_CHAIN (user explicitly authorized new PR/CI/review and locked-head exact-main merge; failure gates remain binding)
+PUSH_STATUS=PENDING_FINAL_LOCAL_GATE_AND_REMOTE_CURRENT_RECHECK
 ```
+
+### 2026-08-25 · DELIVERY-01 干净分支与独立发布证据工作流
+
+- 从已验证的 `origin/main@c75eb6b03c6529d3eb14d536cb4a73e086f12e40` 建立
+  `codex/technical-debt-delivery`，把授权实现提交迁移为
+  `2e9d8d5ae71b51e7905a46c0a4e37a3fd2c0235b`；迁移前后的实现 tree 都是
+  `46df678ce58f6b1120bbaf9dfa3fca0ab4419e41`，`TREE_EQUAL=PASS`。该分支尚未推送，
+  新 PR/hosted CI/独立审核均未发生。
+- 源码审计确认旧 `release.yml` 在同一 runner 构建并 smoke，无法证明 clean-machine；还会
+  在构建时改写 tracked lore source。新链路拆成 Job A 构建、无 checkout/无依赖安装的
+  Job B 安装资格验证、精确 source checkout 的 Job C 契约验证，以及只消费 Job B 同一字节的
+  publish job；手动运行默认不发布。
+- TDD 首先证明 evidence root 与 Git checkout root 不能分离、工作流缺 Job B、installer smoke
+  未绑定 `GMZZ_STORAGE_ROOT`，以及机器身份错误包含 `GITHUB_JOB`。四处实现修复后定向集合
+  `13/13 PASS`；两个 PowerShell 脚本 parse PASS，release YAML 由项目锁定的 `js-yaml`
+  parse PASS。GitHub 官方 Action 文档核验：单一 artifact ID 会直接解压到指定目录；
+  attestation 需要 `id-token`、`attestations`、`artifact-metadata` write 权限，工作流已声明。
+- 当前证据边界：本机只证明代码和静态契约，`CLEAN_MACHINE_JOB_B=NOT_RUN`、
+  `HOSTED_CI=NOT_RUN`、`PR_REVIEW=PENDING`。必须等新 PR 精确 head 的 CI/审核通过并锁头合并，
+  再验证 resulting-main；签名、tag、GitHub Release 与 production/human 证据不得提前。
+- 全量本地门禁已经完成：第一次完整回归为 `575 total / 568 pass / 6 skip / 1 fail`，
+  失败是 security contract 仍要求旧的 seed-to-source materialization；在保留 release-exists
+  退出码冻结的同时，把契约更新为“不得改写 tracked compendium”，定向 `20/20 PASS`，随后
+  第二次完整回归为 `575 total / 569 pass / 6 skip / 0 fail`。coverage 为 14 个权威源、
+  8,921 counters，`35.67/24.02/28.67/41.02`；严格 NLP `160/160`、严格 leak
+  `120/120`、D-storage、bundle、release source/授权 seed、PowerShell/YAML parse 均通过。
+  `npm audit --audit-level=high` 无 high/critical 阻断，但保留 4 个来自 drizzle-kit 工具链的
+  moderate esbuild 告警；自动修复要求 breaking `--force`，不在本交付包内擅自升级。
+- 原始重点问题复核：`app/game-engine.ts` 当前为 25,733 bytes（不再是 182 KB 单体实现）；
+  主要执行 owner 已拆至 `action-contracts`、`dialogue-orchestration`、`week-resolution`、
+  `world-turn-orchestrator`。覆盖率已有真实 source-aware 量化和不得回退门禁；中文 NLP 仍以
+  规则 parser 运行，但由 160 条人工金标、否定/授权 over-grant 门禁和生产 façade 约束，
+  当前不再是“无量化的裸正则”，仍不能把金标全绿解释为任意自然语言都可靠。

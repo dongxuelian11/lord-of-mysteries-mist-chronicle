@@ -104,7 +104,9 @@ test("release workflow disables implicit publish and enforces provenance gates",
   assert.match(workflow, /signature\.Status -ne "NotSigned"/);
   assert.match(workflow, /gh release edit \$env:RELEASE_TAG --prerelease/);
   assert.match(workflow, /\$releaseExists = \$LASTEXITCODE -eq 0/);
-  assert.match(workflow, /Materialize knowledge-backed game ledgers from authorized seed/);
+  assert.match(workflow, /Preserve the authorized tracked lore source/);
+  assert.match(workflow, /git diff --exit-code -- app\/generated-lore-compendium\.ts/);
+  assert.doesNotMatch(workflow, /materialize-lore-from-seed/);
   assert.match(builder, /asar: true/);
   assert.doesNotMatch(builder, /asar: false/);
 });
