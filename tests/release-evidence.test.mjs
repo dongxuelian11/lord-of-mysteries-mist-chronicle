@@ -169,6 +169,15 @@ test("release workflow qualifies the transferred installer on a checkout-free cl
   assert.match(cleanMachineJob, /merge-multiple:\s*true/, "Job B must flatten the immutable artifact into DeliveryRoot");
   assert.match(evidenceVerifyJob, /merge-multiple:\s*true/, "Job C must flatten the evidence artifact into EvidenceRoot");
   assert.match(publishJob, /merge-multiple:\s*true/, "Publish must flatten the qualified artifact into QualifiedReleaseRoot");
+  assert.doesNotMatch(publishJob, /actions\/checkout/, "Publish must operate only on independently qualified bytes");
+  assert.match(publishJob, /gh release view[^\r\n]+--repo \$env:GITHUB_REPOSITORY/,
+    "checkout-free publish must bind release lookup to the explicit repository");
+  assert.match(publishJob, /gh release upload[^\r\n]+--repo \$env:GITHUB_REPOSITORY/,
+    "checkout-free publish must bind release upload to the explicit repository");
+  assert.match(publishJob, /gh release edit[^\r\n]+--repo \$env:GITHUB_REPOSITORY/,
+    "checkout-free publish must bind release edits to the explicit repository");
+  assert.match(publishJob, /"release", "create", \$env:RELEASE_TAG, "--repo", \$env:GITHUB_REPOSITORY/,
+    "checkout-free publish must bind release creation to the explicit repository");
   assert.match(cleanMachineJob, /CLEAN_MACHINE_SOURCE_CHECKOUT:\s*ABSENT/);
   assert.match(cleanMachineJob, /CLEAN_MACHINE_DEPENDENCY_INSTALL:\s*NOT_RUN/);
   assert.doesNotMatch(cleanMachineJob, /actions\/checkout|actions\/setup-node|npm (?:ci|install)/);
