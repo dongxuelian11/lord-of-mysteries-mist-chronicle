@@ -1,0 +1,513 @@
+name: Self-signed Windows qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/self-signed-test-closure
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-signed-windows-qualification
+  cancel-in-progress: false
+
+jobs:
+  build-self-signed:
+    runs-on: windows-latest
+    outputs:
+      artifact-id: ${{ steps.delivery-upload.outputs.artifact-id }}
+      source-commit: ${{ steps.delivery.outputs.source-commit }}
+      installer-sha256: ${{ steps.delivery.outputs.installer-sha256 }}
+      installer-bytes: ${{ steps.delivery.outputs.installer-bytes }}
+      build-machine-id: ${{ steps.delivery.outputs.build-machine-id }}
+      certificate-thumbprint: ${{ steps.certificate.outputs.thumbprint }}
+    env:
+      RELEASE_TAG: v0.5.0
+      GMZZ_REQUIRE_D_DRIVE: "1"
+    steps:
+      - name: Enforce D-drive runner roots
+        shell: pwsh
+        run: |
+          foreach ($candidate in @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP)) {
+            $drive = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($candidate)).TrimEnd('\').ToUpperInvariant()
+            if ($drive -ne "D:") { throw "Self-signed test write root must be on D:, received $candidate" }
+          }
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Bind source to exact clean main
+        shell: pwsh
+        run: |
+          git fetch origin main --no-tags
+          $head = (git rev-parse HEAD).Trim()
+          $main = (git rev-parse origin/main).Trim()
+          if ($head -ne $main) { throw "Self-signed source $head is not exact origin/main $main" }
+          if (@(git status --porcelain --untracked-files=no).Count -ne 0) {
+            throw "Self-signed source checkout is not clean"
+          }
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Configure D-drive runtime roots
+        shell: pwsh
+        run: |
+          $runtime = Join-Path $env:RUNNER_TEMP "gmzz-self-signed-runtime"
+          New-Item -ItemType Directory -Force -Path $runtime | Out-Null
+          "GMZZ_STORAGE_ROOT=$runtime" >> $env:GITHUB_ENV
+          "TEMP=$(Join-Path $runtime 'tmp')" >> $env:GITHUB_ENV
+          "TMP=$(Join-Path $runtime 'tmp')" >> $env:GITHUB_ENV
+          "npm_config_cache=$(Join-Path $runtime 'npm-cache')" >> $env:GITHUB_ENV
+          "ELECTRON_CACHE=$(Join-Path $runtime 'electron-cache')" >> $env:GITHUB_ENV
+          "ELECTRON_BUILDER_CACHE=$(Join-Path $runtime 'electron-builder-cache')" >> $env:GITHUB_ENV
+
+      - run: npm ci
+      - run: npm run release:verify
+
+      - name: Download and verify the authorized generated-only seed
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "authorized-generated-only-seed-v0.5.0.zip"
+          $expanded = Join-Path $env:RUNNER_TEMP "authorized-generated-only-seed-v0.5.0"
+          Invoke-WebRequest `
+            -Uri "https://github.com/dongxuelian11/lord-of-mysteries-mist-chronicle/releases/download/v0.5.0/authorized-generated-only-seed-v0.5.0.zip" `
+            -OutFile $archive
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = "2ff30c92458755cf8c3e023588e356097c6fa72a6bbde141c6b3b63edf9957fc"
+          if ($actual -ne $expected) { throw "Authorized seed archive SHA-256 mismatch" }
+          Expand-Archive -LiteralPath $archive -DestinationPath $expanded -Force
+          $manifests = @(Get-ChildItem -LiteralPath $expanded -Filter seed-manifest.json -Recurse -File)
+          if ($manifests.Count -ne 1) { throw "Expected exactly one seed-manifest.json" }
+          $seedRoot = $manifests[0].Directory.FullName
+          New-Item -ItemType Directory -Force -Path private/rag/index | Out-Null
+          Copy-Item -Path (Join-Path $seedRoot "*") -Destination private/rag/index -Recurse -Force
+
+      - run: npm run release:verify:seed
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run bundle:budget
+
+      - name: Restage authorized seed at the build boundary
+        run: npm run release:verify:seed
+
+      - name: Generate an ephemeral self-signed Code Signing certificate
+        id: certificate
+        shell: pwsh
+        run: |
+          $random = New-Object byte[] 32
+          [Security.Cryptography.RandomNumberGenerator]::Fill($random)
+          $password = [Convert]::ToBase64String($random)
+          Write-Output "::add-mask::$password"
+          $pfx = Join-Path $env:RUNNER_TEMP "mist-chronicle-self-signed-test.pfx"
+          $cer = Join-Path $env:RUNNER_TEMP "mist-chronicle-self-signed-test.cer"
+          $rsa = [Security.Cryptography.RSA]::Create(3072)
+          try {
+            $dn = [Security.Cryptography.X509Certificates.X500DistinguishedName]::new(
+              "CN=Mist Chronicle Self-Signed Test Publisher, O=Mist Chronicle Test"
+            )
+            $request = [Security.Cryptography.X509Certificates.CertificateRequest]::new(
+              $dn,
+              $rsa,
+              [Security.Cryptography.HashAlgorithmName]::SHA256,
+              [Security.Cryptography.RSASignaturePadding]::Pkcs1
+            )
+            $request.CertificateExtensions.Add(
+              [Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new($false, $false, 0, $true)
+            )
+            $request.CertificateExtensions.Add(
+              [Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new(
+                [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature,
+                $true
+              )
+            )
+            $eku = [Security.Cryptography.OidCollection]::new()
+            [void]$eku.Add([Security.Cryptography.Oid]::new("1.3.6.1.5.5.7.3.3", "Code Signing"))
+            $request.CertificateExtensions.Add(
+              [Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new($eku, $true)
+            )
+            $request.CertificateExtensions.Add(
+              [Security.Cryptography.X509Certificates.X509SubjectKeyIdentifierExtension]::new($request.PublicKey, $false)
+            )
+            $certificate = $request.CreateSelfSigned(
+              [DateTimeOffset]::UtcNow.AddMinutes(-5),
+              [DateTimeOffset]::UtcNow.AddYears(1)
+            )
+            try {
+              [IO.File]::WriteAllBytes(
+                $pfx,
+                $certificate.Export([Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $password)
+              )
+              [IO.File]::WriteAllBytes(
+                $cer,
+                $certificate.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert)
+              )
+              "WIN_CSC_LINK=$pfx" >> $env:GITHUB_ENV
+              "WIN_CSC_KEY_PASSWORD=$password" >> $env:GITHUB_ENV
+              "CSC_LINK=$pfx" >> $env:GITHUB_ENV
+              "CSC_KEY_PASSWORD=$password" >> $env:GITHUB_ENV
+              "SELF_SIGNED_PFX=$pfx" >> $env:GITHUB_ENV
+              "SELF_SIGNED_CER=$cer" >> $env:GITHUB_ENV
+              "thumbprint=$($certificate.Thumbprint)" >> $env:GITHUB_OUTPUT
+              "not-before=$($certificate.NotBefore.ToUniversalTime().ToString('o'))" >> $env:GITHUB_OUTPUT
+              "not-after=$($certificate.NotAfter.ToUniversalTime().ToString('o'))" >> $env:GITHUB_OUTPUT
+            } finally {
+              $certificate.Dispose()
+            }
+          } finally {
+            $rsa.Dispose()
+            [Array]::Clear($random, 0, $random.Length)
+            $password = $null
+          }
+
+      - name: Build and sign every generated Windows executable
+        shell: pwsh
+        run: |
+          $config = Join-Path $env:RUNNER_TEMP "self-signed-builder.cjs"
+          @'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const workspace = process.env.GITHUB_WORKSPACE;
+          const yaml = require(path.join(workspace, "node_modules", "js-yaml"));
+          const base = yaml.load(fs.readFileSync(path.join(workspace, "electron-builder.yml"), "utf8"));
+          module.exports = {
+            ...base,
+            forceCodeSigning: true,
+            win: {
+              ...base.win,
+              signtoolOptions: {
+                ...(base.win?.signtoolOptions ?? {}),
+                signingHashAlgorithms: ["sha256"],
+                rfc3161TimeStampServer: "http://timestamp.digicert.com",
+              },
+            },
+          };
+          '@ | Set-Content -LiteralPath $config -Encoding utf8
+          npx electron-builder --win nsis --publish never --config $config
+
+      - name: Verify installer and unpacked application signatures
+        shell: pwsh
+        run: |
+          $thumbprint = "${{ steps.certificate.outputs.thumbprint }}"
+          $installer = @(Get-ChildItem -LiteralPath release -Filter "*-Setup-0.5.0.exe" -File)
+          if ($installer.Count -ne 1) { throw "Expected exactly one installer, found $($installer.Count)" }
+          $app = Join-Path $env:GITHUB_WORKSPACE "release/win-unpacked/MistChronicle.exe"
+          if (-not (Test-Path -LiteralPath $app -PathType Leaf)) { throw "Unpacked application executable is missing" }
+          Import-Certificate -FilePath $env:SELF_SIGNED_CER -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+          try {
+            foreach ($file in @($app, $installer[0].FullName)) {
+              $signature = Get-AuthenticodeSignature -LiteralPath $file
+              if ($signature.Status -ne "Valid") { throw "Signature is not valid for $file: $($signature.Status)" }
+              if ($signature.SignerCertificate.Thumbprint -ne $thumbprint) { throw "Unexpected signer for $file" }
+              if ($null -eq $signature.TimeStamperCertificate) { throw "Timestamp is missing for $file" }
+            }
+          } finally {
+            Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$thumbprint" -Force -ErrorAction SilentlyContinue
+          }
+          Copy-Item -LiteralPath $env:SELF_SIGNED_CER -Destination release/self-signed-test.cer -Force
+
+      - name: Write provenance and self-signed build evidence
+        shell: pwsh
+        run: |
+          $env:SOURCE_COMMIT = (git rev-parse HEAD).Trim()
+          npm run release:provenance
+          $installer = @(Get-ChildItem -LiteralPath release -Filter "*-Setup-0.5.0.exe" -File)[0]
+          $app = Get-Item -LiteralPath release/win-unpacked/MistChronicle.exe
+          $installerSignature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+          $appSignature = Get-AuthenticodeSignature -LiteralPath $app.FullName
+          $evidence = [ordered]@{
+            schemaVersion = 1
+            truthLevel = "SELF_SIGNED_TEST_ONLY"
+            sourceCommit = $env:SOURCE_COMMIT
+            buildMachineId = "$env:COMPUTERNAME|$env:RUNNER_NAME|$env:ImageOS"
+            certificateThumbprint = "${{ steps.certificate.outputs.thumbprint }}"
+            certificateNotBefore = "${{ steps.certificate.outputs.not-before }}"
+            certificateNotAfter = "${{ steps.certificate.outputs.not-after }}"
+            certificateCerSha256 = (Get-FileHash -LiteralPath release/self-signed-test.cer -Algorithm SHA256).Hash.ToLowerInvariant()
+            installer = [ordered]@{
+              file = $installer.Name
+              bytes = $installer.Length
+              sha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              signerThumbprint = $installerSignature.SignerCertificate.Thumbprint
+              timestampPresent = $null -ne $installerSignature.TimeStamperCertificate
+            }
+            unpackedApplication = [ordered]@{
+              file = "MistChronicle.exe"
+              bytes = $app.Length
+              sha256 = (Get-FileHash -LiteralPath $app.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              signerThumbprint = $appSignature.SignerCertificate.Thumbprint
+              timestampPresent = $null -ne $appSignature.TimeStamperCertificate
+            }
+            privateKeyRetention = "EPHEMERAL_UNTIL_JOB_CLEANUP"
+            githubReleaseModified = $false
+            productionDeployment = "NOT_AVAILABLE / NOT_RUN"
+          }
+          $evidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath release/self-signed-build-evidence.json -Encoding utf8
+
+      - name: Record immutable delivery metadata
+        id: delivery
+        shell: pwsh
+        run: |
+          $installer = @(Get-ChildItem -LiteralPath release -Filter "*-Setup-0.5.0.exe" -File)[0]
+          $sha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "source-commit=$((git rev-parse HEAD).Trim())" >> $env:GITHUB_OUTPUT
+          "installer-sha256=$sha256" >> $env:GITHUB_OUTPUT
+          "installer-bytes=$($installer.Length)" >> $env:GITHUB_OUTPUT
+          "build-machine-id=$env:COMPUTERNAME|$env:RUNNER_NAME|$env:ImageOS" >> $env:GITHUB_OUTPUT
+          if (@(git status --porcelain --untracked-files=no).Count -ne 0) {
+            throw "Self-signed build modified tracked source files"
+          }
+
+      - name: Destroy ephemeral private key
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:SELF_SIGNED_PFX) -and (Test-Path -LiteralPath $env:SELF_SIGNED_PFX)) {
+            Remove-Item -LiteralPath $env:SELF_SIGNED_PFX -Force
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:SELF_SIGNED_PFX) -and (Test-Path -LiteralPath $env:SELF_SIGNED_PFX)) {
+            throw "Ephemeral self-signed PFX remains on the build runner"
+          }
+
+      - uses: actions/upload-artifact@v7
+        id: delivery-upload
+        with:
+          name: mist-chronicle-self-signed-test-delivery
+          path: |
+            release/*-Setup-0.5.0.exe
+            release/provenance.json
+            release/self-signed-test.cer
+            release/self-signed-build-evidence.json
+            scripts/release/clean-machine-qualification.ps1
+            scripts/release/smoke-installer.ps1
+            scripts/release/verify-persistence-db.mjs
+          if-no-files-found: error
+          retention-days: 14
+
+  clean-machine:
+    needs: build-self-signed
+    runs-on: windows-latest
+    outputs:
+      evidence-artifact-id: ${{ steps.evidence-upload.outputs.artifact-id }}
+    steps:
+      - name: Enforce independent D-drive runner
+        shell: pwsh
+        run: |
+          foreach ($candidate in @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP)) {
+            $drive = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($candidate)).TrimEnd('\').ToUpperInvariant()
+            if ($drive -ne "D:") { throw "Clean-machine write root must be on D:, received $candidate" }
+          }
+          $executionMachine = "$env:COMPUTERNAME|$env:RUNNER_NAME|$env:ImageOS"
+          if ($executionMachine -eq "${{ needs.build-self-signed.outputs.build-machine-id }}") {
+            throw "Clean-machine identity must differ from the build machine"
+          }
+
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.build-self-signed.outputs.artifact-id }}
+          path: ${{ runner.temp }}/mist-chronicle-self-signed-delivery
+          merge-multiple: true
+
+      - name: Trust, install, launch, verify persistence, and remove trust
+        shell: pwsh
+        run: |
+          $delivery = Join-Path $env:RUNNER_TEMP "mist-chronicle-self-signed-delivery"
+          if (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE ".git")) {
+            throw "Clean-machine job must not contain a source checkout"
+          }
+          if (@(Get-ChildItem -LiteralPath $delivery -Directory -Filter node_modules -Recurse -ErrorAction SilentlyContinue).Count -ne 0) {
+            throw "Clean-machine delivery must not contain node_modules"
+          }
+          $cer = Join-Path $delivery "release/self-signed-test.cer"
+          $thumbprint = "${{ needs.build-self-signed.outputs.certificate-thumbprint }}"
+          $installer = @(Get-ChildItem -LiteralPath (Join-Path $delivery "release") -Filter "*-Setup-0.5.0.exe" -File)
+          if ($installer.Count -ne 1) { throw "Expected exactly one transferred installer" }
+          foreach ($store in @("Root", "TrustedPublisher")) {
+            if (Test-Path -LiteralPath "Cert:\CurrentUser\$store\$thumbprint") {
+              throw "Clean-machine runner already contains the self-signed certificate in $store"
+            }
+            $imported = Import-Certificate -FilePath $cer -CertStoreLocation "Cert:\CurrentUser\$store"
+            if ($imported.Thumbprint -ne $thumbprint) { throw "Imported certificate thumbprint mismatch in $store" }
+          }
+          try {
+            $installerSignature = Get-AuthenticodeSignature -LiteralPath $installer[0].FullName
+            if ($installerSignature.Status -ne "Valid") { throw "Transferred installer signature is not valid" }
+            if ($installerSignature.SignerCertificate.Thumbprint -ne $thumbprint) { throw "Transferred installer signer mismatch" }
+            if ($null -eq $installerSignature.TimeStamperCertificate) { throw "Transferred installer timestamp is missing" }
+
+            $probe = Join-Path $delivery "scripts/release/clean-machine-qualification.ps1"
+            & $probe `
+              -DeliveryRoot $delivery `
+              -ExpectedSourceCommit "${{ needs.build-self-signed.outputs.source-commit }}" `
+              -ExpectedArtifactSha256 "${{ needs.build-self-signed.outputs.installer-sha256 }}" `
+              -ExpectedArtifactBytes ([long]"${{ needs.build-self-signed.outputs.installer-bytes }}") `
+              -BuildMachineId "${{ needs.build-self-signed.outputs.build-machine-id }}" `
+              -SourceRef "main@${{ needs.build-self-signed.outputs.source-commit }}"
+
+            $smokeRoot = Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Directory -Filter "mist-chronicle-installer-smoke-*" |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+            if (-not $smokeRoot) { throw "Installer smoke root was not found" }
+            $installedApp = Get-ChildItem -LiteralPath (Join-Path $smokeRoot.FullName "app") -Filter MistChronicle.exe -Recurse -File |
+              Select-Object -First 1
+            $uninstaller = Get-ChildItem -LiteralPath (Join-Path $smokeRoot.FullName "app") -Filter "Uninstall*.exe" -Recurse -File |
+              Select-Object -First 1
+            if (-not $installedApp) { throw "Installed application executable was not found" }
+            if (-not $uninstaller) { throw "Installed uninstaller executable was not found" }
+
+            foreach ($file in @($installedApp, $uninstaller)) {
+              $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+              if ($signature.Status -ne "Valid") { throw "Installed executable signature is not valid: $($file.FullName)" }
+              if ($signature.SignerCertificate.Thumbprint -ne $thumbprint) { throw "Installed executable signer mismatch: $($file.FullName)" }
+              if ($null -eq $signature.TimeStamperCertificate) { throw "Installed executable timestamp is missing: $($file.FullName)" }
+            }
+
+            $uninstall = Start-Process -FilePath $uninstaller.FullName -ArgumentList @("/S") -PassThru -Wait
+            if ($uninstall.ExitCode -ne 0) { throw "Silent uninstaller failed with exit code $($uninstall.ExitCode)" }
+            $installRoot = Join-Path $smokeRoot.FullName "app"
+            $deadline = (Get-Date).AddSeconds(30)
+            while ((Get-Date) -lt $deadline -and (Test-Path -LiteralPath $installRoot)) {
+              Start-Sleep -Milliseconds 500
+            }
+            if (Test-Path -LiteralPath $installRoot) { throw "Install root remained after silent uninstall" }
+
+            $evidence = [ordered]@{
+              schemaVersion = 1
+              truthLevel = "SELF_SIGNED_TEST_COMPLETE"
+              sourceCommit = "${{ needs.build-self-signed.outputs.source-commit }}"
+              buildMachineId = "${{ needs.build-self-signed.outputs.build-machine-id }}"
+              cleanMachineId = "$env:COMPUTERNAME|$env:RUNNER_NAME|$env:ImageOS"
+              sourceCheckout = "ABSENT"
+              dependencyInstall = "NOT_RUN"
+              certificateThumbprint = $thumbprint
+              certificateImportedIntoEphemeralCurrentUserRoot = $true
+              certificateImportedIntoEphemeralTrustedPublisher = $true
+              installer = [ordered]@{
+                sha256 = (Get-FileHash -LiteralPath $installer[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                signatureStatus = "Valid"
+                timestampPresent = $true
+              }
+              installedApplication = [ordered]@{
+                signatureStatus = "Valid"
+                timestampPresent = $true
+              }
+              installedUninstaller = [ordered]@{
+                signatureStatus = "Valid"
+                timestampPresent = $true
+              }
+              firstLaunch = "PASS"
+              knowledgeSeedDeployment = "PASS"
+              sqliteWalPersistence = "PASS"
+              silentUninstall = "PASS"
+              githubReleaseModified = $false
+              formalAuthenticode = "NOT_PROVEN"
+              productionDeployment = "NOT_AVAILABLE / NOT_RUN"
+            }
+            $evidence | ConvertTo-Json -Depth 8 |
+              Set-Content -LiteralPath (Join-Path $delivery "self-signed-clean-machine-evidence.json") -Encoding utf8
+          } finally {
+            foreach ($store in @("Root", "TrustedPublisher")) {
+              Remove-Item -LiteralPath "Cert:\CurrentUser\$store\$thumbprint" -Force -ErrorAction SilentlyContinue
+            }
+          }
+          foreach ($store in @("Root", "TrustedPublisher")) {
+            if (Test-Path -LiteralPath "Cert:\CurrentUser\$store\$thumbprint") {
+              throw "Self-signed certificate remained installed in $store after qualification"
+            }
+          }
+          $evidencePath = Join-Path $delivery "self-signed-clean-machine-evidence.json"
+          $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
+          $evidence | Add-Member -NotePropertyName certificateRemovedAfterQualification -NotePropertyValue $true
+          $evidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidencePath -Encoding utf8
+
+      - uses: actions/upload-artifact@v7
+        id: evidence-upload
+        with:
+          name: mist-chronicle-self-signed-clean-machine-evidence
+          path: ${{ runner.temp }}/mist-chronicle-self-signed-delivery
+          if-no-files-found: error
+          retention-days: 14
+
+  evidence-verify:
+    needs: [build-self-signed, clean-machine]
+    runs-on: windows-latest
+    steps:
+      - name: Enforce D-drive runner roots
+        shell: pwsh
+        run: |
+          foreach ($candidate in @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP)) {
+            $drive = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($candidate)).TrimEnd('\').ToUpperInvariant()
+            if ($drive -ne "D:") { throw "Evidence-verifier write root must be on D:, received $candidate" }
+          }
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.build-self-signed.outputs.source-commit }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.clean-machine.outputs.evidence-artifact-id }}
+          path: ${{ runner.temp }}/self-signed-evidence
+          merge-multiple: true
+
+      - name: Verify existing clean-machine evidence contract
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "self-signed-evidence"
+          node scripts/release/verify-evidence.mjs `
+            (Join-Path $root "clean-machine-evidence.json") `
+            --root $root `
+            --git-root $env:GITHUB_WORKSPACE `
+            --match-head
+
+      - name: Verify self-signed evidence and exact tested bytes
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "self-signed-evidence"
+          $evidence = Get-Content -LiteralPath (Join-Path $root "self-signed-clean-machine-evidence.json") -Raw | ConvertFrom-Json
+          $installer = @(Get-ChildItem -LiteralPath (Join-Path $root "release") -Filter "*-Setup-0.5.0.exe" -File)
+          if ($installer.Count -ne 1) { throw "Expected one independently tested installer" }
+          if ($evidence.truthLevel -ne "SELF_SIGNED_TEST_COMPLETE") { throw "Unexpected self-signed truth level" }
+          if ($evidence.sourceCommit -ne (git rev-parse HEAD).Trim()) { throw "Self-signed evidence source mismatch" }
+          if ($evidence.buildMachineId -eq $evidence.cleanMachineId) { throw "Build and clean-machine identities are equal" }
+          if ($evidence.sourceCheckout -ne "ABSENT" -or $evidence.dependencyInstall -ne "NOT_RUN") {
+            throw "Clean-machine isolation boundary is invalid"
+          }
+          if ($evidence.installer.sha256 -ne (Get-FileHash -LiteralPath $installer[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()) {
+            throw "Self-signed evidence installer hash mismatch"
+          }
+          foreach ($status in @(
+            $evidence.installer.signatureStatus,
+            $evidence.installedApplication.signatureStatus,
+            $evidence.installedUninstaller.signatureStatus,
+            $evidence.firstLaunch,
+            $evidence.knowledgeSeedDeployment,
+            $evidence.sqliteWalPersistence,
+            $evidence.silentUninstall
+          )) {
+            if ($status -notin @("Valid", "PASS")) { throw "Self-signed evidence contains a failed status: $status" }
+          }
+          if (-not $evidence.installer.timestampPresent -or
+              -not $evidence.installedApplication.timestampPresent -or
+              -not $evidence.installedUninstaller.timestampPresent) {
+            throw "Self-signed timestamp evidence is incomplete"
+          }
+          if (-not $evidence.certificateRemovedAfterQualification) {
+            throw "Ephemeral clean-machine certificate cleanup was not proven"
+          }
+          if ($evidence.formalAuthenticode -ne "NOT_PROVEN" -or
+              $evidence.productionDeployment -ne "NOT_AVAILABLE / NOT_RUN") {
+            throw "Self-signed evidence overstates release truth"
+          }
