@@ -209,13 +209,16 @@ jobs:
             Set-Content -LiteralPath $verifier -Encoding utf8
 
           foreach ($store in @("Root", "TrustedPublisher")) {
+            Write-Host "AUTHENTICODE_WORKFLOW_PHASE=import-$store"
             Import-Certificate -FilePath $env:SELF_SIGNED_CER -CertStoreLocation "Cert:\CurrentUser\$store" | Out-Null
           }
           try {
             $installerEvidencePath = Join-Path $env:GITHUB_WORKSPACE "release/installer-authenticode.json"
             $appEvidencePath = Join-Path $env:GITHUB_WORKSPACE "release/unpacked-application-authenticode.json"
+            Write-Host "AUTHENTICODE_WORKFLOW_PHASE=verify-installer"
             & $verifier -File $installer[0].FullName -ExpectedSignerThumbprint $thumbprint `
               -EvidencePath $installerEvidencePath | Out-Host
+            Write-Host "AUTHENTICODE_WORKFLOW_PHASE=verify-unpacked-application"
             & $verifier -File $app -ExpectedSignerThumbprint $thumbprint `
               -EvidencePath $appEvidencePath | Out-Host
             $signatureEvidence = [ordered]@{
@@ -424,19 +427,34 @@ jobs:
               installer = [ordered]@{
                 sha256 = (Get-FileHash -LiteralPath $installer[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
                 signatureStatus = $installerSignature.signatureStatus
+                signerThumbprint = $installerSignature.signerThumbprint
+                codeSigningEkuPresent = $installerSignature.codeSigningEkuPresent
+                signerTrustChain = $installerSignature.signerTrustChain
                 timestampPresent = $installerSignature.timestampPresent
+                timestampTokenSignatureValid = $installerSignature.timestampTokenSignatureValid
+                timestampAuthorityChainTrust = $installerSignature.timestampAuthorityChainTrust
                 verificationMode = $installerSignature.verificationMode
                 onlineRevocationCheck = $installerSignature.onlineRevocationCheck
               }
               installedApplication = [ordered]@{
                 signatureStatus = $installedAppSignature.signatureStatus
+                signerThumbprint = $installedAppSignature.signerThumbprint
+                codeSigningEkuPresent = $installedAppSignature.codeSigningEkuPresent
+                signerTrustChain = $installedAppSignature.signerTrustChain
                 timestampPresent = $installedAppSignature.timestampPresent
+                timestampTokenSignatureValid = $installedAppSignature.timestampTokenSignatureValid
+                timestampAuthorityChainTrust = $installedAppSignature.timestampAuthorityChainTrust
                 verificationMode = $installedAppSignature.verificationMode
                 onlineRevocationCheck = $installedAppSignature.onlineRevocationCheck
               }
               installedUninstaller = [ordered]@{
                 signatureStatus = $uninstallerSignature.signatureStatus
+                signerThumbprint = $uninstallerSignature.signerThumbprint
+                codeSigningEkuPresent = $uninstallerSignature.codeSigningEkuPresent
+                signerTrustChain = $uninstallerSignature.signerTrustChain
                 timestampPresent = $uninstallerSignature.timestampPresent
+                timestampTokenSignatureValid = $uninstallerSignature.timestampTokenSignatureValid
+                timestampAuthorityChainTrust = $uninstallerSignature.timestampAuthorityChainTrust
                 verificationMode = $uninstallerSignature.verificationMode
                 onlineRevocationCheck = $uninstallerSignature.onlineRevocationCheck
               }
@@ -547,7 +565,14 @@ jobs:
             $evidence.installedApplication,
             $evidence.installedUninstaller
           )) {
-            if ($signature.verificationMode -ne "OFFLINE_PE_DIGEST_AND_CMS_NO_TRUST_NETWORK" -or
+            if ($signature.signerThumbprint -ne $evidence.certificateThumbprint -or
+                -not $signature.codeSigningEkuPresent -or
+                $signature.signerTrustChain.rootThumbprint -ne $evidence.certificateThumbprint -or
+                $signature.signerTrustChain.revocationMode -ne "NoCheck" -or
+                $signature.signerTrustChain.certificateDownloads -ne "DISABLED" -or
+                -not $signature.timestampTokenSignatureValid -or
+                $signature.timestampAuthorityChainTrust -ne "NOT_RUN" -or
+                $signature.verificationMode -ne "OFFLINE_PE_DIGEST_AND_CMS_NO_TRUST_NETWORK" -or
                 $signature.onlineRevocationCheck -ne "NOT_RUN") {
               throw "Self-signed verification mode is overstated or ambiguous"
             }

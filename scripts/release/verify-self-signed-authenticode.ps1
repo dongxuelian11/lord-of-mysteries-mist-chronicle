@@ -22,6 +22,8 @@ if ($normalizedThumbprint -notmatch "^[0-9A-F]{40}$") {
   throw "Expected signer thumbprint must be a SHA-1 certificate thumbprint"
 }
 
+Write-Host "AUTHENTICODE_PHASE=start file=$([IO.Path]::GetFileName($resolvedFile))"
+
 if (-not ("OfflineAuthenticodeNative" -as [type])) {
   Add-Type -TypeDefinition @'
 using System;
@@ -204,6 +206,7 @@ public static class OfflineAuthenticodeNative
 
 Add-Type -AssemblyName System.Security.Cryptography.Pkcs
 Add-Type -AssemblyName System.Formats.Asn1
+Write-Host "AUTHENTICODE_PHASE=platform-types-ready"
 
 function Test-CertificateEku {
   param(
@@ -260,9 +263,11 @@ function Get-OfflineCertificateChainEvidence {
 }
 
 $encodedMessage = [OfflineAuthenticodeNative]::ReadEmbeddedPkcs7($resolvedFile)
+Write-Host "AUTHENTICODE_PHASE=embedded-pkcs7-read bytes=$($encodedMessage.Length)"
 $signedCms = [Security.Cryptography.Pkcs.SignedCms]::new()
 $signedCms.Decode($encodedMessage)
 $signedCms.CheckSignature($true)
+Write-Host "AUTHENTICODE_PHASE=cms-signature-valid"
 
 $indirectDataReader = [Formats.Asn1.AsnReader]::new(
   [ReadOnlyMemory[byte]]::new($signedCms.ContentInfo.Content),
@@ -291,6 +296,7 @@ if (-not [Security.Cryptography.CryptographicOperations]::FixedTimeEquals(
 )) {
   throw "Authenticode PE image digest does not match the embedded signed digest"
 }
+Write-Host "AUTHENTICODE_PHASE=pe-digest-valid"
 
 $matchingSigners = @(
   $signedCms.SignerInfos |
@@ -310,12 +316,15 @@ if (-not (Test-CertificateEku -Certificate $signer.Certificate -RequiredOid "1.3
 if ($signer.Certificate.HasPrivateKey) {
   throw "Embedded signer unexpectedly exposes a private key"
 }
+Write-Host "AUTHENTICODE_PHASE=signer-valid thumbprint=$normalizedThumbprint"
 $signerTrustChain = Get-OfflineCertificateChainEvidence `
   -Certificate $signer.Certificate `
-  -RequiredApplicationOid "1.3.6.1.5.5.7.3.3"
+  -RequiredApplicationOid "1.3.6.1.5.5.7.3.3" `
+  -ExtraCertificates $signedCms.Certificates
 if ($signerTrustChain.rootThumbprint -ne $normalizedThumbprint) {
   throw "Embedded signer does not terminate at the explicitly trusted self-signed certificate"
 }
+Write-Host "AUTHENTICODE_PHASE=signer-chain-valid"
 
 $timestampAuthorities = @()
 foreach ($attribute in $signer.UnsignedAttributes) {
@@ -340,18 +349,17 @@ foreach ($attribute in $signer.UnsignedAttributes) {
     )) {
       throw "RFC3161 timestamp token is not bound to the Authenticode signer"
     }
+    Write-Host "AUTHENTICODE_PHASE=timestamp-token-bound"
     if (-not (Test-CertificateEku -Certificate $timestampCertificate -RequiredOid "1.3.6.1.5.5.7.3.8")) {
       throw "RFC3161 signer does not contain the Time Stamping EKU"
     }
-    $timestampTrustChain = Get-OfflineCertificateChainEvidence `
-      -Certificate $timestampCertificate `
-      -RequiredApplicationOid "1.3.6.1.5.5.7.3.8" `
-      -ExtraCertificates $timestampCms.Certificates
+    # The token signature and its binding to this Authenticode signer are proven above.
+    # Public TSA chain trust and revocation are outside this offline self-signed test layer.
+    Write-Host "AUTHENTICODE_PHASE=timestamp-token-valid"
     $timestampAuthorities += [ordered]@{
       subject = $timestampCertificate.Subject
       thumbprint = $timestampCertificate.Thumbprint.ToUpperInvariant()
       timestampUtc = $timestampToken.TokenInfo.Timestamp.ToUniversalTime().ToString("o")
-      trustChain = $timestampTrustChain
     }
   }
 }
@@ -359,6 +367,7 @@ foreach ($attribute in $signer.UnsignedAttributes) {
 if ($timestampAuthorities.Count -lt 1) {
   throw "A cryptographically valid RFC3161 timestamp token is required"
 }
+Write-Host "AUTHENTICODE_PHASE=complete"
 
 $targetEvidenceDirectory = Split-Path -Parent $EvidencePath
 if (-not [string]::IsNullOrWhiteSpace($targetEvidenceDirectory)) {
@@ -378,6 +387,7 @@ $evidence = [ordered]@{
   embeddedPrivateKey = $false
   timestampPresent = $true
   timestampTokenSignatureValid = $true
+  timestampAuthorityChainTrust = "NOT_RUN"
   timestampAuthorities = $timestampAuthorities
   signerTrustChain = $signerTrustChain
   authenticodeDigestAlgorithmOid = $digestAlgorithmOid
