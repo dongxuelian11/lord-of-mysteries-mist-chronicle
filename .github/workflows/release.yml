@@ -232,6 +232,7 @@ jobs:
         with:
           artifact-ids: ${{ needs.installer.outputs.artifact-id }}
           path: ${{ runner.temp }}/mist-chronicle-delivery
+          merge-multiple: true
 
       - name: Qualify transferred installer without checkout or dependency install
         shell: pwsh

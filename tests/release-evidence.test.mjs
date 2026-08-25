@@ -162,6 +162,7 @@ test("release workflow qualifies the transferred installer on a checkout-free cl
   assert.match(cleanMachineJob, /needs:\s*installer/);
   assert.match(cleanMachineJob, /actions\/download-artifact@v4/);
   assert.match(cleanMachineJob, /artifact-ids:\s*\$\{\{ needs\.installer\.outputs\.artifact-id \}\}/);
+  assert.match(cleanMachineJob, /merge-multiple:\s*true/, "Job B must flatten the immutable artifact into DeliveryRoot");
   assert.match(cleanMachineJob, /CLEAN_MACHINE_SOURCE_CHECKOUT:\s*ABSENT/);
   assert.match(cleanMachineJob, /CLEAN_MACHINE_DEPENDENCY_INSTALL:\s*NOT_RUN/);
   assert.doesNotMatch(cleanMachineJob, /actions\/checkout|actions\/setup-node|npm (?:ci|install)/);
