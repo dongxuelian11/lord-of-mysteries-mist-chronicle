@@ -9,9 +9,8 @@ import {
 } from "../electron/persistence-provenance.cjs";
 import { createSqlitePersistenceStore } from "../electron/persistence-sqlite.cjs";
 
-const runtimeRoot = String(process.env.GMZZ_STORAGE_ROOT ?? "D:\\gmzz\\.runtime").startsWith("D:\\")
-  ? process.env.GMZZ_STORAGE_ROOT
-  : "D:\\gmzz\\.runtime";
+const runtimeRoot = process.env.GMZZ_STORAGE_ROOT ?? path.join(process.cwd(), ".runtime");
+fs.mkdirSync(runtimeRoot, { recursive: true });
 
 function withStore(callback) {
   const directory = fs.mkdtempSync(path.join(runtimeRoot, "provenance-test-"));

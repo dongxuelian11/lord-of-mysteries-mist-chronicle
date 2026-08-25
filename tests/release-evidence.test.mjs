@@ -13,6 +13,15 @@ const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const require = createRequire(import.meta.url);
 const { buildSeedManifest } = require("../electron/knowledge-seed.cjs");
 
+function releaseTestEnv(overrides = {}) {
+  return {
+    ...process.env,
+    RELEASE_TAG: "",
+    GITHUB_REF_NAME: "",
+    ...overrides,
+  };
+}
+
 function baseManifest(claims) {
   return {
     schemaVersion: 1,
@@ -232,13 +241,12 @@ test("artifact provenance command fails closed with a diagnosable seed gate when
   const result = spawnSync(process.execPath, [path.join(repositoryRoot, "scripts/release/verify-release.mjs"), "artifact"], {
     cwd: repositoryRoot,
     encoding: "utf8",
-    env: {
-      ...process.env,
+    env: releaseTestEnv({
       GMZZ_STORAGE_ROOT: "D:\\gmzz\\.runtime",
       KNOWLEDGE_SEED_DIR: missingSeed,
       TEMP: "D:\\gmzz\\.runtime\\tmp",
       TMP: "D:\\gmzz\\.runtime\\tmp",
-    },
+    }),
   });
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout}\n${result.stderr}`, /seed-source-path-missing/);
@@ -279,14 +287,13 @@ test("release seed verifier accepts an explicit D-drive seed directory and stage
     const result = spawnSync(process.execPath, [path.join(repositoryRoot, "scripts/release/verify-release.mjs"), "seed"], {
       cwd: repositoryRoot,
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: releaseTestEnv({
         GMZZ_STORAGE_ROOT: runtimeRoot,
         GMZZ_REQUIRE_D_DRIVE: "1",
         KNOWLEDGE_SEED_DIR: fixtureDir,
         TEMP: path.join(runtimeRoot, "tmp"),
         TMP: path.join(runtimeRoot, "tmp"),
-      },
+      }),
     });
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.match(`${result.stdout}\n${result.stderr}`, /\[release:seed\].*buildId=/);
@@ -301,14 +308,13 @@ test("release seed verifier rejects an explicit non-D seed path before reading r
   const result = spawnSync(process.execPath, [path.join(repositoryRoot, "scripts/release/verify-release.mjs"), "seed"], {
     cwd: repositoryRoot,
     encoding: "utf8",
-    env: {
-      ...process.env,
+    env: releaseTestEnv({
       GMZZ_STORAGE_ROOT: "D:\\gmzz\\.runtime",
       GMZZ_REQUIRE_D_DRIVE: "1",
       KNOWLEDGE_SEED_DIR: "C:\\authorized-seed",
       TEMP: "D:\\gmzz\\.runtime\\tmp",
       TMP: "D:\\gmzz\\.runtime\\tmp",
-    },
+    }),
   });
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout}\n${result.stderr}`, /seed-source-path-invalid/);

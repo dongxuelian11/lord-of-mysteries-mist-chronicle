@@ -14,15 +14,15 @@ AUDITED_LOCAL_BRANCH=codex/technical-debt-delivery
 DELIVERY_BASE=origin/main@c75eb6b03c6529d3eb14d536cb4a73e086f12e40
 DELIVERY_MIGRATION_COMMIT=2e9d8d5ae71b51e7905a46c0a4e37a3fd2c0235b (parent is exact DELIVERY_BASE; tree matched authorized 930a771 commit before delivery-workflow edits)
 DELIVERY_GATE_COMMIT=95b4b729c1df5a1be1a8264b8e4bd5b14db7e0bc
-CURRENT_WORKTREE=DIRTY_INTENTIONAL_PR_REVIEW_FIX (D-drive preflight before artifact/download writes plus test/ledger; two protected untracked QA logs remain)
+CURRENT_WORKTREE=DIRTY_INTENTIONAL_CI_FIX (PR merge-ref isolation and cross-platform provenance test root plus ledger; two protected untracked QA logs remain)
 REMOTE_MAIN_CURRENT=c75eb6b03c6529d3eb14d536cb4a73e086f12e40 (refreshed after local gate commit; merge-base exact; refresh again before merge)
 AUDITED_TREE=e1853441ab86d1ff827763af9ac500b6ea90133e (delivery gate commit)
 REMOTE_MAIN_TREE=PENDING_EXACT_HEAD_RECHECK
 REMOTE_MAIN_TREE_BASIS=CLEAN_BRANCH_PARENT_IS_EXACT_VERIFIED_MAIN
 LATEST_MERGED_DELIVERY=GitHub PR #4
 CURRENT_NEXT_PACKAGE=DELIVERY-01 then REL-01.4
-CURRENT_NEXT_ACTION=提交并推送源码审核发现的发布作业 D-drive 前置门禁，等待 PR #5 新精确 head 的 build(ubuntu/windows) CI 与审核；main 当前要求 strict 两项 CI、approval count=0、三种合并方式均允许；仅在锁定精确 head 后合并并验证 resulting main；之后才进入版本/tag、签名、Job B/Job C 和发布证据
-PACKAGE_PROGRESS=IMPLEMENTATION_AND_LOCAL_DELIVERY_GATE_COMPLETE; PR_5_OPEN; HOSTED_CI_OLD_HEAD_RUNNING_AND_NEW_HEAD_PENDING; EXACT_MAIN_NOT_MERGED; SIGNED_RELEASE_AND_EXTERNAL_EVIDENCE_PENDING
+CURRENT_NEXT_ACTION=提交并推送 PR merge-ref/跨平台测试根修复，等待 PR #5 再次更新后的精确 head 通过 build(ubuntu/windows) CI 与审核；main 当前要求 strict 两项 CI、approval count=0、三种合并方式均允许；仅在锁定精确 head 后合并并验证 resulting main；之后才进入版本/tag、签名、Job B/Job C 和发布证据
+PACKAGE_PROGRESS=IMPLEMENTATION_AND_LOCAL_DELIVERY_GATE_COMPLETE; PR_5_OPEN; HOSTED_CI_FAILED_ON_96fabd2_AND_FIX_PENDING; EXACT_MAIN_NOT_MERGED; SIGNED_RELEASE_AND_EXTERNAL_EVIDENCE_PENDING
 ```
 
 本地审计分支与远端 `main` 的 commit identity 不同；本轮只读 `git ls-remote` 得到 `c75eb6b03c6529d3eb14d536cb4a73e086f12e40`，没有 fetch，因此不宣称远端 tree 与本地相同。开始提交/推送前仍必须重新查询 GitHub CURRENT，不能把上面的 SHA 当成永久事实。
@@ -870,7 +870,7 @@ PROTECTED_UNTRACKED=.qa-prodserver3.err.log,.qa-prodserver3.out.log
 REAL_MODEL_REQUESTS_AUTHORIZED=NO
 NETWORK_DEPENDENCY_INSTALL_AUTHORIZED=YES_FOR_COV01_ONLY (vitest@4.1.11 and coverage-v8@4.1.11; cache=D:\gmzz\.runtime\npm-cache)
 COMMIT_PUSH_PR_MERGE_AUTHORIZED=YES_FOR_CLEAN_DELIVERY_CHAIN (user explicitly authorized new PR/CI/review and locked-head exact-main merge; failure gates remain binding)
-PUSH_STATUS=PR_5_OPEN; REVIEW_FIX_PENDING_COMMIT_AND_PUSH
+PUSH_STATUS=PR_5_OPEN; CI_FIX_PENDING_COMMIT_AND_PUSH
 ```
 
 ### 2026-08-25 · DELIVERY-01 干净分支与独立发布证据工作流
@@ -911,3 +911,10 @@ PUSH_STATUS=PR_5_OPEN; REVIEW_FIX_PENDING_COMMIT_AND_PUSH
   runner root preflight 放到 installer、clean-machine、evidence-verify、publish 四个 Windows
   job 的第一个写入动作前，定向 release+security `20/20 PASS`、YAML parse/diff PASS。
   旧 head 的 CI 不能用于合并，必须等待该修复推送后的新精确 head。
+- PR head `96fabd215171840fe12be8cb6bca7fca21ee66a5` 的 Ubuntu CI 在 full test
+  `575 total / 563 pass / 7 skip / 5 fail` 停止。源码/日志定位后确认：3 项 release 测试
+  继承 PR `GITHUB_REF_NAME=5/merge`，错误提前触发版本门禁；2 项 provenance 测试在
+  `GMZZ_STORAGE_ROOT` 缺失时由三元表达式返回 `undefined`。修复只隔离测试环境：release
+  子进程显式清空 tag/ref；provenance fixture 默认使用仓库 `.runtime` 并创建目录，生产
+  `verify-release` 的 tag/D-drive fail-closed 逻辑未放宽。模拟 `GITHUB_REF_NAME=5/merge`
+  且未设置 storage root 的定向集合 `23/23 PASS`。该失败 head 绝不可合并。
