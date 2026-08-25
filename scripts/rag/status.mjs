@@ -2,12 +2,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { loadManifest } from "./lib/manifest.mjs";
 import { indexDir, readJson, stateDir } from "./lib/paths.mjs";
+import { resolveRuntimePaths } from "../lib/runtime-paths.mjs";
 
 function safeRead(file) {
   return readJson(file);
 }
 
-export function ragStatus() {
+function pathFor(platform) {
+  return platform === "win32" ? path.win32 : path.posix;
+}
+
+export function ragStatus({ env = process.env, platform = process.platform } = {}) {
+  const runtimeEnv = {
+    ...env,
+    GMZZ_REQUIRE_D_DRIVE: env?.GMZZ_REQUIRE_D_DRIVE ?? "1",
+  };
+  const runtimePaths = resolveRuntimePaths({ env: runtimeEnv, platform });
+  const pathApi = pathFor(platform);
   const manifest = loadManifest();
   const meta = safeRead(path.join(indexDir, "index.meta.json"));
   const chunks = safeRead(path.join(indexDir, "chunks.json")) ?? [];
@@ -32,19 +43,14 @@ export function ragStatus() {
       ingestedAt: state?.ingestedAt ?? null,
     };
   });
-  const userDataRagDir = path.join(
-    process.env.APPDATA || "",
-    "灰雾纪事",
-    "rag",
-    "index"
-  );
-  const workerIndexDir = fs.existsSync(
-    path.join(indexDir, "index.meta.json")
-  )
-    ? indexDir
-    : fs.existsSync(path.join(userDataRagDir, "index.meta.json"))
-      ? userDataRagDir
-      : null;
+  const configuredRag = typeof env?.RAG_INDEX_DIR === "string" ? env.RAG_INDEX_DIR.trim() : "";
+  const userDataRagDir = configuredRag
+    ? runtimePaths.ragRoot
+    : pathApi.join(runtimePaths.userDataRoot, "rag", "index");
+  const workerCandidates = configuredRag ? [runtimePaths.ragRoot] : [indexDir, userDataRagDir];
+  const workerIndexDir = workerCandidates.find((candidate) =>
+    fs.existsSync(pathApi.join(candidate, "index.meta.json"))
+  ) ?? null;
   return {
     manifest: manifest.file,
     index: meta

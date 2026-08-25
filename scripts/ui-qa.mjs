@@ -7,10 +7,13 @@ import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { prepareQaEnvironment, resolveQaPaths } from "./lib/qa-paths.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number(process.argv[2] || 3210);
-const qaDir = process.env.QA_DIR || path.join(root, ".runtime", "prod-qa");
+const qaPaths = resolveQaPaths();
+const qaEnv = prepareQaEnvironment({ runtimePaths: qaPaths });
+const qaDir = qaPaths.qaRoot;
 fs.mkdirSync(qaDir, { recursive: true });
 const base = `http://127.0.0.1:${port}`;
 
@@ -55,7 +58,8 @@ const server = spawn(
   {
     cwd: root,
     env: {
-      ...process.env,
+      ...qaEnv,
+      RAG_INDEX_DIR: qaPaths.ragRoot,
       GMZZ_PORT: String(port),
       GMZZ_HOST: "127.0.0.1",
       GMZZ_OUT_DIR: path.join(root, "dist"),
@@ -109,13 +113,7 @@ game = {
 const stateJson = JSON.stringify(game);
 
 // 3. Playwright 打开页面
-const playwrightIndex = path.join(
-  "C:\\Users\\Administrator\\AppData\\Local\\Temp\\gmzz-qa-playwright",
-  "node_modules",
-  "playwright",
-  "index.mjs"
-);
-const { chromium } = await import(pathToFileURL(playwrightIndex).href);
+const { chromium } = await import(pathToFileURL(qaPaths.playwrightIndex).href);
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors = [];

@@ -1,11 +1,11 @@
 // 内置知识库 seed 部署专项场景（A–F）：隔离临时目录 + 真实 Worker 验证。
 import { fork } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { indexDir } from "./lib/paths.mjs";
 import { buildPack, installPack } from "./pack.mjs";
+import { resolveRuntimePaths } from "../lib/runtime-paths.mjs";
 
 const require = createRequire(import.meta.url);
 const { validateSeed, deploymentDecision, deploySeed } = require("../../electron/knowledge-seed.cjs");
@@ -26,9 +26,9 @@ function request(worker, type, payload, timeoutMs = 20000) {
   });
 }
 
-async function withWorker(indexPath, fn) {
+async function withWorker(indexPath, fn, runtimeEnv = process.env) {
   const child = fork("electron/rag-worker.mjs", [], {
-    env: { ...process.env, RAG_INDEX_DIR: indexPath },
+    env: { ...runtimeEnv, RAG_INDEX_DIR: indexPath },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     windowsHide: true,
   });
@@ -45,7 +45,7 @@ async function withWorker(indexPath, fn) {
   }
 }
 
-async function workerSearchOk(indexPath) {
+async function workerSearchOk(indexPath, runtimeEnv = process.env) {
   return withWorker(indexPath, async (worker) => {
     const status = await request(worker, "status");
     if (!status.available) return { available: false, chunks: 0 };
@@ -61,7 +61,7 @@ async function workerSearchOk(indexPath) {
       chunks: status.chunks,
       zhHit: (search.records ?? []).some((record) => record.sourceId === "zh-lotm-txt"),
     };
-  });
+  }, runtimeEnv);
 }
 
 function copyDir(source, target) {
@@ -73,7 +73,24 @@ function copyDir(source, target) {
 }
 
 export async function runSeedScenarios() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "seed-scenarios-"));
+  const baseEnv = {
+    ...process.env,
+    GMZZ_REQUIRE_D_DRIVE: process.env.GMZZ_REQUIRE_D_DRIVE ?? "1",
+  };
+  const runtimePaths = resolveRuntimePaths({ env: baseEnv });
+  const runtimeEnv = {
+    ...baseEnv,
+    GMZZ_STORAGE_ROOT: runtimePaths.root,
+    GMZZ_USER_DATA: runtimePaths.userDataRoot,
+    TEMP: runtimePaths.tempRoot,
+    TMP: runtimePaths.tempRoot,
+    npm_config_cache: runtimePaths.npmCacheRoot,
+    ELECTRON_CACHE: runtimePaths.electronCacheRoot,
+    ELECTRON_BUILDER_CACHE: runtimePaths.electronCacheRoot,
+    PLAYWRIGHT_BROWSERS_PATH: runtimePaths.playwrightRoot,
+  };
+  fs.mkdirSync(runtimePaths.tempRoot, { recursive: true });
+  const root = fs.mkdtempSync(path.join(runtimePaths.tempRoot, "seed-scenarios-"));
   const seedDir = path.join(root, "seed");
   copyDir(indexDir, seedDir);
   const seedValidation = validateSeed(seedDir);
@@ -83,7 +100,7 @@ export async function runSeedScenarios() {
   {
     const target = path.join(root, "a-first");
     const deploy = deploySeed(seedDir, target);
-    const worker = await workerSearchOk(target);
+    const worker = await workerSearchOk(target, runtimeEnv);
     results.A = { seedValid: seedValidation.ok, deployed: deploy.deployed, worker };
   }
 
@@ -122,7 +139,7 @@ export async function runSeedScenarios() {
     fs.writeFileSync(path.join(target, "chunks.json"), "[]");
     const decision = deploymentDecision(seedDir, target);
     const deploy = deploySeed(seedDir, target);
-    const worker = await workerSearchOk(target);
+    const worker = await workerSearchOk(target, runtimeEnv);
     const backupGone = !fs.existsSync(`${target}.seed-backup`);
     results.D = { decision: decision.action, deployed: deploy.deployed, worker, backupGone };
   }
@@ -169,7 +186,7 @@ export async function runSeedScenarios() {
       }
       const validation = validateSeed(badSeed);
       const deploy = deploySeed(badSeed, intactTarget);
-      const worker = await workerSearchOk(intactTarget);
+      const worker = await workerSearchOk(intactTarget, runtimeEnv);
       results.E[kind] = {
         rejected: !validation.ok,
         deploySkipped: !deploy.deployed,
@@ -194,8 +211,8 @@ export async function runSeedScenarios() {
     manifest.buildId = "2099|f";
     fs.writeFileSync(manifestPath, JSON.stringify(manifest));
     const decision = deploymentDecision(seedDir, target);
-    const worker1 = await workerSearchOk(target);
-    const worker2 = await workerSearchOk(target);
+    const worker1 = await workerSearchOk(target, runtimeEnv);
+    const worker2 = await workerSearchOk(target, runtimeEnv);
     results.F = {
       decision: decision.action,
       restartKeeps: worker1.available && worker2.available && worker2.chunks > 0,

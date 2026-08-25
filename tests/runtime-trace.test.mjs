@@ -68,7 +68,7 @@ test("only a durable acknowledgement can promote a pending turn trace to REPLAYE
   assert.equal(forwarded.length, 0);
 });
 
-test("model calls emit correlation and outcome traces without retaining prompt text", async () => {
+test("model calls emit correlation and outcome traces with explicit estimated token accuracy", async () => {
   const { recentRuntimeTraces } = await loadRuntimeModule("app/runtime-trace.ts");
   const { callModel } = await loadRuntimeModule("app/ai-client.ts");
   const originalFetch = globalThis.fetch;
@@ -105,8 +105,10 @@ test("model calls emit correlation and outcome traces without retaining prompt t
     assert.equal(trace?.retrievalId, "rag:1");
     assert.equal(trace?.outcome, "PASS");
     assert.equal(trace?.commitStatus, "NOT_APPLICABLE");
-    assert.equal(trace?.inputTokens, null);
-    assert.equal(trace?.outputTokens, null);
+    assert.ok((trace?.inputTokens ?? 0) > 0);
+    assert.ok((trace?.outputTokens ?? 0) > 0);
+    assert.equal(trace?.inputTokenAccuracy, "estimated");
+    assert.equal(trace?.outputTokenAccuracy, "estimated");
     assert.doesNotMatch(JSON.stringify(trace), /private system prompt|private user prompt/);
   } finally {
     globalThis.fetch = originalFetch;

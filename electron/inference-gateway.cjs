@@ -1,20 +1,9 @@
 "use strict";
 
-const TASKS = new Set([
-  "connection-test",
-  "intent-parser",
-  "situation-brief",
-  "npc-dialogue",
-  "council-reply",
-  "council-summary",
-  "decision-draft",
-  "ability-draft",
-  "ability-scene",
-  "participation-scene",
-  "world-repair",
-  "literary-generation",
-  "dynamic-origin",
-]);
+const CAPABILITIES = require("../shared/ai-provider-capabilities.json");
+const PROVIDERS = CAPABILITIES.providers;
+const TASK_CAPABILITIES = CAPABILITIES.tasks;
+const TASKS = new Set(Object.keys(TASK_CAPABILITIES).filter((task) => task !== "world-adjudication" && task !== "autonomous-planning"));
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
@@ -22,9 +11,17 @@ function recordOf(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 
+function providerForConfig(config) {
+  const raw = config?.provider;
+  if (raw === undefined) return /api\.deepseek\.com/i.test(String(config?.endpoint ?? "")) ? "deepseek" : "compatible";
+  if (raw !== "deepseek" && raw !== "compatible") throw new Error("provider-not-supported");
+  return raw;
+}
+
 function normalizedEndpoint(config) {
-  const provider = config.provider === "deepseek" ? "deepseek" : "compatible";
-  if (provider === "deepseek") return { provider, url: "https://api.deepseek.com/chat/completions" };
+  const provider = providerForConfig(config);
+  const capability = PROVIDERS[provider];
+  if (capability.endpointPolicy === "official") return { provider, url: `${capability.officialEndpoint}/chat/completions` };
   let url;
   try { url = new URL(String(config.endpoint ?? "")); }
   catch { throw new Error("endpoint-not-allowed"); }
@@ -48,11 +45,24 @@ function normalizeTask(input, policy = {}) {
   const options = recordOf(task.options) ?? {};
   const system = typeof task.system === "string" ? task.system : "";
   const user = typeof task.user === "string" ? task.user : "";
-  const maximumPrompt = task.task === "world-adjudication" || task.task === "literary-generation" ? 160_000 : 80_000;
-  if (!config || !system.trim() || !user.trim() || system.length + user.length > maximumPrompt) throw new Error("invalid-model-task");
+  if (!config || !system.trim() || !user.trim()) throw new Error("invalid-model-task");
   const model = typeof config.model === "string" ? config.model.trim() : "";
   if (!model || model.length > 160) throw new Error("invalid-model-task");
   const endpoint = normalizedEndpoint(config);
+  const capability = TASK_CAPABILITIES[task.task];
+  if (!capability) throw new Error("invalid-model-task");
+  if (system.length + user.length > capability.promptMaxChars) throw new Error("invalid-model-task");
+  const json = options.json === true;
+  if (capability.structuredOutput === "json-object" && !json) throw new Error("task-capability-json-required");
+  const requestedStreaming = options.stream === true;
+  if (requestedStreaming && capability.streaming !== true) throw new Error("task-capability-streaming-forbidden");
+  const providerCapability = PROVIDERS[endpoint.provider];
+  const requestedTokens = Math.round(Number(options.maxTokens));
+  const maxTokens = Math.max(1, Math.min(
+    capability.maxOutputTokens,
+    providerCapability.maxOutputTokens,
+    requestedTokens > 0 ? requestedTokens : (json ? 4_200 : 1_800),
+  ));
   return {
     task: task.task,
     provider: endpoint.provider,
@@ -60,8 +70,11 @@ function normalizeTask(input, policy = {}) {
     model,
     system,
     user,
-    json: options.json === true,
-    maxTokens: Math.max(1, Math.min(12_000, Math.round(Number(options.maxTokens) || (options.json ? 4_200 : 1_800)))),
+    json,
+    structuredOutput: capability.structuredOutput,
+    streaming: capability.streaming === true && requestedStreaming,
+    promptMaxChars: capability.promptMaxChars,
+    maxTokens,
     temperature: typeof options.temperature === "number" && Number.isFinite(options.temperature)
       ? Math.max(0, Math.min(2, options.temperature))
       : undefined,
@@ -92,6 +105,14 @@ async function boundedResponseText(response, maximumBytes = MAX_RESPONSE_BYTES) 
     text += decoder.decode(value, { stream: true });
   }
   return text + decoder.decode();
+}
+
+function validateStructuredOutput(task, content) {
+  if (task?.structuredOutput !== "json-object") return;
+  let parsed;
+  try { parsed = JSON.parse(content); }
+  catch { throw new Error("MODEL_RESPONSE_INVALID"); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("MODEL_RESPONSE_INVALID");
 }
 
 function safeStatusError(status) {
@@ -146,6 +167,7 @@ async function requestInference(input, dependencies = {}) {
   catch { throw new Error("MODEL_RESPONSE_INVALID"); }
   const content = payload?.choices?.[0]?.message?.content;
   if (typeof content !== "string" || !content.trim()) throw new Error("MODEL_EMPTY_RESPONSE");
+  validateStructuredOutput(task, content.trim());
   const usage = recordOf(payload.usage);
   return {
     content: content.trim(),
@@ -157,9 +179,11 @@ async function requestInference(input, dependencies = {}) {
 }
 
 module.exports = {
+  getProviderCapabilities: () => structuredClone(PROVIDERS),
   MAX_RESPONSE_BYTES,
   TASKS,
   boundedResponseText,
+  validateStructuredOutput,
   normalizeTask,
   requestInference,
 };

@@ -1,11 +1,11 @@
 // RAG Worker 内存浸泡：真实索引 500 预热 + 5000 IPC 查询 + 生命周期压力。
 import { fork } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { buildQueryBank, horizonFor } from "./lib/query-bank.mjs";
 import { indexDir, ensureDirs, writeJson } from "./lib/paths.mjs";
 import { reportDir } from "./lib/registry.mjs";
+import { resolveRuntimePaths } from "../lib/runtime-paths.mjs";
 
 const WORKER = path.join("electron", "rag-worker.mjs");
 
@@ -35,9 +35,9 @@ function waitExit(child) {
   });
 }
 
-function startWorker(indexPath, extraEnv = {}) {
+function startWorker(indexPath, runtimeEnv = process.env, extraEnv = {}) {
   const child = fork(WORKER, [], {
-    env: { ...process.env, RAG_INDEX_DIR: indexPath, ...extraEnv },
+    env: { ...runtimeEnv, RAG_INDEX_DIR: indexPath, ...extraEnv },
     execArgv: ["--expose-gc"],
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     windowsHide: true,
@@ -65,12 +65,29 @@ async function waitAvailable(worker, timeoutMs = 60000) {
 }
 
 export async function runMemorySoak() {
+  const baseEnv = {
+    ...process.env,
+    GMZZ_REQUIRE_D_DRIVE: process.env.GMZZ_REQUIRE_D_DRIVE ?? "1",
+  };
+  const runtimePaths = resolveRuntimePaths({ env: baseEnv });
+  const runtimeEnv = {
+    ...baseEnv,
+    GMZZ_STORAGE_ROOT: runtimePaths.root,
+    GMZZ_USER_DATA: runtimePaths.userDataRoot,
+    TEMP: runtimePaths.tempRoot,
+    TMP: runtimePaths.tempRoot,
+    npm_config_cache: runtimePaths.npmCacheRoot,
+    ELECTRON_CACHE: runtimePaths.electronCacheRoot,
+    ELECTRON_BUILDER_CACHE: runtimePaths.electronCacheRoot,
+    PLAYWRIGHT_BROWSERS_PATH: runtimePaths.playwrightRoot,
+  };
+  fs.mkdirSync(runtimePaths.tempRoot, { recursive: true });
   const bank = buildQueryBank();
   const distinct = new Set(bank.map((item) => item.text)).size;
   const soak = {};
 
   // 主浸泡：500 预热 + 10×500 查询，每批 worker 内强制 GC
-  const workerHandle = startWorker(indexDir);
+  const workerHandle = startWorker(indexDir, runtimeEnv);
   const worker = workerHandle.child;
   try {
     await waitAvailable(worker);
@@ -120,7 +137,7 @@ export async function runMemorySoak() {
   // 生命周期：100 次启动/关闭
   const lifecycle = { starts: 0, reloads: 0, corruptFallbacks: 0, ipcErrors: 0, exits: 0 };
   for (let i = 0; i < 100; i += 1) {
-    const h = startWorker(indexDir);
+    const h = startWorker(indexDir, runtimeEnv);
     try {
       await waitAvailable(h.child, 30000);
       lifecycle.starts += 1;
@@ -134,7 +151,7 @@ export async function runMemorySoak() {
 
   // 20 次 reload
   {
-    const h = startWorker(indexDir);
+    const h = startWorker(indexDir, runtimeEnv);
     try {
       await waitAvailable(h.child, 30000);
       for (let i = 0; i < 20; i += 1) {
@@ -148,7 +165,7 @@ export async function runMemorySoak() {
   }
 
   // 20 次损坏索引回退
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rag-corrupt-"));
+  const tmp = fs.mkdtempSync(path.join(runtimePaths.tempRoot, "rag-corrupt-"));
   const badMeta = path.join(tmp, "bad-meta");
   const missingMeta = path.join(tmp, "missing-meta");
   fs.mkdirSync(badMeta, { recursive: true });
@@ -157,7 +174,7 @@ export async function runMemorySoak() {
   fs.writeFileSync(path.join(badMeta, "chunks.json"), "[]");
   for (let i = 0; i < 20; i += 1) {
     const dir = i % 2 === 0 ? badMeta : missingMeta;
-    const h = startWorker(dir);
+    const h = startWorker(dir, runtimeEnv);
     try {
       const status = await request(h.child, "status", null, 10000);
       if (!status?.available) lifecycle.corruptFallbacks += 1;
@@ -169,7 +186,7 @@ export async function runMemorySoak() {
 
   // 20 次非法 IPC / 超时类异常
   {
-    const h = startWorker(indexDir);
+    const h = startWorker(indexDir, runtimeEnv);
     try {
       await waitAvailable(h.child, 30000);
       for (let i = 0; i < 10; i += 1) {
@@ -197,7 +214,7 @@ export async function runMemorySoak() {
 
   // 20 次退出终止
   for (let i = 0; i < 20; i += 1) {
-    const h = startWorker(indexDir);
+    const h = startWorker(indexDir, runtimeEnv);
     try {
       await waitAvailable(h.child, 30000);
     } finally {

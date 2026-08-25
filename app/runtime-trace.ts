@@ -5,8 +5,8 @@ import { sha256Hex } from "./sha256.ts";
  *
  * Traces intentionally contain identifiers, counters and outcome codes only.
  * Prompts, model payloads, retrieved text, save data and API credentials must
- * never be placed in this envelope. Unknown provider metrics remain `null` so
- * a local estimate cannot be mistaken for tokenizer-backed evidence.
+ * never be placed in this envelope. Token counts carry an explicit accuracy
+ * marker: provider-reported usage is never conflated with local estimates.
  */
 
 export const RUNTIME_TRACE_SCHEMA_VERSION = 1 as const;
@@ -22,6 +22,8 @@ export type RuntimeCommitStatus =
   | "REJECTED"
   | "FAILED";
 
+export type TokenAccountingAccuracy = "provider-reported" | "estimated" | "unavailable";
+
 export type RuntimeTraceContext = {
   traceId?: string;
   requestId?: string;
@@ -32,6 +34,8 @@ export type RuntimeTraceContext = {
   responseSchemaVersion?: string;
   modelQuantization?: string;
   repairCount?: number;
+  inputTokenAccuracy?: TokenAccountingAccuracy | null;
+  outputTokenAccuracy?: TokenAccountingAccuracy | null;
 };
 
 export type RuntimeTrace = {
@@ -53,6 +57,8 @@ export type RuntimeTrace = {
   retrievalRejectedCount: number | null;
   inputTokens: number | null;
   outputTokens: number | null;
+  inputTokenAccuracy: TokenAccountingAccuracy | null;
+  outputTokenAccuracy: TokenAccountingAccuracy | null;
   firstTokenLatencyMs: number | null;
   latencyMs: number | null;
   repairCount: number;
@@ -79,6 +85,8 @@ export type RuntimeTraceInput = {
   retrievalRejectedCount?: number | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  inputTokenAccuracy?: TokenAccountingAccuracy | null;
+  outputTokenAccuracy?: TokenAccountingAccuracy | null;
   firstTokenLatencyMs?: number | null;
   latencyMs?: number | null;
   repairCount?: number;
@@ -92,6 +100,13 @@ const OPERATIONS = new Set<RuntimeTraceOperation>(["model", "retrieval", "turn"]
 const OUTCOMES = new Set<RuntimeTraceOutcome>(["PASS", "FAILED", "NOT_RUN", "PENDING", "BLOCKED"]);
 const COMMIT_STATUSES = new Set<RuntimeCommitStatus>(["NOT_APPLICABLE", "PENDING", "COMMITTED", "REPLAYED", "REJECTED", "FAILED"]);
 const RETRIEVAL_MODES = new Set(["bridge", "legacy"]);
+const TOKEN_ACCURACIES = new Set<TokenAccountingAccuracy>(["provider-reported", "estimated", "unavailable"]);
+
+function tokenAccuracy(value: TokenAccountingAccuracy | null | undefined, label: string): TokenAccountingAccuracy | null {
+  if (value === undefined || value === null) return null;
+  if (!TOKEN_ACCURACIES.has(value)) throw new Error(`${label} is not registered`);
+  return value;
+}
 
 function identifier(value: string | null | undefined, label: string): string | null {
   if (value === undefined || value === null) return null;
@@ -148,6 +163,8 @@ export function createRuntimeTrace(input: RuntimeTraceInput): RuntimeTrace {
     retrievalRejectedCount: metric(input.retrievalRejectedCount, "retrievalRejectedCount", true),
     inputTokens: metric(input.inputTokens, "inputTokens", true),
     outputTokens: metric(input.outputTokens, "outputTokens", true),
+    inputTokenAccuracy: tokenAccuracy(input.inputTokenAccuracy, "inputTokenAccuracy"),
+    outputTokenAccuracy: tokenAccuracy(input.outputTokenAccuracy, "outputTokenAccuracy"),
     firstTokenLatencyMs: metric(input.firstTokenLatencyMs, "firstTokenLatencyMs"),
     latencyMs: metric(input.latencyMs, "latencyMs"),
     repairCount,
@@ -234,6 +251,8 @@ export function runtimeTraceSummary(trace: RuntimeTrace): Record<string, unknown
     firstTokenLatencyMs: trace.firstTokenLatencyMs,
     inputTokens: trace.inputTokens,
     outputTokens: trace.outputTokens,
+    inputTokenAccuracy: trace.inputTokenAccuracy,
+    outputTokenAccuracy: trace.outputTokenAccuracy,
     repairCount: trace.repairCount,
     rejectionCount: trace.rejectionReasons.length,
     outcome: trace.outcome,

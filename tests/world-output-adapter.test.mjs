@@ -58,6 +58,7 @@ async function fixture() {
       allowedProposalIds: new Set(proposalBoundaries.keys()),
       proposalBoundaries,
       formulaProposalAuthorizations: runtimeAuthority.formulaProposalAuthorizations ?? new Map(),
+      requireSourcedPublicSignals: runtimeAuthority.requireSourcedPublicSignals ?? false,
     });
   };
   return { game, raw, knownActor, knownFaction, allowedProposalId, adapt };
@@ -109,10 +110,11 @@ test("world output adapter returns one deterministic, authority-safe adjudicatio
 test("only a public signal bound to its current-turn event and claim can affect rule state", async () => {
   const { raw, allowedProposalId, adapt } = await fixture();
   const sourced = structuredClone(raw);
+  sourced.publicSignals = sourced.publicSignals.slice(0, 1);
   sourced.publicSignals[0].sourceProposalId = allowedProposalId;
   sourced.publicSignals[0].sourceEventId = "temporary-result";
   sourced.publicSignals[0].sourceObservation = sourced.publicSignals[0].body;
-  const result = adapt(sourced);
+  const result = adapt(sourced, { requireSourcedPublicSignals: true });
   assert.deepEqual(result.ruleSignals.map((signal) => signal.id), [result.publicSignals[0].id]);
   assert.ok(result.kernelDelta.observations.some((observation) => observation.eventId === result.kernelDelta.events[1].id && observation.text === sourced.publicSignals[0].body));
   assert.ok(result.kernelDelta.mutationClaims.some((claim) => claim.effectKind === "location-state" && claim.subjectRef === "location:east" && claim.sourceEventId === result.kernelDelta.events[1].id));
@@ -393,12 +395,10 @@ test("world output adapter drops new entities whose persistent references do not
   assert.equal(result.kernelDelta.actorUpdates[0].locationId, undefined);
 });
 
-test("world output adapter preserves transactional rejection for incomplete public output", async () => {
+test("world output adapter accepts quiet or partial public output but still rejects missing atmosphere", async () => {
   const { raw, adapt } = await fixture();
-  assert.throws(
-    () => adapt({ ...raw, publicSignals: raw.publicSignals.slice(0, 1) }),
-    /2条公开消息/,
-  );
+  assert.equal(adapt({ ...raw, publicSignals: raw.publicSignals.slice(0, 1) }).publicSignals.length, 1);
+  assert.deepEqual(adapt({ ...raw, publicSignals: [] }).publicSignals, []);
   assert.throws(
     () => adapt({ ...raw, worldSummary: {} }),
     /城市气氛/,

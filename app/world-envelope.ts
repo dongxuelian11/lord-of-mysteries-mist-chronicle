@@ -7,8 +7,12 @@ import type { RuntimeTraceContext } from "./runtime-trace.ts";
 const REPEATED_PUBLIC_SIGNALS_ISSUE = "全部公开消息都与最近四周高度复写";
 
 function publicSignalsIssue(value: Record<string, unknown>, game: GameState) {
-  const validSignals = Array.isArray(value.publicSignals) ? value.publicSignals.filter((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).headline === "string" && typeof (item as Record<string, unknown>).body === "string") : [];
-  if (validSignals.length < 2) return "固定报纸与公开消息少于2条";
+  const rawSignals = Array.isArray(value.publicSignals) ? value.publicSignals : null;
+  if (!rawSignals) return "publicSignals 必须显式返回数组";
+  if (rawSignals.length > 4) return "公开消息最多4条";
+  const validSignals = rawSignals.filter((item) => item && typeof item === "object" && !Array.isArray(item) && typeof (item as Record<string, unknown>).headline === "string" && typeof (item as Record<string, unknown>).body === "string");
+  if (rawSignals.length === 0) return null;
+  if (validSignals.length !== rawSignals.length) return "公开消息结构无效；无事实时应返回空数组";
   const recentSignals = (game.worldSignals ?? []).filter((signal) => signal.week >= game.week - 4).slice(0, 24);
   const repeatedSignals = validSignals.filter((item) => {
     const signal = item as Record<string, unknown>;
@@ -63,9 +67,9 @@ async function repairPublicSignals(config: AiConfig, value: Record<string, unkno
   let lastIssue = REPEATED_PUBLIC_SIGNALS_ISSUE;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     onStage(attempt ? `公开消息仍不合格（${lastIssue}），正在进行第二次局部重写` : "本周世界事实已经裁定，正在单独重写重复的报纸与公开消息");
-    const prompt = `本周世界事实已经完成裁决并被冻结。你只能重写 publicSignals，绝对不得新增、删除或改变任何事件、角色行动、势力行动、组织结算或持续项目。\n\n冻结事实：\n${JSON.stringify(stableFacts)}\n\n本次禁止复写的最近四周公开文本：\n${recentSignalExcerpts || "（没有近期公开文本）"}\n\n只返回严格 JSON：{"publicSignals":[...]}，数组必须有2至4条。每条包含 channel、headline、body、reliability，可选 districtId、cityId、relatedFactionId。channel 只能是“报纸、街谈、官方通告、行业消息、神秘征兆、私人来信”，至少一条来自报纸、官方通告或行业消息；reliability 只能是“公开事实、多源传闻、单一消息、异常感知”。\n每条都必须是冻结事实的公开可见侧面；允许安静周刊登天气、物价、交通、治安告示或行业通知，但不得借此虚构新的世界事件。不能只替换同义词，主题、受影响人群或可观察后果必须与禁用文本有实质区别。${attempt ? `\n上次局部重写仍失败：${lastIssue}。本次请更换报道角度与公开信息主题。` : ""}`;
+    const prompt = `本周世界事实已经完成裁决并被冻结。你只能重写 publicSignals，绝对不得新增、删除或改变任何事件、角色行动、势力行动、组织结算或持续项目。\n\n冻结事实：\n${JSON.stringify(stableFacts)}\n\n本次禁止复写的最近四周公开文本：\n${recentSignalExcerpts || "（没有近期公开文本）"}\n\n只返回严格 JSON：{"publicSignals":[...]}，数组可以是0至4条；如果没有可公开事实就返回[]，禁止为了凑数生成天气、物价、交通或社会消息。每条包含 channel、headline、body、reliability、sourceProposalId、sourceEventId、sourceObservation，可选 districtId、cityId、relatedFactionId。每条非空消息的sourceObservation必须逐字等于body，并绑定本轮事件与event mutation claim；不能把固定报纸或玩家表面文案伪装成世界事件。channel 只能是“报纸、街谈、官方通告、行业消息、神秘征兆、私人来信”；reliability 只能是“公开事实、多源传闻、单一消息、异常感知”。\n每条都必须是冻结事实的公开可见侧面。不能只替换同义词，主题、受影响人群或可观察后果必须与禁用文本有实质区别。${attempt ? `\n上次局部重写仍失败：${lastIssue}。本次请更换报道角度与公开信息主题。` : ""}`;
     try {
-      const repaired = extractJson(await callModel(config, "你是《灰雾纪事》的公开消息编辑。世界事实是只读输入；你的唯一输出权限是 publicSignals。", prompt, { task: "world-repair", json: true, maxTokens: 2200, temperature: attempt ? .68 : .55, stream: true, onToken, trace: trace ? { ...trace, traceId: `${trace.traceId ?? "world"}:public-repair:${attempt}`, repairCount: (trace.repairCount ?? 0) + attempt + 1 } : undefined }));
+      const repaired = extractJson(await callModel(config, "你是《灰雾纪事》的公开消息编辑。世界事实是只读输入；你的唯一输出权限是 publicSignals。", prompt, { task: "world-repair", json: true, maxTokens: 2200, temperature: attempt ? .68 : .55, stream: false, trace: trace ? { ...trace, traceId: `${trace.traceId ?? "world"}:public-repair:${attempt}`, repairCount: (trace.repairCount ?? 0) + attempt + 1 } : undefined }));
       const candidate: Record<string, unknown> = { ...value, publicSignals: repaired.publicSignals };
       const issue = publicSignalsIssue(candidate, game);
       if (!issue) return candidate;
@@ -78,6 +82,7 @@ async function repairPublicSignals(config: AiConfig, value: Record<string, unkno
 }
 
 export async function requestWorldEnvelope(config: AiConfig, system: string, prompt: string, game: GameState, playerIssuedNoOrders: boolean, expectedActionIds: string[], onStage: (value: string) => void, onToken?: (text: string) => void, trace?: RuntimeTraceContext, worldRequest?: { payload: unknown; turnId: string; baseRevision: number; maxChars?: number }, onRetrieval?: ModelCallOptions["onRetrieval"]) {
+  void onToken;
   let lastIssue = "世界模型没有返回可解析结构";
   const recentSignalExcerpts = (game.worldSignals ?? []).filter((signal) => signal.week >= game.week - 4).slice(0, 12).map((signal) => `- ${signal.channel}｜${signal.headline}：${signal.body.slice(0, 180)}`).join("\n");
   let preparedWorldRequest: { ticket: string; payloadHash: string } | undefined;
@@ -92,10 +97,10 @@ export async function requestWorldEnvelope(config: AiConfig, system: string, pro
   let preModelFailures = 0;
   while (durableAttempt < 2 && preModelFailures < 2) {
     const attempt = durableAttempt;
-    const repair = attempt ? `\n\n上一次输出未通过结构校验：${lastIssue}。不要解释错误，不要沿用损坏JSON；请根据同一事实与持续状态重新推演一次，并返回完整、严格、可解析的JSON。若错误涉及重复，以下是本次禁止复写的近期公开文本：\n${recentSignalExcerpts || "（没有近期公开文本）"}\n持续事件必须推进到新的参与者反应、地点变化、制度后果或可观察代价；仅改写措辞仍视为失败。至少两条公开消息应来自近期消息未覆盖的事件结果或社会侧面，但仍须由本周世界状态因果支持。` : "";
+    const repair = attempt ? `\n\n上一次输出未通过结构校验：${lastIssue}。不要解释错误，不要沿用损坏JSON；请根据同一事实与持续状态重新推演一次，并返回完整、严格、可解析的JSON。若错误涉及重复，以下是本次禁止复写的近期公开文本：\n${recentSignalExcerpts || "（没有近期公开文本）"}\n公开消息可以是0至4条；没有公开事实时必须返回[]，禁止凑数。只要返回消息，每条都必须绑定本轮事件、可见观察和event mutation claim，且sourceObservation逐字等于body。持续事件必须推进到新的参与者反应、地点变化、制度后果或可观察代价；仅改写措辞仍视为失败。` : "";
     let modelAttemptSpent = false;
     try {
-      const raw = await callModel(config, system, `${prompt}${repair}`, { task: "world-adjudication", json: true, maxTokens: 8200, temperature: attempt ? .58 : .72, stream: true, onToken, trace: trace ? { ...trace, traceId: `${trace.traceId ?? "world"}:attempt:${attempt}`, repairCount: (trace.repairCount ?? 0) + attempt } : undefined, worldRequest: preparedWorldRequest ? { ticket: preparedWorldRequest.ticket, attempt } : undefined, onRetrieval: preparedWorldRequest ? (retrieval) => {
+      const raw = await callModel(config, system, `${prompt}${repair}`, { task: "world-adjudication", json: true, maxTokens: 8200, temperature: attempt ? .58 : .72, stream: false, trace: trace ? { ...trace, traceId: `${trace.traceId ?? "world"}:attempt:${attempt}`, repairCount: (trace.repairCount ?? 0) + attempt } : undefined, worldRequest: preparedWorldRequest ? { ticket: preparedWorldRequest.ticket, attempt } : undefined, onRetrieval: preparedWorldRequest ? (retrieval) => {
         if (retrieval.authority.payloadHash !== preparedWorldRequest.payloadHash) throw new Error("WORLD_INFERENCE_PAYLOAD_DIGEST_MISMATCH");
         onRetrieval?.(retrieval);
       } : onRetrieval });
@@ -144,6 +149,7 @@ export async function requestWorldEnvelope(config: AiConfig, system: string, pro
 }
 
 export async function repairActionReports(config: AiConfig, game: GameState, chapter: ChronicleChapter, violations: { result: ActionResult; issue: string }[], original: unknown[], frozenWorldFacts: Record<string, unknown>, onToken?: (text: string) => void) {
+  void onToken;
   const originalById = new Map<string, unknown>();
   for (const item of original) if (item && typeof item === "object" && !Array.isArray(item)) {
     const value = item as Record<string, unknown>;
@@ -161,7 +167,7 @@ export async function repairActionReports(config: AiConfig, game: GameState, cha
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const prompt = `这份行动报告必须在不重算世界、不改变行动成败的前提下重写。\n行动：${JSON.stringify({ actionId: violation.result.id, title: violation.result.title, outcome: violation.result.outcome, consequence: violation.result.consequence, intent: violation.result.contract.rawIntent, desiredOutcome: violation.result.contract.desiredOutcome, redLines: violation.result.contract.redLines, retreat: violation.result.contract.retreat })}\n冻结的本周世界事实：${JSON.stringify(frozenWorldFacts)}\n原报告中已通过边界检查、可以保留的片段：${JSON.stringify(fragments)}\n\n只返回严格 JSON：{"actionReport":{"actionId":"${violation.result.id}","fieldReport":"...","observableFacts":["...","..."],"followUp":"..."}}。observableFacts 必须恰好2至4条，且是可核验观察。资料不足时应如实写明比对范围和未发现匹配项，不能虚构接触对象或内部文件。fieldReport、observableFacts、followUp 都必须服从红线；不要在输出中复述、讨论或引用被禁止的行为词。可以写“执行者全程留在组织据点，仅比对已经持有的公开材料”。${attempt ? `\n上次局部重写未通过：${lastIssue}。请改用完全不同且更保守的句式。` : ""}`;
       try {
-        const raw = extractJson(await callModel(config, system, prompt, { task: "world-repair", json: true, maxTokens: 1400, temperature: attempt ? .22 : .3, stream: true, onToken }));
+        const raw = extractJson(await callModel(config, system, prompt, { task: "world-repair", json: true, maxTokens: 1400, temperature: attempt ? .22 : .3, stream: false }));
         const candidate = raw.actionReport && typeof raw.actionReport === "object" && !Array.isArray(raw.actionReport) ? raw.actionReport as Record<string, unknown> : null;
         const facts = candidate && Array.isArray(candidate.observableFacts) ? candidate.observableFacts.map(String).map((item) => item.trim()).filter(Boolean) : [];
         if (!candidate || candidate.actionId !== violation.result.id || typeof candidate.fieldReport !== "string" || typeof candidate.followUp !== "string" || facts.length < 2 || facts.length > 4) { lastIssue = "缺少完整且可核验的行动报告字段"; continue; }

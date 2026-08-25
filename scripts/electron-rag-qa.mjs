@@ -3,19 +3,16 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { prepareQaEnvironment, resolveQaPaths } from "./lib/qa-paths.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const exePath =
   process.argv[2] || path.join(root, "node_modules", "electron", "dist", "electron.exe");
 const port = Number(process.argv[3] || 3225);
+const qaPaths = resolveQaPaths();
+const qaEnv = prepareQaEnvironment({ runtimePaths: qaPaths });
 
-const playwrightIndex = path.join(
-  "C:\\Users\\Administrator\\AppData\\Local\\Temp\\gmzz-qa-playwright",
-  "node_modules",
-  "playwright",
-  "index.mjs"
-);
-const { _electron } = await import(pathToFileURL(playwrightIndex).href);
+const { _electron } = await import(pathToFileURL(qaPaths.playwrightIndex).href);
 const { createInitialGame } = await import(pathToFileURL(path.join(root, "app", "game-model.ts")).href);
 const seededGame = createInitialGame("seer");
 const app = await _electron.launch({
@@ -23,7 +20,8 @@ const app = await _electron.launch({
   args: ["."],
   cwd: root,
   env: {
-    ...process.env,
+    ...qaEnv,
+    RAG_INDEX_DIR: qaPaths.ragRoot,
     GMZZ_PORT: String(port),
     GMZZ_HOST: "127.0.0.1",
   },

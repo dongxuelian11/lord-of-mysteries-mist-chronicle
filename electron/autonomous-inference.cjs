@@ -2,6 +2,7 @@
 
 const { deriveAutonomousRagWorkerRequestForGame } = require("./runtime-authority.cjs");
 const { assertNoVerbatimLoreLeak, exactPromptEvidence, receiptFor } = require("./rag-evidence.cjs");
+const { deriveAllowedLocationIds, projectWorldForAudience, selectKnowledge } = require("../shared/audience-projection.cjs");
 
 const AUTONOMOUS_SYSTEM = "你正在扮演《灰雾纪事》持续世界中的一个独立主体。你只能依据本次由主进程从持久存档生成的自身投影、私有记忆摘要和已授权知识做本周计划；不得假设知道其他主体的私密提案或世界真相。你只提出意图，不决定成功，不修改资源和事实。允许行动、延续、观察、隐藏、休整或等待；没有状态驱动的理由时应自然等待。只返回严格JSON。";
 const DISPOSITIONS = new Set(["act", "continue", "observe", "hide", "rest", "wait"]);
@@ -20,14 +21,6 @@ function strings(values, maximum, maximumLength = 256) {
 
 function shortText(value, maximum) {
   return typeof value === "string" ? value.trim().slice(0, maximum) : "";
-}
-
-function holderCanSee(value, principalRef) {
-  if (!value || typeof value !== "object") return false;
-  if (value.visibility === "public") return true;
-  if (Array.isArray(value.holderRefs) && value.holderRefs.length > 0) return value.holderRefs.includes(principalRef);
-  const entityId = principalRef.slice(principalRef.indexOf(":") + 1);
-  return Array.isArray(value.holderIds) && value.holderIds.includes(entityId);
 }
 
 function involved(ids, raw, canonical) {
@@ -152,10 +145,11 @@ function autonomousProjection(game, principalRef, planningWeek) {
   const factions = Array.isArray(kernel.factions) ? kernel.factions : [];
   const projects = Array.isArray(kernel.projects) ? kernel.projects : [];
   const locations = Array.isArray(kernel.locations) ? kernel.locations : [];
-  const observations = (Array.isArray(kernel.observations) ? kernel.observations : []).filter((item) => holderCanSee(item, principalRef));
-  const observableEventIds = new Set(observations.map((item) => item?.eventId).filter((value) => typeof value === "string"));
-  const events = (Array.isArray(kernel.events) ? kernel.events : []).filter((item) => item?.visibility === "public" || observableEventIds.has(item?.id));
-  const knowledge = (Array.isArray(kernel.knowledge) ? kernel.knowledge : []).filter((item) => holderCanSee(item, principalRef));
+  const audience = { kind: principalRef.startsWith("actor:") ? "actor" : "faction", holderId: entityId };
+  const audienceProjection = projectWorldForAudience(kernel, audience);
+  const observations = Array.isArray(audienceProjection.observations) ? audienceProjection.observations : [];
+  const events = Array.isArray(audienceProjection.events) ? audienceProjection.events : [];
+  const knowledge = Array.isArray(audienceProjection.knowledge) ? audienceProjection.knowledge : [];
   const relationships = (Array.isArray(game.worldAgents?.socialTies) ? game.worldAgents.socialTies : [])
     .filter((tie) => tie?.sourceRef === principalRef)
     .map((tie) => ({ targetRef: tie.targetRef, familiarity: tie.familiarity, tension: tie.tension, leverage: tie.leverage }));
@@ -164,7 +158,8 @@ function autonomousProjection(game, principalRef, planningWeek) {
   const projectIds = new Set(projects.map((project) => project?.id).filter((value) => typeof value === "string"));
   const locationIds = new Set(locations.map((location) => location?.id).filter((value) => typeof value === "string"));
   const perceivedRefs = observations.flatMap((observation) => strings(observation?.perceivedRefs, 32));
-  const subjectRefs = knowledge.flatMap((node) => {
+  const selectedKnowledge = selectKnowledge(knowledge, 12);
+  const subjectRefs = selectedKnowledge.records.flatMap((node) => {
     const subject = shortText(node?.subject, 160);
     if (actorIds.has(subject)) return [`actor:${subject}`];
     if (factionIds.has(subject)) return [`faction:${subject}`];
@@ -178,7 +173,15 @@ function autonomousProjection(game, principalRef, planningWeek) {
     .filter((project) => project?.ownerId === entityId && project?.status === "active")
     .sort((left, right) => Number(right?.updatedWeek ?? 0) - Number(left?.updatedWeek ?? 0) || Number(right?.progress ?? 0) - Number(left?.progress ?? 0))
     .slice(0, 4);
-  const allowedLocationIds = [...locationIds].filter((id) => id.length <= 256).sort().slice(0, 256);
+  const entity = principalRef.startsWith("actor:")
+    ? actors.find((actor) => actor?.id === entityId)
+    : factions.find((faction) => faction?.id === entityId);
+  const allowedLocationIds = deriveAllowedLocationIds({
+    locations,
+    currentLocationId: principalRef.startsWith("actor:") ? entity?.locationId : undefined,
+    visibleEvents: events,
+    ownedProjects,
+  });
   const allowedTargetRefs = [...new Set([
     principalRef,
     ...allowedLocationIds.map((id) => `location:${id}`),
@@ -194,10 +197,6 @@ function autonomousProjection(game, principalRef, planningWeek) {
     if (ref.startsWith("location:")) return locationIds.has(ref.slice("location:".length));
     return false;
   }).sort().slice(0, 512);
-  const knownKnowledgeIds = strings(knowledge.map((node) => node?.id), 12);
-  const entity = principalRef.startsWith("actor:")
-    ? actors.find((actor) => actor?.id === entityId)
-    : factions.find((faction) => faction?.id === entityId);
   const dynamicMemory = autonomousMemoryProjection(game.memory, principalRef, planningWeek, {
     objective: profile.currentObjective,
     nextAction: profile.nextAction,
@@ -206,6 +205,7 @@ function autonomousProjection(game, principalRef, planningWeek) {
   const reflection = recordOf(profile.reflection);
   return {
     week: planningWeek,
+    projectionHash: shortText(audienceProjection.projectionHash, 128),
     agent: {
       planningWeek,
       ref: principalRef,
@@ -234,19 +234,26 @@ function autonomousProjection(game, principalRef, planningWeek) {
         driveSignals: strings(reflection.driveSignals, 8, 120),
       } : null,
       ...(principalRef.startsWith("actor:") ? { locationId: shortText(entity?.locationId, 80) || undefined } : { resources: Number(entity?.resources) || 0 }),
-      knownKnowledgeIds,
+      knownKnowledgeIds: selectedKnowledge.ids,
       allowedTargetRefs,
       allowedLocationIds,
       relationships: relationships.slice(0, 32).map((relationship) => ({ targetRef: shortText(relationship.targetRef, 256), familiarity: Number(relationship.familiarity) || 0, tension: Number(relationship.tension) || 0, leverage: Number(relationship.leverage) || 0 })),
     },
     currentLocation: principalRef.startsWith("actor:") ? (() => {
-      const location = locations.find((candidate) => candidate?.id === entity?.locationId);
-      return location ? { id: shortText(location.id, 256), name: shortText(location.name, 160), risk: Number(location.risk) || 0, stability: Number(location.stability) || 0, publicMood: shortText(location.publicMood, 240), conditions: strings(location.conditions, 12, 160) } : null;
+      const location = audienceProjection.locations?.find((candidate) => candidate?.id === entity?.locationId);
+      return location ? {
+        id: shortText(location.id, 256),
+        name: shortText(location.name, 160),
+        risk: location.perceivedRisk,
+        stability: location.stability,
+        publicMood: shortText(location.publicMood, 240),
+        conditions: strings(location.knownConditions, 12, 160),
+      } : null;
     })() : null,
     ownedProjects: ownedProjects.map((project) => ({ id: shortText(project.id, 256), title: shortText(project.title, 180), stage: shortText(project.stage, 120), progress: Number(project.progress) || 0, nextMilestone: shortText(project.nextMilestone, 300), blockers: strings(project.blockers, 8, 180) })),
     visibleEvents: events.slice(-8).map(({ id, week, title, detail, locationId, visibility }) => ({ id: shortText(id, 256), week: Number(week) || 0, title: shortText(title, 180), detail: shortText(detail, 600), locationId: shortText(locationId, 256) || undefined, visibility })),
     visibleObservations: observations.slice(-12).map(({ id, week, eventId, channel, text, visibility, perceivedRefs, acquisitionKind }) => ({ id: shortText(id, 256), week: Number(week) || 0, eventId: shortText(eventId, 256), channel: shortText(channel, 120), text: shortText(text, 480), visibility, perceivedRefs: strings(perceivedRefs, 24), acquisitionKind })),
-    visibleKnowledge: knowledge.slice(-12).map(({ id, subject, statement, visibility, acquiredWeek }) => ({ id: shortText(id, 256), subject: shortText(subject, 256), statement: shortText(statement, 480), visibility, acquiredWeek: Number(acquiredWeek) || 0 })),
+    visibleKnowledge: selectedKnowledge.records.map(({ id, subject, statement, visibility, acquiredWeek }) => ({ id: shortText(id, 256), subject: shortText(subject, 256), statement: shortText(statement, 480), visibility, acquiredWeek: Number(acquiredWeek) || 0 })),
     dynamicMemory: dynamicMemory.text,
     memoryReferenceIds: dynamicMemory.referenceIds,
   };
@@ -284,6 +291,7 @@ function canonicalProposal(value, projection) {
     targetRefs,
     requiredKnowledgeIds,
     usedMemoryIds,
+    projectionHash: projection.projectionHash,
     planningSource: "model",
     ...(conditionalOn ? { conditionalOn } : {}),
   };
@@ -307,6 +315,7 @@ function deterministicFallback(projection) {
     targetRefs: [],
     requiredKnowledgeIds: [],
     usedMemoryIds: [],
+    projectionHash: projection.projectionHash,
     planningSource: "deterministic-fallback",
     planningIssue: "主进程自治规划在限定重试内未形成合法提案",
   };
@@ -322,14 +331,20 @@ async function requestAutonomousInference(task, dependencies = {}) {
   if (typeof dependencies.callRag !== "function" || typeof dependencies.infer !== "function"
     || typeof dependencies.loadAuthorityGame !== "function" || typeof dependencies.readRecordedProposal !== "function"
     || typeof dependencies.recordProposal !== "function") throw new Error("autonomous-inference-dependency-unavailable");
+  const recordMateriality = typeof dependencies.recordMateriality === "function" ? dependencies.recordMateriality : () => undefined;
   const game = dependencies.loadAuthorityGame(`world:${request.planningWeek}`, request.baseRevision);
   const derived = deriveAutonomousRagWorkerRequestForGame({ principalRef: request.principalRef, planningWeek: request.planningWeek }, game);
   const projection = autonomousProjection(game, derived.authority.principalRef, request.planningWeek);
   const turnId = `world:${request.planningWeek}`;
   const recorded = dependencies.readRecordedProposal(turnId, request.baseRevision, projection.agent.ref);
-  if (recorded) return { content: JSON.stringify({ proposal: recorded }), usage: null };
+  if (recorded) {
+    const outcome = recorded.planningSource === "materiality-skip" ? "avoided" : "reused";
+    recordMateriality({ outcome, agentRef: projection.agent.ref, planningWeek: request.planningWeek, baseRevision: request.baseRevision });
+    return { content: JSON.stringify({ proposal: recorded }), usage: null, materiality: outcome };
+  }
   const { authority, ...workerRequest } = derived;
   try {
+    recordMateriality({ outcome: "attempted", agentRef: projection.agent.ref, planningWeek: request.planningWeek, baseRevision: request.baseRevision });
     const response = await dependencies.callRag("search", workerRequest);
     if (!response || response.available !== true || !Array.isArray(response.records)) throw new Error("RAG_GATEWAY_UNAVAILABLE");
     const evidence = exactPromptEvidence(response.records, derived.maxChars);
@@ -357,9 +372,11 @@ async function requestAutonomousInference(task, dependencies = {}) {
     const content = JSON.stringify({ proposal });
     assertNoVerbatimLoreLeak(content, evidence.records);
     proposal = dependencies.recordProposal(turnId, request.baseRevision, proposal);
+    recordMateriality({ outcome: "model", agentRef: projection.agent.ref, planningWeek: request.planningWeek, baseRevision: request.baseRevision });
     return {
       content: JSON.stringify({ proposal }),
       usage: result.usage,
+      materiality: "model",
       retrieval: {
         receipt,
         selectedCount: receipt.chunkIds.length,
@@ -370,7 +387,8 @@ async function requestAutonomousInference(task, dependencies = {}) {
     if (attempt < 1) throw error;
     let proposal = deterministicFallback(projection);
     proposal = dependencies.recordProposal(turnId, request.baseRevision, proposal);
-    return { content: JSON.stringify({ proposal }), usage: null };
+    recordMateriality({ outcome: "fallback", agentRef: projection.agent.ref, planningWeek: request.planningWeek, baseRevision: request.baseRevision });
+    return { content: JSON.stringify({ proposal }), usage: null, materiality: "fallback" };
   }
 }
 

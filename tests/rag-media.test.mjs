@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import JSZip from "jszip";
+import { resolveQaPaths } from "../scripts/lib/qa-paths.mjs";
 import { parseEpub } from "../scripts/rag/parsers/epub.mjs";
 import { parsePdf } from "../scripts/rag/parsers/pdf.mjs";
 
@@ -63,20 +63,16 @@ test("EPUB 实测：中文标题、段落顺序与章节边界", async () => {
 });
 
 test("PDF 实测：中文标题、段落、目录与分页（Playwright 可用时）", async () => {
+  const qaPaths = resolveQaPaths();
   let chromium;
   try {
-    const playwrightIndex = path.join(
-      "C:\\Users\\Administrator\\AppData\\Local\\Temp\\gmzz-qa-playwright",
-      "node_modules",
-      "playwright",
-      "index.mjs"
-    );
-    ({ chromium } = await import(pathToFileURL(playwrightIndex).href));
+    ({ chromium } = await import(pathToFileURL(qaPaths.playwrightIndex).href));
   } catch {
     console.log("[rag-media] Playwright 不可用，PDF 实测跳过");
     return;
   }
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rag-pdf-"));
+  fs.mkdirSync(qaPaths.tempRoot, { recursive: true });
+  const tmp = fs.mkdtempSync(path.join(qaPaths.tempRoot, "rag-pdf-"));
   const pdfPath = path.join(tmp, "sample.pdf");
   const browser = await chromium.launch();
   try {

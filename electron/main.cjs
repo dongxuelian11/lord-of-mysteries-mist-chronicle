@@ -5,6 +5,7 @@
 //   3. 关闭窗口时杀掉整个进程树，确保无后台残留
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, utilityProcess } = require("electron");
 const { spawn, execFileSync } = require("node:child_process");
+const { createHash } = require("node:crypto");
 const http = require("node:http");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -14,10 +15,19 @@ const { registerPersistenceIpc } = require("./persistence-ipc.cjs");
 const { resolveServerPort } = require("./server-port.cjs");
 const { ACTIVE_SAVE_KEY, deriveRagWorkerRequest, requirePersistenceStore } = require("./runtime-authority.cjs");
 const { requestInference } = require("./inference-gateway.cjs");
+const { createInferenceScheduler } = require("./inference-scheduler.cjs");
+const { createSchedulerRuntimeTrace } = require("./inference-scheduler-trace.cjs");
 const { requestAutonomousInference } = require("./autonomous-inference.cjs");
 const { requestWorldInference } = require("./world-inference.cjs");
+const { resolveRuntimePaths } = require("./runtime-paths.cjs");
+const { createContentSecurityPolicy } = require("./content-security-policy.cjs");
 
 const isWindows = process.platform === "win32";
+// The installer smoke/clean-machine harness runs without a window. Some
+// headless Windows hosts have no usable GPU process, so keep that QA path
+// deterministic without changing the normal desktop rendering path.
+if (process.env.GMZZ_NO_WINDOW === "1") app.disableHardwareAcceleration();
+if (process.env.GMZZ_NO_WINDOW === "1") app.commandLine.appendSwitch("disable-gpu");
 const appRoot = path.join(__dirname, "..");
 const runtimeAppRoot = app.isPackaged
   ? path.join(process.resourcesPath, "app.asar.unpacked")
@@ -25,21 +35,35 @@ const runtimeAppRoot = app.isPackaged
 const runtimeElectronDir = path.join(runtimeAppRoot, "electron");
 const serverScript = path.join(runtimeElectronDir, "server.mjs");
 
-// 允许通过环境变量指定用户数据目录（便携/隔离测试用）
-if (process.env.GMZZ_USER_DATA) {
-  try {
-    app.setPath("userData", path.resolve(process.env.GMZZ_USER_DATA));
-  } catch {
-    // 保持默认
+const runtimeEnv = {
+  ...process.env,
+  GMZZ_REQUIRE_D_DRIVE: process.env.GMZZ_REQUIRE_D_DRIVE ?? "1",
+};
+let runtimePaths = null;
+let runtimePathError = null;
+try {
+  if (app.isPackaged && !String(process.env.GMZZ_STORAGE_ROOT ?? "").trim()) {
+    throw new Error("STORAGE_ROOT_NOT_CONFIGURED");
   }
-} else {
-  // 仓库改名后保持运行身份：用户数据目录固定为历史路径，避免生成第二个目录
-  try {
-    app.setPath("userData", path.join(app.getPath("appData"), "mist-chronicle-prototype"));
-  } catch {
-    // 保持默认
-  }
+  runtimePaths = resolveRuntimePaths({ repoRoot: appRoot, env: runtimeEnv });
+  app.setPath("userData", runtimePaths.userDataRoot);
+} catch (error) {
+  runtimePathError = error instanceof Error ? error.message : String(error);
+  console.error(`[gmzz] PROJECT_STORAGE_BLOCKED: ${runtimePathError}`);
 }
+const projectRuntimeEnv = runtimePaths
+  ? {
+      ...runtimeEnv,
+      GMZZ_STORAGE_ROOT: runtimePaths.root,
+      GMZZ_USER_DATA: runtimePaths.userDataRoot,
+      TEMP: runtimePaths.tempRoot,
+      TMP: runtimePaths.tempRoot,
+      npm_config_cache: runtimePaths.npmCacheRoot,
+      ELECTRON_CACHE: runtimePaths.electronCacheRoot,
+      ELECTRON_BUILDER_CACHE: runtimePaths.electronCacheRoot,
+      PLAYWRIGHT_BROWSERS_PATH: runtimePaths.playwrightRoot,
+    }
+  : runtimeEnv;
 
 const vinextDir = app.isPackaged
   ? path.join(process.resourcesPath, "vinext")
@@ -60,6 +84,58 @@ const ragIpc = createRagIpc({
 const log = (...args) => console.log("[gmzz]", ...args);
 const credentialFile = () => path.join(app.getPath("userData"), "ai-credentials.json");
 const persistenceDatabaseFile = () => path.join(app.getPath("userData"), "mist-chronicle.sqlite");
+
+let schedulerTraceSequence = 0;
+
+function schedulerTrace(event) {
+  const sequence = ++schedulerTraceSequence;
+  const trace = createSchedulerRuntimeTrace(event, sequence);
+  log("inference scheduler", JSON.stringify({ provider: event.provider, event: event.event, limit: event.limit, active: event.active, queued: event.queued }));
+  try {
+    if (persistenceStore) persistenceStore.appendRuntimeTraces(ACTIVE_SAVE_KEY, [trace]);
+  } catch {
+    // Scheduler diagnostics must never block the model or world authority path.
+  }
+}
+
+const inferenceScheduler = createInferenceScheduler({ onTrace: schedulerTrace });
+
+function stableSchedulerValue(value) {
+  if (Array.isArray(value)) return value.map(stableSchedulerValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableSchedulerValue(value[key])]));
+}
+
+function schedulerProvider(task) {
+  const raw = task?.config?.provider;
+  if (raw === "deepseek" || raw === "compatible") return raw;
+  if (raw !== undefined) throw new Error("provider-not-supported");
+  return /api\.deepseek\.com/i.test(String(task?.config?.endpoint ?? "")) ? "deepseek" : "compatible";
+}
+
+function schedulerIdempotencyKey(scope, task) {
+  const body = stableSchedulerValue({
+    scope,
+    task: task?.task,
+    config: { provider: task?.config?.provider, endpoint: task?.config?.endpoint, model: task?.config?.model, timeoutMs: task?.config?.timeoutMs },
+    options: task?.options,
+    system: task?.system,
+    user: task?.user,
+    worldRequest: task?.worldRequest,
+    autonomousRequest: task?.autonomousRequest,
+  });
+  return `inference:${createHash("sha256").update(JSON.stringify(body)).digest("hex")}`;
+}
+
+function scheduleInference(task, dependencies, scope) {
+  const provider = schedulerProvider(task);
+  return inferenceScheduler.run({
+    provider,
+    task: task?.task,
+    idempotencyKey: schedulerIdempotencyKey(scope, task),
+    maxAttempts: 2,
+  }, () => requestInference(task, dependencies));
+}
 
 function startPersistenceStore() {
   const databaseFile = persistenceDatabaseFile();
@@ -201,7 +277,7 @@ function registerInferenceIpc() {
     try {
       if (task?.task === "world-adjudication" || task?.worldRequest !== undefined || task?.worldRag !== undefined) throw new Error("world-inference-dedicated-channel-required");
       if (task?.task === "autonomous-planning" || task?.autonomousRequest !== undefined) throw new Error("autonomous-inference-dedicated-channel-required");
-      const result = await requestInference(task, { getCredential: inferenceCredential });
+      const result = await scheduleInference(task, { getCredential: inferenceCredential }, "generic");
       return { ok: true, ...result };
     } catch (error) {
       return { ok: false, error: String(error?.message ?? error) };
@@ -216,8 +292,9 @@ function registerInferenceIpc() {
         loadAuthorityGame: (turnId, baseRevision) => store.readWorldInferenceAuthority(ACTIVE_SAVE_KEY, turnId, baseRevision),
         readRecordedProposal: (turnId, baseRevision, agentRef) => store.readAutonomousProposal(ACTIVE_SAVE_KEY, turnId, baseRevision, agentRef),
         recordProposal: (turnId, baseRevision, proposal) => store.recordAutonomousProposal(ACTIVE_SAVE_KEY, turnId, baseRevision, proposal),
+        recordMateriality: (event) => schedulerTrace({ provider: schedulerProvider(task), event: `materiality-${event.outcome}`, active: 0, queued: 0, limit: inferenceScheduler.getStatus(schedulerProvider(task)).limit, reason: event.agentRef }),
         callRag,
-        infer: (boundTask) => requestInference(boundTask, { getCredential: inferenceCredential, allowAutonomousPlanning: true }),
+        infer: (boundTask) => scheduleInference(boundTask, { getCredential: inferenceCredential, allowAutonomousPlanning: true }, "autonomous"),
       });
       return { ok: true, ...result };
     } catch (error) {
@@ -293,7 +370,7 @@ function registerInferenceIpc() {
         consumeWorldRequest: (ticket, attempt) => store.consumeWorldInference(ACTIVE_SAVE_KEY, ticket, attempt),
         beginWorldAttempt: (ticket, attempt) => store.beginWorldInferenceAttempt(ticket, attempt),
         callRag,
-        infer: (boundTask) => requestInference(boundTask, { getCredential: inferenceCredential, allowWorldAdjudication: true }),
+        infer: (boundTask) => scheduleInference(boundTask, { getCredential: inferenceCredential, allowWorldAdjudication: true }, "world"),
       });
       return { ok: true, ...result };
     } catch (error) {
@@ -395,7 +472,7 @@ function startRagWorker() {
   const workerPath = path.join(runtimeElectronDir, "rag-worker.mjs");
   ragWorker = utilityProcess.fork(workerPath, [], {
     env: {
-      ...process.env,
+      ...projectRuntimeEnv,
       RAG_INDEX_DIR: resolveRagIndexDir(),
     },
     stdio: "pipe",
@@ -453,7 +530,7 @@ async function startServer() {
   serverProc = spawn(process.execPath, [serverScript], {
     cwd: runtimeAppRoot,
     env: {
-      ...process.env,
+      ...projectRuntimeEnv,
       ELECTRON_RUN_AS_NODE: "1",
       NODE_ENV: "production",
       GMZZ_PORT: String(serverPort),
@@ -502,6 +579,10 @@ async function startServer() {
 }
 
 function createWindow(url) {
+  const contentSecurityPolicy = createContentSecurityPolicy();
+  // webRequest patterns require a non-empty path. The exact origin is still
+  // guarded by isTrustedPersistenceSender; the wildcard is only for headers.
+  const appUrlPatterns = [`${url}/*`];
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -537,14 +618,21 @@ function createWindow(url) {
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: appUrlPatterns },
+    (details, callback) => callback({
+      requestHeaders: {
+        ...details.requestHeaders,
+        "Content-Security-Policy": contentSecurityPolicy.value,
+      },
+    }),
+  );
   mainWindow.webContents.session.webRequest.onHeadersReceived(
-    { urls: [`${url}/*`] },
+    { urls: appUrlPatterns },
     (details, callback) => callback({
       responseHeaders: {
         ...details.responseHeaders,
-        "Content-Security-Policy": [
-          "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
-        ],
+        "Content-Security-Policy": [contentSecurityPolicy.value],
         "X-Content-Type-Options": ["nosniff"],
         "Referrer-Policy": ["no-referrer"],
       },
@@ -592,6 +680,11 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    if (runtimePathError) {
+      dialog.showErrorBox("灰雾纪事 · 存储路径未配置", `项目运行数据必须位于显式 D 盘根目录。\n原因：${runtimePathError}`);
+      app.exit(1);
+      return;
+    }
     startPersistenceStore();
     registerPersistenceIpc({
       ipcMain,

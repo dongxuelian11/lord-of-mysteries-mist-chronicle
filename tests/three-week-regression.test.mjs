@@ -81,8 +81,11 @@ function worldEnvelope(game, chapter, tag) {
   const locationId = game.worldKernel.locations[0].id;
   const projectIds = game.worldKernel.projects.slice(0, 2).map((item) => item.id);
   const result = chapter.results[0];
+  const leaderProposalId = result?.executionPlan?.proposalId;
+  if (!leaderProposalId) throw new Error("three-week fixture requires an executable leader proposal");
+  const leaderLocationId = result?.executionPlan?.targetRefs?.find((ref) => typeof ref === "string" && ref.startsWith("location:"))?.slice("location:".length) ?? "cherwood";
   const variant = WEEK_VARIANTS[Number(tag)];
-  return {
+  const envelope = {
     worldSummary: {
       atmosphere: variant.atmosphere,
       changes: [variant.signals[0].headline, variant.signals[1].headline],
@@ -108,11 +111,44 @@ function worldEnvelope(game, chapter, tag) {
       actorUpdates: [], factionUpdates: [],
       projectUpdates: projectIds.map((projectId, index) => ({ projectId, progressDelta: 2 + index, stage: "继续推进", nextMilestone: variant.milestone, blockers: [], status: "active" })),
       locationUpdates: [{ locationId, riskDelta: 1, stabilityDelta: 0, publicMood: "不安", condition: variant.location }],
-      events: variant.events.map((event) => ({ ...event, id: `event-${tag}-${event.id}`, locationId: event.districtId, actorIds: [], factionIds: event.id === "e-a" ? [firstFaction.id] : event.id === "e-b" ? [secondFaction.id] : [], causeIds: [], visibility: "world" })),
+      events: variant.events.map((event) => ({
+        ...event,
+        id: `event-${tag}-${event.id}`,
+        locationId: leaderLocationId,
+        actorIds: [],
+        factionIds: [],
+        causeIds: [],
+        visibility: "world",
+        sourceProposalIds: [leaderProposalId],
+      })),
       observations: [], knowledge: [],
       canon: { mode: "anchored", deviationDelta: 0, pivotEventIds: [] },
     },
   };
+  bindPublicSignalsForFixture(envelope);
+  return envelope;
+}
+
+function bindPublicSignalsForFixture(envelope) {
+  const kernel = envelope.kernelDelta && typeof envelope.kernelDelta === "object" ? envelope.kernelDelta : {};
+  const events = Array.isArray(kernel.events) ? kernel.events : [];
+  const signals = Array.isArray(envelope.publicSignals) ? envelope.publicSignals : [];
+  kernel.observations = Array.isArray(kernel.observations) ? kernel.observations : [];
+  for (const [index, signal] of signals.entries()) {
+    if (!signal || typeof signal !== "object" || !events.length) continue;
+    const event = events[index % events.length];
+    const proposalId = Array.isArray(event.sourceProposalIds) ? event.sourceProposalIds.map(String).find(Boolean) : "";
+    if (!proposalId || !event.id) continue;
+    signal.sourceProposalId ??= proposalId;
+    signal.sourceEventId ??= event.id;
+    signal.sourceObservation ??= signal.body;
+    if (event.locationId) signal.districtId = event.locationId;
+    if (!kernel.observations.some((observation) => observation.eventId === event.id && observation.text === signal.body)) {
+      kernel.observations.push({ eventId: event.id, channel: signal.channel, text: signal.body, visibility: "public", holderIds: [], perceivedRefs: [], acquisitionKind: "propagation" });
+    }
+  }
+  envelope.kernelDelta = kernel;
+  return envelope;
 }
 
 test("three consecutive weeks complete world and literary turns without retries", async () => {
@@ -144,7 +180,11 @@ test("three consecutive weeks complete world and literary turns without retries"
           agentCallCount += 1;
           const agentRef = user.match(/"ref":"([^"]+)"/)?.[1] ?? "actor:unknown";
           const planningWeek = Number(user.match(/"planningWeek":(\d+)/)?.[1] ?? week);
-          content = JSON.stringify({ proposal: { planningWeek, agentRef, disposition: "wait", intent: "保持当前计划并观察公开变化。", rationale: "没有出现足以改变本周安排的新认知。", targetRefs: [], requiredKnowledgeIds: [] } });
+          const payloadStart = user.lastIndexOf("\n{");
+          const payload = payloadStart >= 0 ? JSON.parse(user.slice(payloadStart + 1)) : {};
+          const allowedTargetRefs = payload.projection?.agent?.allowedTargetRefs ?? payload.projection?.allowedTargetRefs ?? [];
+          const targetRefs = allowedTargetRefs.filter((ref) => typeof ref === "string" && ref.startsWith("location:")).slice(0, 8);
+          content = JSON.stringify({ proposal: { planningWeek, agentRef, disposition: "wait", intent: "保持当前计划并观察公开变化。", rationale: "没有出现足以改变本周安排的新认知。", targetRefs, requiredKnowledgeIds: [] } });
         } else if (user.includes("worldSummary")) {
           worldCallCount += 1;
           content = JSON.stringify(envelope);

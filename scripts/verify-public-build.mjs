@@ -3,17 +3,35 @@
 // 用于确保公开代码在 CI / 新贡献者环境下可以独立构建通过。
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveRuntimePaths } from "./lib/runtime-paths.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gmzz-public-check-"));
+const runtimeEnv = {
+  ...process.env,
+  GMZZ_REQUIRE_D_DRIVE: process.env.GMZZ_REQUIRE_D_DRIVE ?? "1",
+};
+const runtimePaths = resolveRuntimePaths({ repoRoot: root, env: runtimeEnv });
+fs.mkdirSync(runtimePaths.tempRoot, { recursive: true });
+const tmp = fs.mkdtempSync(path.join(runtimePaths.tempRoot, "gmzz-public-check-"));
 const repo = path.join(tmp, "repo");
+const childEnv = {
+  ...runtimeEnv,
+  GMZZ_STORAGE_ROOT: runtimePaths.root,
+  GMZZ_USER_DATA: runtimePaths.userDataRoot,
+  RAG_INDEX_DIR: runtimePaths.ragRoot,
+  TEMP: runtimePaths.tempRoot,
+  TMP: runtimePaths.tempRoot,
+  npm_config_cache: runtimePaths.npmCacheRoot,
+  ELECTRON_CACHE: runtimePaths.electronCacheRoot,
+  ELECTRON_BUILDER_CACHE: runtimePaths.electronCacheRoot,
+};
 
 function run(cmd, args, cwd) {
   const result = spawnSync(cmd, args, {
     cwd,
+    env: childEnv,
     stdio: "inherit",
     windowsHide: true,
     shell: process.platform === "win32",

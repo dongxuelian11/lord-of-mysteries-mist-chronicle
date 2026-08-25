@@ -19,6 +19,14 @@ function invalidRequest() {
   return { available: false, error: "invalid-request" };
 }
 
+function isProvenanceOptions(value) {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  return keys.every((key) => key === "currentTurnId")
+    && (value.currentTurnId === undefined || (typeof value.currentTurnId === "string" && value.currentTurnId.trim().length > 0 && value.currentTurnId.length <= 512));
+}
+
 function unavailable() {
   return { available: false, error: "persistence-unavailable" };
 }
@@ -95,6 +103,16 @@ function registerPersistenceIpc({ ipcMain, store, isTrustedSender = () => false,
       return { available: true, traces: store.readRuntimeTraces(originId.trim(), limit) };
     } catch (error) {
       return store ? { available: true, traces: [], fatal: true, error: String(error?.message ?? error) } : unavailable();
+    }
+  });
+
+  ipcMain.handle("persistence:provenance", (_event, key, options) => {
+    if (!isAllowedPersistenceKey(key) || !key.includes("-complete-") || !isProvenanceOptions(options)) return invalidRequest();
+    try {
+      guard(_event);
+      return { available: true, ...store.readProvenance(key, options ?? {}) };
+    } catch (error) {
+      return store ? { available: true, fatal: true, error: String(error?.message ?? error) } : unavailable();
     }
   });
 

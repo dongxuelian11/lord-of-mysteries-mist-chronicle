@@ -25,5 +25,8 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      - run: npm run test:coverage
+      - run: npm run coverage:manifest
+      - run: npm run coverage:verify
       - run: npm run bundle:budget
       - run: npm audit --audit-level=high
