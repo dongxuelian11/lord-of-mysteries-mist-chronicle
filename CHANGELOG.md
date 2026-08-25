@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.5.0 - 2026-08-25
+
+### Features
+
+- Complete the leader-facing world loop while keeping model, RAG, persistence, and ledger mechanics behind runtime authority boundaries.
+- Add Main-owned autonomous inference, durable proposal attempts, audience-safe world projections, and exact-turn recovery.
+- Add an independently transferable Windows release-evidence chain with exact-main, provenance, clean-machine, and same-byte publication gates.
+
+### Fixes
+
+- Harden renderer/Main IPC, SQLite WAL persistence, restart recovery, source provenance, and D-drive runtime isolation.
+- Fail closed on unsupported AI providers, invalid world mutations, stale proposal evidence, unauthorized knowledge propagation, and release input drift.
+- Prevent release preparation from rewriting the tracked generated/C-grade lore source.
+
+### Refactor
+
+- Reduce `app/game-engine.ts` from the former god-file shape to a thin coordinator, moving action contracts, dialogue orchestration, week resolution, and world-turn orchestration to explicit owners.
+
+### Tests
+
+- Add source-aware coverage measurement and regression gates for authority-critical files.
+- Add 160 hand-reviewed Chinese intent cases, 120 verbatim-leak cases, release provenance tests, and cross-platform CI coverage.
+
+### Release status
+
+- This version is authorized as `unsigned prerelease evidence-only` while no production code-signing certificate is available.
+- Authenticode signing remains `NOT_RUN`; the release workflow must prove the installer is `NotSigned`, pass independent clean-machine qualification, and publish only the exact qualified bytes.
+- The authorized knowledge source is `generated/C-grade` and must not be described as a canonical original-lore corpus.
+
 ## 0.4.0 - 2026-08-09
 
 ### Features
