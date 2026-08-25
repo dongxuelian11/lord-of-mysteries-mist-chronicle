@@ -12,16 +12,17 @@
 REPOSITORY=D:\gmzz
 AUDITED_LOCAL_BRANCH=codex/technical-debt-delivery
 DELIVERY_BASE=origin/main@c75eb6b03c6529d3eb14d536cb4a73e086f12e40
-DELIVERY_BASE_COMMIT=2e9d8d5ae71b51e7905a46c0a4e37a3fd2c0235b (parent is exact DELIVERY_BASE; tree matched authorized 930a771 commit before delivery-workflow edits)
-CURRENT_WORKTREE=DIRTY_INTENTIONAL_DELIVERY_EDITS (release Job B/Job C, evidence verifier, D-drive smoke, tests and docs; protected QA logs preserved)
-REMOTE_MAIN_CURRENT=c75eb6b03c6529d3eb14d536cb4a73e086f12e40 (verified before clean delivery branch creation; must be refreshed before push/PR/merge)
-AUDITED_TREE=PENDING_FINAL_COMMIT
+DELIVERY_MIGRATION_COMMIT=2e9d8d5ae71b51e7905a46c0a4e37a3fd2c0235b (parent is exact DELIVERY_BASE; tree matched authorized 930a771 commit before delivery-workflow edits)
+DELIVERY_GATE_COMMIT=95b4b729c1df5a1be1a8264b8e4bd5b14db7e0bc
+CURRENT_WORKTREE=CLEAN_TRACKED (only two protected untracked QA logs remain)
+REMOTE_MAIN_CURRENT=c75eb6b03c6529d3eb14d536cb4a73e086f12e40 (refreshed after local gate commit; merge-base exact; refresh again before merge)
+AUDITED_TREE=e1853441ab86d1ff827763af9ac500b6ea90133e (delivery gate commit)
 REMOTE_MAIN_TREE=PENDING_EXACT_HEAD_RECHECK
 REMOTE_MAIN_TREE_BASIS=CLEAN_BRANCH_PARENT_IS_EXACT_VERIFIED_MAIN
 LATEST_MERGED_DELIVERY=GitHub PR #4
 CURRENT_NEXT_PACKAGE=DELIVERY-01 then REL-01.4
-CURRENT_NEXT_ACTION=完成全量 D 盘门禁和源码级 diff 审核；显式暂存交付文件并提交；刷新 GitHub CURRENT 后推送新分支、创建新 PR、等待 CI/审核；仅在锁定精确 head 后按仓库允许方式合并并验证 resulting main；之后才进入版本/tag、签名、Job B/Job C 和发布证据
-PACKAGE_PROGRESS=IMPLEMENTATION_COMPLETE; DELIVERY_VALIDATION_IN_PROGRESS; PR_NOT_CREATED; HOSTED_CI_NOT_RUN; EXACT_MAIN_NOT_MERGED; SIGNED_RELEASE_AND_EXTERNAL_EVIDENCE_PENDING
+CURRENT_NEXT_ACTION=推送新分支、创建新 PR、等待并处理 build(ubuntu/windows) CI 与审核；main 当前要求 strict 两项 CI、approval count=0、三种合并方式均允许；仅在锁定精确 head 后合并并验证 resulting main；之后才进入版本/tag、签名、Job B/Job C 和发布证据
+PACKAGE_PROGRESS=IMPLEMENTATION_AND_LOCAL_DELIVERY_GATE_COMPLETE; PR_NOT_CREATED; HOSTED_CI_NOT_RUN; EXACT_MAIN_NOT_MERGED; SIGNED_RELEASE_AND_EXTERNAL_EVIDENCE_PENDING
 ```
 
 本地审计分支与远端 `main` 的 commit identity 不同；本轮只读 `git ls-remote` 得到 `c75eb6b03c6529d3eb14d536cb4a73e086f12e40`，没有 fetch，因此不宣称远端 tree 与本地相同。开始提交/推送前仍必须重新查询 GitHub CURRENT，不能把上面的 SHA 当成永久事实。
@@ -833,7 +834,7 @@ SOURCE_PATH_RECHECK=PASS (façade exports owners without reverse import; Main ex
 REL_INPUT_PATH_RECHECK=PASS (explicit KNOWLEDGE_SEED_DIR, manifest-listed optional files, D-drive rejection and no-fallback behavior covered by 9/9 release evidence tests)
 REL_BLOCKER_RECHECK=IN_PROGRESS (Job B/Job C code exists and local contracts pass; hosted execution, signature and external evidence remain literal PENDING/NOT_AVAILABLE)
 BLOCKER_CLASSIFICATION=DELIVERY_VALIDATION_AND_REMOTE_REVIEW_PENDING / FORMAL_SIGNATURE_AND_EXTERNAL_EVIDENCE_PENDING
-REMOTE_RECHECK=PASS_AT_BRANCH_CREATION (origin/main=c75eb6b03c6529d3eb14d536cb4a73e086f12e40; refresh required immediately before push/PR/merge)
+REMOTE_RECHECK=PASS_AFTER_LOCAL_GATE (origin/main=c75eb6b03c6529d3eb14d536cb4a73e086f12e40; merge-base exact; ahead=2 behind=0; branch protection strict build ubuntu/windows, approval count=0; refresh required before merge)
 CONTINUATION_RECHECK=PASS (clean branch is based directly on exact main; authorized implementation tree migration matched; current edits are bounded to release evidence closure and documentation; final full gate still pending)
 
 ### 2026-08-24 · REL-01.1 受控本地 seed 输入路径修复
@@ -869,7 +870,7 @@ PROTECTED_UNTRACKED=.qa-prodserver3.err.log,.qa-prodserver3.out.log
 REAL_MODEL_REQUESTS_AUTHORIZED=NO
 NETWORK_DEPENDENCY_INSTALL_AUTHORIZED=YES_FOR_COV01_ONLY (vitest@4.1.11 and coverage-v8@4.1.11; cache=D:\gmzz\.runtime\npm-cache)
 COMMIT_PUSH_PR_MERGE_AUTHORIZED=YES_FOR_CLEAN_DELIVERY_CHAIN (user explicitly authorized new PR/CI/review and locked-head exact-main merge; failure gates remain binding)
-PUSH_STATUS=PENDING_FINAL_LOCAL_GATE_AND_REMOTE_CURRENT_RECHECK
+PUSH_STATUS=READY (local gates and remote CURRENT recheck PASS; new remote branch/PR do not yet exist)
 ```
 
 ### 2026-08-25 · DELIVERY-01 干净分支与独立发布证据工作流
