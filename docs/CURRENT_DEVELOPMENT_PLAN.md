@@ -923,3 +923,36 @@ PUSH_STATUS=PR_5_OPEN; CI_FIX_PENDING_COMMIT_AND_PUSH
   仍用 Windows 字符串根，在 POSIX 被视为相对路径；把该 fixture 的 seed/storage/temp 根改为
   `<repository>/.runtime` 的平台原生绝对路径，本机 merge-ref/storage-env 模拟集合 `16/16 PASS`。
   Windows 单绿不能代替双平台门禁，必须推送后等待新 head 两项同时通过。
+
+### 2026-08-25 · RELEASE-0.5.0 权威继续点
+
+- DELIVERY-01 已完成：PR #5 已合并，resulting main 为
+  `a9f0a41527c3620d4bd87f11a2a5ba4548ca0a8f`；审核 head 与 resulting-main tree
+  完全一致，tree diff 为 0；resulting-main CI run `32801127162` 的 Ubuntu/Windows
+  required jobs 均为 `SUCCESS`。本节覆盖上方较早的 `PR_5_OPEN` 历史快照。
+- 用户已确认版本 `0.5.0`，并明确授权 `unsigned prerelease evidence-only`。因此正式
+  Authenticode 签名保持 `NOT_RUN`，installer 必须实测为 `NotSigned`；不得生成自签名
+  证书或声称正式签名。发布成功也只能标记为 GitHub Prerelease，不是 production。
+- 当前唯一工作包为 `RELEASE-0.5.0`：从上述 exact-main 创建
+  `codex/release-v0.5.0`，更新 `package.json`/`package-lock.json`、`CHANGELOG.md`、
+  `docs/releasing.md` 与 `docs/RELEASE_V0.5.0_LEDGER.md`；完成本地门禁后新建发布准备
+  PR，等待精确 head CI/审核，再按保护规则锁头合并。
+- 合并后的新 exact-main 才能创建全新的 annotated `v0.5.0` tag。由于普通 tag push
+  路径要求真实证书，未签名构建必须通过显式 `workflow_dispatch`：
+  `release_tag=v0.5.0`、`unsigned_prerelease=true`、`publish_release=true`。
+- 只有 Job A、独立无 checkout/无依赖安装的 Job B、精确源码验证 Job C 和 publish
+  全部成功，才能记录 clean-machine PASS；发布后还要从公开 Release 重新下载并独立
+  校验 installer/provenance/evidence 的 hash 与 source commit，才能关闭同字节发布证据。
+
+```text
+IN_PROGRESS=RELEASE-0.5.0 PREP_PR
+START_HEAD=a9f0a41527c3620d4bd87f11a2a5ba4548ca0a8f
+CURRENT_NEXT_ACTION=COMMIT_AND_PUSH_RELEASE_PREP_BRANCH
+AUTHENTICODE_SIGNATURE=NOT_RUN
+EXPECTED_INSTALLER_SIGNATURE_STATUS=NotSigned
+CLEAN_MACHINE_JOB_B=NOT_RUN
+EVIDENCE_VERIFY_JOB_C=NOT_RUN
+PUBLIC_RELEASE=PENDING
+LOCAL_GATES=PASS (575 total / 569 pass / 6 skip / 0 fail; coverage 14 sources / 8,921 counters; strict NLP 160/160; strict leak 120/120)
+PROTECTED_UNTRACKED=.qa-prodserver3.err.log,.qa-prodserver3.out.log
+```

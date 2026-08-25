@@ -1,7 +1,7 @@
 # 正式发布
 
 正式 Windows 版本采用 `v<package.json version>` tag 触发。当前发布线为
-`0.4.x`，tag、源码提交、安装包 SHA-256 与知识 seed build ID 会同时写入
+`0.5.x`，tag、源码提交、安装包 SHA-256 与知识 seed build ID 会同时写入
 `release/provenance.json`，避免版本标签与二进制来源脱节。
 
 ## Release 环境
@@ -73,10 +73,14 @@ GitHub Release 保持为 Prerelease；它不会改变普通 tag 推送的签名�
 
 ```powershell
 gh workflow run release.yml --ref main `
-  -f release_tag=v0.4.0 `
+  -f release_tag=v0.5.0 `
   -f unsigned_prerelease=true `
   -f publish_release=false
 ```
+
+`unsigned_prerelease=true` 的证据字面值是 `AUTHENTICODE_SIGNATURE=NOT_RUN`、
+安装包实测状态 `NotSigned`。只有 Job B/Job C 都通过后，才可以把同一字节发布为
+unsigned prerelease；它不是正式签名版本，也不升级为 production 或 human 证据。
 
 创建 tag 前先把版本改到唯一目标值并合入目标提交：
 
