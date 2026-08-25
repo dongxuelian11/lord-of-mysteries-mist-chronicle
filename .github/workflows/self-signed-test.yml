@@ -204,7 +204,7 @@ jobs:
           try {
             foreach ($file in @($app, $installer[0].FullName)) {
               $signature = Get-AuthenticodeSignature -LiteralPath $file
-              if ($signature.Status -ne "Valid") { throw "Signature is not valid for $file: $($signature.Status)" }
+              if ($signature.Status -ne "Valid") { throw "Signature is not valid for ${file}: $($signature.Status)" }
               if ($signature.SignerCertificate.Thumbprint -ne $thumbprint) { throw "Unexpected signer for $file" }
               if ($null -eq $signature.TimeStamperCertificate) { throw "Timestamp is missing for $file" }
             }
