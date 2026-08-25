@@ -148,12 +148,18 @@ test("release workflow qualifies the transferred installer on a checkout-free cl
   assert.notEqual(cleanMachineStart, -1, "release workflow must define a clean-machine job");
   assert.notEqual(evidenceVerifyStart, -1, "release workflow must independently verify the clean-machine manifest");
   const cleanMachineJob = workflow.slice(cleanMachineStart, evidenceVerifyStart);
+  const dDrivePreflights = workflow.match(/name: Enforce D-drive runner roots/g) ?? [];
+  assert.equal(dDrivePreflights.length, 4, "every Windows release job must preflight its write roots");
   assert.match(cleanMachineJob, /needs:\s*installer/);
   assert.match(cleanMachineJob, /actions\/download-artifact@v4/);
   assert.match(cleanMachineJob, /artifact-ids:\s*\$\{\{ needs\.installer\.outputs\.artifact-id \}\}/);
   assert.match(cleanMachineJob, /CLEAN_MACHINE_SOURCE_CHECKOUT:\s*ABSENT/);
   assert.match(cleanMachineJob, /CLEAN_MACHINE_DEPENDENCY_INSTALL:\s*NOT_RUN/);
   assert.doesNotMatch(cleanMachineJob, /actions\/checkout|actions\/setup-node|npm (?:ci|install)/);
+  assert.ok(
+    cleanMachineJob.indexOf("name: Enforce D-drive runner roots") < cleanMachineJob.indexOf("actions/download-artifact@v4"),
+    "clean-machine must reject a non-D runner before downloading the artifact"
+  );
   assert.doesNotMatch(workflow, /materialize-lore-from-seed/);
 });
 

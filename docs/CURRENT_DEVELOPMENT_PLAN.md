@@ -14,15 +14,15 @@ AUDITED_LOCAL_BRANCH=codex/technical-debt-delivery
 DELIVERY_BASE=origin/main@c75eb6b03c6529d3eb14d536cb4a73e086f12e40
 DELIVERY_MIGRATION_COMMIT=2e9d8d5ae71b51e7905a46c0a4e37a3fd2c0235b (parent is exact DELIVERY_BASE; tree matched authorized 930a771 commit before delivery-workflow edits)
 DELIVERY_GATE_COMMIT=95b4b729c1df5a1be1a8264b8e4bd5b14db7e0bc
-CURRENT_WORKTREE=CLEAN_TRACKED (only two protected untracked QA logs remain)
+CURRENT_WORKTREE=DIRTY_INTENTIONAL_PR_REVIEW_FIX (D-drive preflight before artifact/download writes plus test/ledger; two protected untracked QA logs remain)
 REMOTE_MAIN_CURRENT=c75eb6b03c6529d3eb14d536cb4a73e086f12e40 (refreshed after local gate commit; merge-base exact; refresh again before merge)
 AUDITED_TREE=e1853441ab86d1ff827763af9ac500b6ea90133e (delivery gate commit)
 REMOTE_MAIN_TREE=PENDING_EXACT_HEAD_RECHECK
 REMOTE_MAIN_TREE_BASIS=CLEAN_BRANCH_PARENT_IS_EXACT_VERIFIED_MAIN
 LATEST_MERGED_DELIVERY=GitHub PR #4
 CURRENT_NEXT_PACKAGE=DELIVERY-01 then REL-01.4
-CURRENT_NEXT_ACTION=推送新分支、创建新 PR、等待并处理 build(ubuntu/windows) CI 与审核；main 当前要求 strict 两项 CI、approval count=0、三种合并方式均允许；仅在锁定精确 head 后合并并验证 resulting main；之后才进入版本/tag、签名、Job B/Job C 和发布证据
-PACKAGE_PROGRESS=IMPLEMENTATION_AND_LOCAL_DELIVERY_GATE_COMPLETE; PR_NOT_CREATED; HOSTED_CI_NOT_RUN; EXACT_MAIN_NOT_MERGED; SIGNED_RELEASE_AND_EXTERNAL_EVIDENCE_PENDING
+CURRENT_NEXT_ACTION=提交并推送源码审核发现的发布作业 D-drive 前置门禁，等待 PR #5 新精确 head 的 build(ubuntu/windows) CI 与审核；main 当前要求 strict 两项 CI、approval count=0、三种合并方式均允许；仅在锁定精确 head 后合并并验证 resulting main；之后才进入版本/tag、签名、Job B/Job C 和发布证据
+PACKAGE_PROGRESS=IMPLEMENTATION_AND_LOCAL_DELIVERY_GATE_COMPLETE; PR_5_OPEN; HOSTED_CI_OLD_HEAD_RUNNING_AND_NEW_HEAD_PENDING; EXACT_MAIN_NOT_MERGED; SIGNED_RELEASE_AND_EXTERNAL_EVIDENCE_PENDING
 ```
 
 本地审计分支与远端 `main` 的 commit identity 不同；本轮只读 `git ls-remote` 得到 `c75eb6b03c6529d3eb14d536cb4a73e086f12e40`，没有 fetch，因此不宣称远端 tree 与本地相同。开始提交/推送前仍必须重新查询 GitHub CURRENT，不能把上面的 SHA 当成永久事实。
@@ -870,7 +870,7 @@ PROTECTED_UNTRACKED=.qa-prodserver3.err.log,.qa-prodserver3.out.log
 REAL_MODEL_REQUESTS_AUTHORIZED=NO
 NETWORK_DEPENDENCY_INSTALL_AUTHORIZED=YES_FOR_COV01_ONLY (vitest@4.1.11 and coverage-v8@4.1.11; cache=D:\gmzz\.runtime\npm-cache)
 COMMIT_PUSH_PR_MERGE_AUTHORIZED=YES_FOR_CLEAN_DELIVERY_CHAIN (user explicitly authorized new PR/CI/review and locked-head exact-main merge; failure gates remain binding)
-PUSH_STATUS=READY (local gates and remote CURRENT recheck PASS; new remote branch/PR do not yet exist)
+PUSH_STATUS=PR_5_OPEN; REVIEW_FIX_PENDING_COMMIT_AND_PUSH
 ```
 
 ### 2026-08-25 · DELIVERY-01 干净分支与独立发布证据工作流
@@ -905,3 +905,9 @@ PUSH_STATUS=READY (local gates and remote CURRENT recheck PASS; new remote branc
   `world-turn-orchestrator`。覆盖率已有真实 source-aware 量化和不得回退门禁；中文 NLP 仍以
   规则 parser 运行，但由 160 条人工金标、否定/授权 over-grant 门禁和生产 façade 约束，
   当前不再是“无量化的裸正则”，仍不能把金标全绿解释为任意自然语言都可靠。
+- 新 PR 已创建为 `#5`，初始精确 head=`5d87e95280fe283f6d8c905611e5978f5cf96834`、
+  base=`c75eb6b03c6529d3eb14d536cb4a73e086f12e40`。PR 源码审核发现 artifact download
+  发生在 D-drive smoke 检查之前；新增 RED 后先得到 `12 pass / 1 fail`，再把 D-drive
+  runner root preflight 放到 installer、clean-machine、evidence-verify、publish 四个 Windows
+  job 的第一个写入动作前，定向 release+security `20/20 PASS`、YAML parse/diff PASS。
+  旧 head 的 CI 不能用于合并，必须等待该修复推送后的新精确 head。

@@ -50,6 +50,14 @@ jobs:
       KNOWLEDGE_SEED_URL: ${{ secrets.KNOWLEDGE_SEED_URL }}
       KNOWLEDGE_SEED_SHA256: ${{ secrets.KNOWLEDGE_SEED_SHA256 }}
     steps:
+      - name: Enforce D-drive runner roots
+        shell: pwsh
+        run: |
+          foreach ($candidate in @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP)) {
+            $drive = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($candidate)).TrimEnd('\').ToUpperInvariant()
+            if ($drive -ne "D:") { throw "Release runner write root must be on D:, received $candidate" }
+          }
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -205,6 +213,14 @@ jobs:
       evidence-artifact-id: ${{ steps.evidence-upload.outputs.artifact-id }}
       evidence-artifact-digest: ${{ steps.evidence-upload.outputs.artifact-digest }}
     steps:
+      - name: Enforce D-drive runner roots
+        shell: pwsh
+        run: |
+          foreach ($candidate in @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP)) {
+            $drive = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($candidate)).TrimEnd('\').ToUpperInvariant()
+            if ($drive -ne "D:") { throw "Release runner write root must be on D:, received $candidate" }
+          }
+
       - name: Download immutable Job A delivery
         uses: actions/download-artifact@v4
         with:
@@ -237,6 +253,14 @@ jobs:
     needs: [installer, clean-machine]
     runs-on: windows-latest
     steps:
+      - name: Enforce D-drive runner roots
+        shell: pwsh
+        run: |
+          foreach ($candidate in @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP)) {
+            $drive = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($candidate)).TrimEnd('\').ToUpperInvariant()
+            if ($drive -ne "D:") { throw "Release runner write root must be on D:, received $candidate" }
+          }
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -268,6 +292,14 @@ jobs:
       UNSIGNED_PRERELEASE: ${{ github.event.inputs.unsigned_prerelease || 'false' }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Enforce D-drive runner roots
+        shell: pwsh
+        run: |
+          foreach ($candidate in @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP)) {
+            $drive = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($candidate)).TrimEnd('\').ToUpperInvariant()
+            if ($drive -ne "D:") { throw "Release runner write root must be on D:, received $candidate" }
+          }
+
       - name: Download independently qualified release bytes
         uses: actions/download-artifact@v4
         with:
