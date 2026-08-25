@@ -26,57 +26,36 @@ if (-not ("OfflineAuthenticodeNative" -as [type])) {
   Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.InteropServices;
 
 public static class OfflineAuthenticodeNative
 {
-    private const uint WTD_UI_NONE = 2;
-    private const uint WTD_REVOKE_NONE = 0;
-    private const uint WTD_CHOICE_FILE = 1;
-    private const uint WTD_STATEACTION_IGNORE = 0;
-    private const uint WTD_REVOCATION_CHECK_NONE = 0x10;
-    private const uint WTD_CACHE_ONLY_URL_RETRIEVAL = 0x1000;
-    private const uint WTD_DISABLE_MD2_MD4 = 0x2000;
-    private const uint WTD_UICONTEXT_EXECUTE = 0;
-
     private const uint CERT_QUERY_OBJECT_FILE = 1;
     private const uint CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED = 1u << 10;
     private const uint CERT_QUERY_FORMAT_FLAG_BINARY = 2;
     private const uint CMSG_ENCODED_MESSAGE = 29;
+    [DllImport("wintrust.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CryptCATAdminAcquireContext2(
+        out IntPtr catalogAdmin,
+        IntPtr subsystem,
+        string hashAlgorithm,
+        IntPtr strongHashPolicy,
+        uint flags);
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct WINTRUST_FILE_INFO
-    {
-        public uint cbStruct;
-        [MarshalAs(UnmanagedType.LPWStr)]
-        public string pcwszFilePath;
-        public IntPtr hFile;
-        public IntPtr pgKnownSubject;
-    }
+    [DllImport("wintrust.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CryptCATAdminCalcHashFromFileHandle2(
+        IntPtr catalogAdmin,
+        IntPtr fileHandle,
+        ref uint hashByteCount,
+        [Out] byte[] hash,
+        uint flags);
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct WINTRUST_DATA
-    {
-        public uint cbStruct;
-        public IntPtr pPolicyCallbackData;
-        public IntPtr pSIPClientData;
-        public uint dwUIChoice;
-        public uint fdwRevocationChecks;
-        public uint dwUnionChoice;
-        public IntPtr pFile;
-        public uint dwStateAction;
-        public IntPtr hWVTStateData;
-        public IntPtr pwszURLReference;
-        public uint dwProvFlags;
-        public uint dwUIContext;
-        public IntPtr pSignatureSettings;
-    }
-
-    [DllImport("wintrust.dll", ExactSpelling = true, PreserveSig = true)]
-    private static extern int WinVerifyTrust(
-        IntPtr hwnd,
-        [In] ref Guid pgActionID,
-        [In] ref WINTRUST_DATA pWVTData);
+    [DllImport("wintrust.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CryptCATAdminReleaseContext(IntPtr catalogAdmin, uint flags);
 
     [DllImport("crypt32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -110,45 +89,61 @@ public static class OfflineAuthenticodeNative
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CertCloseStore(IntPtr hCertStore, uint dwFlags);
 
-    public static int VerifyEmbeddedSignatureOffline(string filePath)
+    private static string HashAlgorithmFromOid(string algorithmOid)
     {
-        var fileInfo = new WINTRUST_FILE_INFO
+        switch (algorithmOid)
         {
-            cbStruct = (uint)Marshal.SizeOf(typeof(WINTRUST_FILE_INFO)),
-            pcwszFilePath = filePath,
-            hFile = IntPtr.Zero,
-            pgKnownSubject = IntPtr.Zero
-        };
+            case "1.3.14.3.2.26": return "SHA1";
+            case "2.16.840.1.101.3.4.2.1": return "SHA256";
+            case "2.16.840.1.101.3.4.2.2": return "SHA384";
+            case "2.16.840.1.101.3.4.2.3": return "SHA512";
+            default: throw new NotSupportedException("Unsupported Authenticode digest OID: " + algorithmOid);
+        }
+    }
 
-        IntPtr fileInfoPointer = Marshal.AllocCoTaskMem(Marshal.SizeOf(fileInfo));
+    public static byte[] ComputeAuthenticodeDigest(string filePath, string algorithmOid)
+    {
+        IntPtr catalogAdmin;
+        if (!CryptCATAdminAcquireContext2(
+            out catalogAdmin,
+            IntPtr.Zero,
+            HashAlgorithmFromOid(algorithmOid),
+            IntPtr.Zero,
+            0))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "CryptCATAdminAcquireContext2 failed");
+        }
         try
         {
-            Marshal.StructureToPtr(fileInfo, fileInfoPointer, false);
-            var trustData = new WINTRUST_DATA
+            using (var file = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                cbStruct = (uint)Marshal.SizeOf(typeof(WINTRUST_DATA)),
-                pPolicyCallbackData = IntPtr.Zero,
-                pSIPClientData = IntPtr.Zero,
-                dwUIChoice = WTD_UI_NONE,
-                fdwRevocationChecks = WTD_REVOKE_NONE,
-                dwUnionChoice = WTD_CHOICE_FILE,
-                pFile = fileInfoPointer,
-                dwStateAction = WTD_STATEACTION_IGNORE,
-                hWVTStateData = IntPtr.Zero,
-                pwszURLReference = IntPtr.Zero,
-                dwProvFlags = WTD_REVOCATION_CHECK_NONE |
-                              WTD_CACHE_ONLY_URL_RETRIEVAL |
-                              WTD_DISABLE_MD2_MD4,
-                dwUIContext = WTD_UICONTEXT_EXECUTE,
-                pSignatureSettings = IntPtr.Zero
-            };
-            var action = new Guid("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
-            return WinVerifyTrust(IntPtr.Zero, ref action, ref trustData);
+                uint hashByteCount = 0;
+                if (!CryptCATAdminCalcHashFromFileHandle2(
+                    catalogAdmin,
+                    file.SafeFileHandle.DangerousGetHandle(),
+                    ref hashByteCount,
+                    null,
+                    0))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Catalog hash size query failed");
+                }
+                var hash = new byte[hashByteCount];
+                if (!CryptCATAdminCalcHashFromFileHandle2(
+                    catalogAdmin,
+                    file.SafeFileHandle.DangerousGetHandle(),
+                    ref hashByteCount,
+                    hash,
+                    0))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Catalog hash calculation failed");
+                }
+                if (hashByteCount != hash.Length) Array.Resize(ref hash, (int)hashByteCount);
+                return hash;
+            }
         }
         finally
         {
-            Marshal.DestroyStructure<WINTRUST_FILE_INFO>(fileInfoPointer);
-            Marshal.FreeCoTaskMem(fileInfoPointer);
+            CryptCATAdminReleaseContext(catalogAdmin, 0);
         }
     }
 
@@ -208,6 +203,7 @@ public static class OfflineAuthenticodeNative
 }
 
 Add-Type -AssemblyName System.Security.Cryptography.Pkcs
+Add-Type -AssemblyName System.Formats.Asn1
 
 function Test-CertificateEku {
   param(
@@ -230,15 +226,71 @@ function Test-CertificateEku {
   return $false
 }
 
-$trustResult = [OfflineAuthenticodeNative]::VerifyEmbeddedSignatureOffline($resolvedFile)
-if ($trustResult -ne 0) {
-  throw "Offline WinVerifyTrust failed for $resolvedFile with HRESULT 0x$($trustResult.ToString('X8'))"
+function Get-OfflineCertificateChainEvidence {
+  param(
+    [Parameter(Mandatory = $true)]
+    [Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+    [Parameter(Mandatory = $true)]
+    [string]$RequiredApplicationOid,
+    [Security.Cryptography.X509Certificates.X509Certificate2Collection]$ExtraCertificates
+  )
+
+  $chain = [Security.Cryptography.X509Certificates.X509Chain]::new()
+  try {
+    $chain.ChainPolicy.RevocationMode = [Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+    $chain.ChainPolicy.DisableCertificateDownloads = $true
+    [void]$chain.ChainPolicy.ApplicationPolicy.Add([Security.Cryptography.Oid]::new($RequiredApplicationOid))
+    if ($null -ne $ExtraCertificates) {
+      $chain.ChainPolicy.ExtraStore.AddRange($ExtraCertificates)
+    }
+    if (-not $chain.Build($Certificate)) {
+      $statuses = @($chain.ChainStatus | ForEach-Object { $_.Status.ToString() }) -join ","
+      throw "Offline certificate chain validation failed: $statuses"
+    }
+    $root = $chain.ChainElements[$chain.ChainElements.Count - 1].Certificate
+    return [ordered]@{
+      rootSubject = $root.Subject
+      rootThumbprint = $root.Thumbprint.ToUpperInvariant()
+      revocationMode = "NoCheck"
+      certificateDownloads = "DISABLED"
+    }
+  } finally {
+    $chain.Dispose()
+  }
 }
 
 $encodedMessage = [OfflineAuthenticodeNative]::ReadEmbeddedPkcs7($resolvedFile)
 $signedCms = [Security.Cryptography.Pkcs.SignedCms]::new()
 $signedCms.Decode($encodedMessage)
 $signedCms.CheckSignature($true)
+
+$indirectDataReader = [Formats.Asn1.AsnReader]::new(
+  [ReadOnlyMemory[byte]]::new($signedCms.ContentInfo.Content),
+  [Formats.Asn1.AsnEncodingRules]::DER,
+  [Formats.Asn1.AsnReaderOptions]::new()
+)
+$indirectData = $indirectDataReader.ReadSequence()
+$fileType = $indirectData.ReadSequence()
+[void]$fileType.ReadObjectIdentifier()
+while ($fileType.HasData) { [void]$fileType.ReadEncodedValue() }
+$digestInfo = $indirectData.ReadSequence()
+$digestAlgorithm = $digestInfo.ReadSequence()
+$digestAlgorithmOid = $digestAlgorithm.ReadObjectIdentifier()
+while ($digestAlgorithm.HasData) { [void]$digestAlgorithm.ReadEncodedValue() }
+$embeddedAuthenticodeDigest = $digestInfo.ReadOctetString()
+if ($digestInfo.HasData -or $indirectData.HasData -or $indirectDataReader.HasData) {
+  throw "Authenticode indirect-data digest is structurally ambiguous"
+}
+$computedAuthenticodeDigest = [OfflineAuthenticodeNative]::ComputeAuthenticodeDigest(
+  $resolvedFile,
+  $digestAlgorithmOid
+)
+if (-not [Security.Cryptography.CryptographicOperations]::FixedTimeEquals(
+  $embeddedAuthenticodeDigest,
+  $computedAuthenticodeDigest
+)) {
+  throw "Authenticode PE image digest does not match the embedded signed digest"
+}
 
 $matchingSigners = @(
   $signedCms.SignerInfos |
@@ -257,6 +309,12 @@ if (-not (Test-CertificateEku -Certificate $signer.Certificate -RequiredOid "1.3
 }
 if ($signer.Certificate.HasPrivateKey) {
   throw "Embedded signer unexpectedly exposes a private key"
+}
+$signerTrustChain = Get-OfflineCertificateChainEvidence `
+  -Certificate $signer.Certificate `
+  -RequiredApplicationOid "1.3.6.1.5.5.7.3.3"
+if ($signerTrustChain.rootThumbprint -ne $normalizedThumbprint) {
+  throw "Embedded signer does not terminate at the explicitly trusted self-signed certificate"
 }
 
 $timestampAuthorities = @()
@@ -285,10 +343,15 @@ foreach ($attribute in $signer.UnsignedAttributes) {
     if (-not (Test-CertificateEku -Certificate $timestampCertificate -RequiredOid "1.3.6.1.5.5.7.3.8")) {
       throw "RFC3161 signer does not contain the Time Stamping EKU"
     }
+    $timestampTrustChain = Get-OfflineCertificateChainEvidence `
+      -Certificate $timestampCertificate `
+      -RequiredApplicationOid "1.3.6.1.5.5.7.3.8" `
+      -ExtraCertificates $timestampCms.Certificates
     $timestampAuthorities += [ordered]@{
       subject = $timestampCertificate.Subject
       thumbprint = $timestampCertificate.Thumbprint.ToUpperInvariant()
       timestampUtc = $timestampToken.TokenInfo.Timestamp.ToUniversalTime().ToString("o")
+      trustChain = $timestampTrustChain
     }
   }
 }
@@ -316,8 +379,11 @@ $evidence = [ordered]@{
   timestampPresent = $true
   timestampTokenSignatureValid = $true
   timestampAuthorities = $timestampAuthorities
-  verificationApi = "WinVerifyTrust + CryptQueryObject + SignedCms"
-  verificationMode = "OFFLINE_CACHE_ONLY_NO_REVOCATION_NETWORK"
+  signerTrustChain = $signerTrustChain
+  authenticodeDigestAlgorithmOid = $digestAlgorithmOid
+  authenticodeDigest = [Convert]::ToHexString($computedAuthenticodeDigest).ToLowerInvariant()
+  verificationApi = "CryptCATAdminCalcHashFromFileHandle2 + CryptQueryObject + SignedCms"
+  verificationMode = "OFFLINE_PE_DIGEST_AND_CMS_NO_TRUST_NETWORK"
   onlineRevocationCheck = "NOT_RUN"
 }
 

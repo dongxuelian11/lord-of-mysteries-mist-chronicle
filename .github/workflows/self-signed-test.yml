@@ -547,7 +547,7 @@ jobs:
             $evidence.installedApplication,
             $evidence.installedUninstaller
           )) {
-            if ($signature.verificationMode -ne "OFFLINE_CACHE_ONLY_NO_REVOCATION_NETWORK" -or
+            if ($signature.verificationMode -ne "OFFLINE_PE_DIGEST_AND_CMS_NO_TRUST_NETWORK" -or
                 $signature.onlineRevocationCheck -ne "NOT_RUN") {
               throw "Self-signed verification mode is overstated or ambiguous"
             }
