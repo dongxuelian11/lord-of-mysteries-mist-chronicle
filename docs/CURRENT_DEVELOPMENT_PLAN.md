@@ -1,6 +1,6 @@
 # 《灰雾纪事》当前开发计划与技术债闭环账本
 
-状态：`POST_RELEASE_MAINTENANCE_LOCAL_PASS / ACTIONS-01_PR_PENDING`
+状态：`POST_RELEASE_MAINTENANCE_CI_PASS / ACTIONS-01_REVIEW_READY`
 
 最后更新：2026-08-25
 
@@ -17,8 +17,8 @@ REMOTE_MAIN_CURRENT=374d411d962620ab679a7d3f4d8d36377ca3903a (git fetch verified
 AUDITED_TREE=a09e81605d865e5b09eda0a72aa47c14ac0124d6 (exact DELIVERY_BASE tree)
 LATEST_MERGED_DELIVERY=GitHub PR #8 / v0.5.0 final evidence ledger
 CURRENT_NEXT_PACKAGE=ACTIONS-01
-CURRENT_NEXT_ACTION=复核限定写集与 GitHub CURRENT；显式提交、推送新 PR，等待 required CI 与源码审核；不得触发 release、移动 v0.5.0 tag 或声称 production
-PACKAGE_PROGRESS=V0.5.0_UNSIGNED_PRERELEASE_COMPLETE; ACTIONS_01_LOCAL_GATE_PASS_PR_PENDING; AUTHENTICODE_CERTIFICATE_WAITING_USER; SIGNED_RELEASE_NOT_RUN; PRODUCTION_NOT_AVAILABLE
+CURRENT_NEXT_ACTION=查询 PR #9 最新 exact head 与 required CI；若 progress-only 更新后的双平台 CI 通过，则等待独立源码审核/用户合并授权；不得触发 release、移动 v0.5.0 tag 或声称 production
+PACKAGE_PROGRESS=V0.5.0_UNSIGNED_PRERELEASE_COMPLETE; ACTIONS_01_PR9_INITIAL_HEAD_CI_PASS_FINAL_DOC_HEAD_PENDING; AUTHENTICODE_CERTIFICATE_WAITING_USER; SIGNED_RELEASE_NOT_RUN; PRODUCTION_NOT_AVAILABLE
 ```
 
 本轮已执行 `git fetch origin main --prune`，开始分支时本地 `HEAD`、`origin/main` 和
@@ -1017,22 +1017,32 @@ PROTECTED_UNTRACKED=.qa-prodserver3.err.log,.qa-prodserver3.out.log
 - `npm audit --audit-level=high` 返回 0；仍报告 drizzle-kit 开发依赖链中的 4 个 moderate
   esbuild advisory，自动建议需要 `--force` 且会破坏性降级 drizzle-kit，因此不在本限定
   维护包中改写依赖图，也不把 moderate 写成零漏洞。
+- PR #9 initial head `926dc15f812364cf0002421e33469074c266420e` 的 required CI run
+  `32815767282` 已完成：Ubuntu job `97703585052`、Windows job `97703584779` 均
+  `SUCCESS`，两个 check-run annotations 都为空。该运行真实执行了 `checkout@v7` 和
+  `setup-node@v7`；release-only 的 upload/download/attest 路径没有被 PR CI 执行，仍以
+  官方当前接口、YAML parse 和发行证据回归为依据，不能冒充一次新的 release run。
+- 完整 base→head 源码差异审查没有发现 P0/P1/P2 finding：Action 版本行之外没有改变
+  workflow 输入、权限、条件、签名门禁或 artifact 路径；文档没有升级任何证据真值。
 - Production 边界：当前桌面 production 仍依赖新的可信签名版本；若未来增加托管后端，
   还需另行提供 production URL、平台/凭据、健康检查和回滚策略。当前保持
   `PRODUCTION_EVIDENCE=NOT_AVAILABLE / NOT_RUN`。
 
 ```text
-ACTIONS_01_STATUS=LOCAL_GATE_PASS_PR_PENDING
+ACTIONS_01_STATUS=PR9_INITIAL_HEAD_CI_PASS_FINAL_DOC_HEAD_PENDING
 ACTIONS_01_BASE=374d411d962620ab679a7d3f4d8d36377ca3903a
 ACTIONS_01_IMPLEMENTATION_COMMIT=283f1190ac6b4abc1094f97db3b609f72dd149cf
+ACTIONS_01_INITIAL_CI_HEAD=926dc15f812364cf0002421e33469074c266420e
 ACTIONS_01_LOCAL_TESTS=PASS (576/570/6/0; targeted 14/14)
 ACTIONS_01_WORKFLOW_PARSE=PASS
 ACTIONS_01_HIGH_AUDIT=PASS_WITH_4_MODERATE_REPORTED
-ACTIONS_01_HOSTED_CI=NOT_RUN
-ACTIONS_01_PR=NOT_CREATED
+ACTIONS_01_HOSTED_CI=PASS (run 32815767282; ubuntu/windows SUCCESS; annotations empty)
+ACTIONS_01_RELEASE_ONLY_ACTION_EXECUTION=NOT_RUN
+ACTIONS_01_SOURCE_REVIEW=PASS_NO_FINDINGS
+ACTIONS_01_PR=9 OPEN
 AUTHENTICODE_CERTIFICATE=WAITING_USER
 AUTHENTICODE_SIGNING=NOT_RUN
 PRODUCTION_EVIDENCE=NOT_AVAILABLE / NOT_RUN
-CURRENT_NEXT_ACTION=复核限定写集与 GitHub CURRENT；显式提交、推送新 PR，等待 required CI 与源码审核
+CURRENT_NEXT_ACTION=推送 progress-only 账本更新；查询 PR #9 最新 exact head 与双平台 CI，再等待独立源码审核/用户合并授权
 PROTECTED_UNTRACKED=.qa-prodserver3.err.log,.qa-prodserver3.out.log
 ```

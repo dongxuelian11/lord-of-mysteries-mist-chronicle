@@ -144,8 +144,10 @@ source commit 上复验通过，因此不是同机 smoke 冒充 clean-machine。
 - production deployment：`NOT_AVAILABLE / NOT_RUN`
 - human long-play：`NOT_AVAILABLE / NOT_RUN`
 - GitHub Actions 的 Node 20 action runtime deprecation 注解：历史 `v0.5.0` run 注解不改写；
-  后续 workflow 的 `ACTIONS-01` Node 24-compatible 升级已本地通过，当前为
-  `LOCAL_PASS / HOSTED_CI_PENDING`
+  后续 workflow 的 `ACTIONS-01` Node 24-compatible 升级在 PR #9 initial head
+  `926dc15f812364cf0002421e33469074c266420e` 上通过 run `32815767282` 双平台 CI，
+  两个 check-run annotations 均为空。release-only upload/download/attest 路径没有在该
+  PR run 中执行，保持 `SOURCE_AND_CONTRACT_VERIFIED / RELEASE_EXECUTION_NOT_RUN`
 
 若未来获得正式证书，应创建新的签名发布版本和新的独立证据链；不得原地把本次
 `v0.5.0` unsigned prerelease 改写成已签名或 production 证据。
