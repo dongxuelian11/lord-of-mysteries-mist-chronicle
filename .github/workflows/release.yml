@@ -58,7 +58,7 @@ jobs:
             if ($drive -ne "D:") { throw "Release runner write root must be on D:, received $candidate" }
           }
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.release_tag || github.ref }}
@@ -75,7 +75,7 @@ jobs:
           $trackedChanges = @(git status --porcelain --untracked-files=no)
           if ($trackedChanges.Count -ne 0) { throw "Release source checkout is not clean" }
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -195,7 +195,7 @@ jobs:
         with:
           subject-path: release/*.exe
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         id: delivery-upload
         with:
           name: mist-chronicle-${{ env.RELEASE_TAG }}
@@ -228,7 +228,7 @@ jobs:
           }
 
       - name: Download immutable Job A delivery
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           artifact-ids: ${{ needs.installer.outputs.artifact-id }}
           path: ${{ runner.temp }}/mist-chronicle-delivery
@@ -249,7 +249,7 @@ jobs:
 
       - name: Upload clean-machine evidence and exact tested bytes
         id: evidence-upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: clean-machine-evidence-${{ env.RELEASE_TAG }}
           path: ${{ runner.temp }}/mist-chronicle-delivery
@@ -268,17 +268,17 @@ jobs:
             if ($drive -ne "D:") { throw "Release runner write root must be on D:, received $candidate" }
           }
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ needs.installer.outputs.source-commit }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
       - name: Download clean-machine evidence by immutable artifact ID
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           artifact-ids: ${{ needs.clean-machine.outputs.evidence-artifact-id }}
           path: ${{ runner.temp }}/clean-machine-evidence
@@ -309,7 +309,7 @@ jobs:
           }
 
       - name: Download independently qualified release bytes
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           artifact-ids: ${{ needs.clean-machine.outputs.evidence-artifact-id }}
           path: ${{ runner.temp }}/qualified-release

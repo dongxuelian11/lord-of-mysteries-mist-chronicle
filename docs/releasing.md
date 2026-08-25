@@ -95,3 +95,25 @@ git push origin "v$version"
 ```
 
 不要复用或强制移动已发布 tag。需要修复时递增 patch 版本并生成新的安装包。
+
+## GitHub Actions 运行时维护
+
+仓库应用测试继续显式使用 Node 22；GitHub-owned JavaScript Action 自身的运行时则使用
+Node 24 兼容代际。当前基线为 `actions/checkout@v7`、`actions/setup-node@v7`、
+`actions/upload-artifact@v7`、`actions/download-artifact@v8` 和 `actions/attest@v4`。
+不得把 GitHub 的 Action runtime 弃用提示误解为应用 Node 22 的弃用。
+
+升级 artifact Action 时必须同时保持以下发行证据不变量：Job B 仍无 checkout/无依赖安装，
+所有消费者仍按 immutable artifact ID 下载且显式 `merge-multiple: true`，Publish 仍只能消费
+Job B 已验证的字节。`tests/release-evidence.test.mjs` 会拒绝恢复到 Node 20 代际或破坏这些约束。
+
+## Production 边界
+
+`environment: release` 只提供发布 secrets 与审批门禁，不等于 production deployment。
+本桌面产品只有在新的版本完成可信 Authenticode 签名、独立 clean-machine 资格验证、
+稳定渠道发布和公开同字节复核后，才可称为 production 桌面分发。若未来增加托管后端，
+还必须另行提供 production URL、部署平台/凭据、健康检查和回滚策略；没有这些输入时保持
+`PRODUCTION_EVIDENCE=NOT_AVAILABLE / NOT_RUN`。
+
+现有 `v0.5.0` 必须永久保持 `unsigned prerelease evidence-only`。签名会改变安装包字节，
+取得可信证书后应递增 patch 版本并建立新的签名和独立证据链，禁止原地覆盖该 Release。

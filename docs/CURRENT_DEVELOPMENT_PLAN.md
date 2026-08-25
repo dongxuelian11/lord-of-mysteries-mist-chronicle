@@ -1,6 +1,6 @@
 # 《灰雾纪事》当前开发计划与技术债闭环账本
 
-状态：`DELIVERY_IN_PROGRESS / CLEAN_PR_EXACT_MAIN_THEN_REL-01.4`
+状态：`POST_RELEASE_MAINTENANCE_CI_PASS / ACTIONS-01_REVIEW_READY`
 
 最后更新：2026-08-25
 
@@ -10,22 +10,20 @@
 
 ```text
 REPOSITORY=D:\gmzz
-AUDITED_LOCAL_BRANCH=codex/technical-debt-delivery
-DELIVERY_BASE=origin/main@c75eb6b03c6529d3eb14d536cb4a73e086f12e40
-DELIVERY_MIGRATION_COMMIT=2e9d8d5ae71b51e7905a46c0a4e37a3fd2c0235b (parent is exact DELIVERY_BASE; tree matched authorized 930a771 commit before delivery-workflow edits)
-DELIVERY_GATE_COMMIT=95b4b729c1df5a1be1a8264b8e4bd5b14db7e0bc
-CURRENT_WORKTREE=DIRTY_INTENTIONAL_CI_FIX (one cross-platform missing-seed fixture path plus ledger; two protected untracked QA logs remain)
-REMOTE_MAIN_CURRENT=c75eb6b03c6529d3eb14d536cb4a73e086f12e40 (refreshed after local gate commit; merge-base exact; refresh again before merge)
-AUDITED_TREE=e1853441ab86d1ff827763af9ac500b6ea90133e (delivery gate commit)
-REMOTE_MAIN_TREE=PENDING_EXACT_HEAD_RECHECK
-REMOTE_MAIN_TREE_BASIS=CLEAN_BRANCH_PARENT_IS_EXACT_VERIFIED_MAIN
-LATEST_MERGED_DELIVERY=GitHub PR #4
-CURRENT_NEXT_PACKAGE=DELIVERY-01 then REL-01.4
-CURRENT_NEXT_ACTION=提交并推送最后一个 Linux missing-seed fixture 路径修复，等待 PR #5 再次更新后的精确 head 通过 build(ubuntu/windows) CI 与审核；main 当前要求 strict 两项 CI、approval count=0、三种合并方式均允许；仅在锁定精确 head 后合并并验证 resulting main；之后才进入版本/tag、签名、Job B/Job C 和发布证据
-PACKAGE_PROGRESS=IMPLEMENTATION_AND_LOCAL_DELIVERY_GATE_COMPLETE; PR_5_OPEN; WINDOWS_CI_PASS_UBUNTU_ONE_FIX_PENDING; EXACT_MAIN_NOT_MERGED; SIGNED_RELEASE_AND_EXTERNAL_EVIDENCE_PENDING
+AUDITED_LOCAL_BRANCH=codex/actions-node24-readiness
+DELIVERY_BASE=origin/main@374d411d962620ab679a7d3f4d8d36377ca3903a
+CURRENT_WORKTREE=CLEAN_TRACKED_AFTER_PROGRESS_COMMIT (two protected untracked QA logs remain)
+REMOTE_MAIN_CURRENT=374d411d962620ab679a7d3f4d8d36377ca3903a (git fetch verified 2026-08-25; HEAD/origin/main/merge-base exact before branch creation)
+AUDITED_TREE=a09e81605d865e5b09eda0a72aa47c14ac0124d6 (exact DELIVERY_BASE tree)
+LATEST_MERGED_DELIVERY=GitHub PR #8 / v0.5.0 final evidence ledger
+CURRENT_NEXT_PACKAGE=ACTIONS-01
+CURRENT_NEXT_ACTION=查询 PR #9 最新 exact head 与 required CI；若 progress-only 更新后的双平台 CI 通过，则等待独立源码审核/用户合并授权；不得触发 release、移动 v0.5.0 tag 或声称 production
+PACKAGE_PROGRESS=V0.5.0_UNSIGNED_PRERELEASE_COMPLETE; ACTIONS_01_PR9_INITIAL_HEAD_CI_PASS_FINAL_DOC_HEAD_PENDING; AUTHENTICODE_CERTIFICATE_WAITING_USER; SIGNED_RELEASE_NOT_RUN; PRODUCTION_NOT_AVAILABLE
 ```
 
-本地审计分支与远端 `main` 的 commit identity 不同；本轮只读 `git ls-remote` 得到 `c75eb6b03c6529d3eb14d536cb4a73e086f12e40`，没有 fetch，因此不宣称远端 tree 与本地相同。开始提交/推送前仍必须重新查询 GitHub CURRENT，不能把上面的 SHA 当成永久事实。
+本轮已执行 `git fetch origin main --prune`，开始分支时本地 `HEAD`、`origin/main` 和
+merge-base 均为 `374d411d962620ab679a7d3f4d8d36377ca3903a`。提交、推送和任何合并决策前仍须重新查询
+GitHub CURRENT，不能把该 SHA 当成永久事实。
 
 既有未跟踪文件：
 
@@ -992,5 +990,59 @@ CLEAN_MACHINE=PASS
 SAME_BYTE_PUBLICATION=PASS
 PRODUCTION_EVIDENCE=NOT_AVAILABLE
 HUMAN_LONG_PLAY_EVIDENCE=NOT_AVAILABLE
+PROTECTED_UNTRACKED=.qa-prodserver3.err.log,.qa-prodserver3.out.log
+```
+
+### 2026-08-25 · ACTIONS-01 GitHub Actions Node 24 运行时兼容（当前权威继续点）
+
+- 用户授权完成所有不依赖正式证书的收尾工作；正式 Authenticode 证书采购/申请暂缓，
+  不生成自签名证书，不触发签名发布，也不原地修改 `v0.5.0` 的既有字节或 tag。
+- 2026-08-25 已执行 `git fetch origin main --prune`；分支创建前 `HEAD`、`origin/main`、
+  merge-base 均为 `374d411d962620ab679a7d3f4d8d36377ca3903a`，tree 为
+  `a09e81605d865e5b09eda0a72aa47c14ac0124d6`。
+- ACTIONS-01 限定写集：`.github/workflows/ci.yml`、`.github/workflows/release.yml`、
+  `tests/release-evidence.test.mjs`、`docs/releasing.md`、`docs/RELEASE_V0.5.0_LEDGER.md`、
+  本账本；应用运行时、seed、安装包、版本号、tag 和 GitHub Release 均未修改。
+- 源码迁移为 `checkout@v7`、`setup-node@v7`、`upload-artifact@v7`、
+  `download-artifact@v8`；`attest@v4` 保持当前 Node 24-compatible 代际。应用测试的
+  `node-version: 22` 不变，不能把 Action 内部运行时迁移误写成应用 Node 大版本升级。
+- 官方当前接口复核：upload v7 继续提供 `artifact-id`/`artifact-digest`；download v8
+  继续支持 `artifact-ids` 与 `merge-multiple`。Job B 继续无 checkout/无 setup-node/
+  无 npm/pip install，Job B/C/Publish 继续按 immutable artifact ID 传递，Publish 继续
+  只消费 Job B 已验证字节。
+- 本地 D 盘门禁：YAML 双文件 parse PASS；定向 release evidence `14/14 PASS`；全量测试
+  `576 total / 570 pass / 6 skip / 0 fail`；typecheck、lint、storage preflight、build、
+  coverage baseline/manifest/verifier 和 bundle budget 均 PASS。coverage 保持 14 sources、
+  8,921 counters、35.67% statements / 24.02% branches / 28.67% functions / 41.02% lines。
+- `npm audit --audit-level=high` 返回 0；仍报告 drizzle-kit 开发依赖链中的 4 个 moderate
+  esbuild advisory，自动建议需要 `--force` 且会破坏性降级 drizzle-kit，因此不在本限定
+  维护包中改写依赖图，也不把 moderate 写成零漏洞。
+- PR #9 initial head `926dc15f812364cf0002421e33469074c266420e` 的 required CI run
+  `32815767282` 已完成：Ubuntu job `97703585052`、Windows job `97703584779` 均
+  `SUCCESS`，两个 check-run annotations 都为空。该运行真实执行了 `checkout@v7` 和
+  `setup-node@v7`；release-only 的 upload/download/attest 路径没有被 PR CI 执行，仍以
+  官方当前接口、YAML parse 和发行证据回归为依据，不能冒充一次新的 release run。
+- 完整 base→head 源码差异审查没有发现 P0/P1/P2 finding：Action 版本行之外没有改变
+  workflow 输入、权限、条件、签名门禁或 artifact 路径；文档没有升级任何证据真值。
+- Production 边界：当前桌面 production 仍依赖新的可信签名版本；若未来增加托管后端，
+  还需另行提供 production URL、平台/凭据、健康检查和回滚策略。当前保持
+  `PRODUCTION_EVIDENCE=NOT_AVAILABLE / NOT_RUN`。
+
+```text
+ACTIONS_01_STATUS=PR9_INITIAL_HEAD_CI_PASS_FINAL_DOC_HEAD_PENDING
+ACTIONS_01_BASE=374d411d962620ab679a7d3f4d8d36377ca3903a
+ACTIONS_01_IMPLEMENTATION_COMMIT=283f1190ac6b4abc1094f97db3b609f72dd149cf
+ACTIONS_01_INITIAL_CI_HEAD=926dc15f812364cf0002421e33469074c266420e
+ACTIONS_01_LOCAL_TESTS=PASS (576/570/6/0; targeted 14/14)
+ACTIONS_01_WORKFLOW_PARSE=PASS
+ACTIONS_01_HIGH_AUDIT=PASS_WITH_4_MODERATE_REPORTED
+ACTIONS_01_HOSTED_CI=PASS (run 32815767282; ubuntu/windows SUCCESS; annotations empty)
+ACTIONS_01_RELEASE_ONLY_ACTION_EXECUTION=NOT_RUN
+ACTIONS_01_SOURCE_REVIEW=PASS_NO_FINDINGS
+ACTIONS_01_PR=9 OPEN
+AUTHENTICODE_CERTIFICATE=WAITING_USER
+AUTHENTICODE_SIGNING=NOT_RUN
+PRODUCTION_EVIDENCE=NOT_AVAILABLE / NOT_RUN
+CURRENT_NEXT_ACTION=推送 progress-only 账本更新；查询 PR #9 最新 exact head 与双平台 CI，再等待独立源码审核/用户合并授权
 PROTECTED_UNTRACKED=.qa-prodserver3.err.log,.qa-prodserver3.out.log
 ```
