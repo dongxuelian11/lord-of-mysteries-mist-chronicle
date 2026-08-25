@@ -282,6 +282,7 @@ jobs:
         with:
           artifact-ids: ${{ needs.clean-machine.outputs.evidence-artifact-id }}
           path: ${{ runner.temp }}/clean-machine-evidence
+          merge-multiple: true
 
       - name: Verify evidence contract against exact source HEAD
         shell: pwsh
@@ -312,6 +313,7 @@ jobs:
         with:
           artifact-ids: ${{ needs.clean-machine.outputs.evidence-artifact-id }}
           path: ${{ runner.temp }}/qualified-release
+          merge-multiple: true
 
       - name: Recheck signature and create or update GitHub Release
         shell: pwsh
