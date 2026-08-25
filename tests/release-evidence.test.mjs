@@ -169,6 +169,11 @@ test("release workflow qualifies the transferred installer on a checkout-free cl
     cleanMachineJob.indexOf("name: Enforce D-drive runner roots") < cleanMachineJob.indexOf("actions/download-artifact@v4"),
     "clean-machine must reject a non-D runner before downloading the artifact"
   );
+  const fullTest = workflow.indexOf("- run: npm test");
+  const finalSeedStage = workflow.indexOf("name: Restage authorized knowledge seed after test isolation");
+  const installerBuild = workflow.indexOf("name: Build installer without implicit publishing");
+  assert.ok(fullTest !== -1 && fullTest < finalSeedStage && finalSeedStage < installerBuild,
+    "the authorized seed must be revalidated after tests and immediately before packaging");
   assert.doesNotMatch(workflow, /materialize-lore-from-seed/);
 });
 
@@ -255,8 +260,9 @@ test("artifact provenance command fails closed with a diagnosable seed gate when
 });
 
 test("release seed verifier accepts an explicit D-drive seed directory and stages manifest-listed files", () => {
-  const runtimeRoot = path.join(repositoryRoot, ".runtime");
-  fs.mkdirSync(runtimeRoot, { recursive: true });
+  const baseRuntimeRoot = path.join(repositoryRoot, ".runtime");
+  fs.mkdirSync(baseRuntimeRoot, { recursive: true });
+  const runtimeRoot = fs.mkdtempSync(path.join(baseRuntimeRoot, "release-seed-test-"));
   const fixtureParent = fs.mkdtempSync(path.join(runtimeRoot, "release-seed-input-"));
   const fixtureDir = path.join(fixtureParent, "index");
   const stagedDir = path.join(runtimeRoot, "release-seed");
@@ -290,6 +296,7 @@ test("release seed verifier accepts an explicit D-drive seed directory and stage
       encoding: "utf8",
       env: releaseTestEnv({
         GMZZ_STORAGE_ROOT: runtimeRoot,
+        GMZZ_USER_DATA: path.join(runtimeRoot, "user-data"),
         GMZZ_REQUIRE_D_DRIVE: "1",
         KNOWLEDGE_SEED_DIR: fixtureDir,
         TEMP: path.join(runtimeRoot, "tmp"),
@@ -300,8 +307,7 @@ test("release seed verifier accepts an explicit D-drive seed directory and stage
     assert.match(`${result.stdout}\n${result.stderr}`, /\[release:seed\].*buildId=/);
     assert.equal(fs.existsSync(path.join(stagedDir, "vectors.json")), true);
   } finally {
-    fs.rmSync(fixtureParent, { recursive: true, force: true });
-    fs.rmSync(stagedDir, { recursive: true, force: true });
+    fs.rmSync(runtimeRoot, { recursive: true, force: true });
   }
 });
 

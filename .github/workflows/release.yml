@@ -131,6 +131,12 @@ jobs:
       - run: npm run bundle:budget
       - run: npm audit --audit-level=high
 
+      # The test suite includes release-seed fixtures. Revalidate and restage the
+      # authorized input at the final build boundary so packaging can never
+      # inherit test-owned staging state.
+      - name: Restage authorized knowledge seed after test isolation
+        run: npm run release:verify:seed
+
       - name: Build installer without implicit publishing
         shell: pwsh
         run: |
