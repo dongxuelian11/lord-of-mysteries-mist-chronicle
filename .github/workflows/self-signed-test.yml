@@ -177,8 +177,16 @@ jobs:
           const workspace = process.env.GITHUB_WORKSPACE;
           const yaml = require(path.join(workspace, "node_modules", "js-yaml"));
           const base = yaml.load(fs.readFileSync(path.join(workspace, "electron-builder.yml"), "utf8"));
+          const releaseSeed = path.join(process.env.GMZZ_STORAGE_ROOT, "release-seed");
+          if (!fs.existsSync(path.join(releaseSeed, "seed-manifest.json"))) {
+            throw new Error(`Authorized release seed is missing at ${releaseSeed}`);
+          }
           module.exports = {
             ...base,
+            extraResources: [
+              ...(base.extraResources ?? []).filter((entry) => entry?.to !== "knowledge/seed"),
+              { from: releaseSeed, to: "knowledge/seed" },
+            ],
             forceCodeSigning: true,
             win: {
               ...base.win,
@@ -191,6 +199,21 @@ jobs:
           };
           '@ | Set-Content -LiteralPath $config -Encoding utf8
           npx electron-builder --win nsis --publish never --config $config
+          $packagedSeed = Join-Path $env:GITHUB_WORKSPACE "release/win-unpacked/resources/knowledge/seed"
+          $stagedManifest = Join-Path $env:GMZZ_STORAGE_ROOT "release-seed/seed-manifest.json"
+          $packagedManifest = Join-Path $packagedSeed "seed-manifest.json"
+          if ((Get-FileHash -LiteralPath $stagedManifest -Algorithm SHA256).Hash -ne
+              (Get-FileHash -LiteralPath $packagedManifest -Algorithm SHA256).Hash) {
+            throw "Packaged knowledge seed manifest differs from the authorized staged manifest"
+          }
+          $seedVerifier = @(
+            "const {validateSeed}=require('./electron/knowledge-seed.cjs');"
+            "const result=validateSeed(process.argv[1]);"
+            "if(!result.ok){throw new Error(result.error)}"
+            "console.log('PACKAGED_SEED_VALID=PASS buildId='+result.manifest.buildId);"
+          ) -join " "
+          node -e $seedVerifier $packagedSeed
+          if ($LASTEXITCODE -ne 0) { throw "Packaged knowledge seed validation failed" }
 
       - name: Verify installer and unpacked application signatures
         timeout-minutes: 8
