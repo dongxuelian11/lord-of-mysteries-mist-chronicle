@@ -956,3 +956,41 @@ PUBLIC_RELEASE=PENDING
 LOCAL_GATES=PASS (575 total / 569 pass / 6 skip / 0 fail; coverage 14 sources / 8,921 counters; strict NLP 160/160; strict leak 120/120)
 PROTECTED_UNTRACKED=.qa-prodserver3.err.log,.qa-prodserver3.out.log
 ```
+
+### 2026-08-25 · RELEASE-0.5.0 最终闭环（权威覆盖点）
+
+- 上述 `IN_PROGRESS/PENDING/NOT_RUN` 是发布前历史快照；当前权威状态以本节和
+  `docs/RELEASE_V0.5.0_LEDGER.md` 为准。
+- 发布准备 PR #6 锁头 squash 后，发布时 exact-main 与 annotated `v0.5.0` 的目标均为
+  `6c8c044b7b10f0266874f128d9d0a791ed537a8b`。
+- 最终成功 workflow run `32811488683` 使用 workflow head
+  `627b75f0fa75aaa19b7a14c737c9d5dfa024f2ef`；Job A、无 checkout/无依赖安装的 Job B、
+  精确源码 Job C 与 Publish 全部 `SUCCESS`。
+- 安装包为 114186119 bytes，SHA-256
+  `e11ec846e2a226882c08770613861f4d6d9ef5eadc6bccc42e0bb41ce81ee895`；
+  Authenticode 正式签名 `NOT_RUN`，实测 `NotSigned`。
+- Draft、Job B 和匿名公共下载逐文件同字节复核 `PASS`；GitHub Release 已公开为
+  `v0.5.0` prerelease，不是 production。
+- 自动化修复 PR #7 锁头 squash 为 `c7f4109bf809c6ebe50339b3508605c9a142a535`，tree 与
+  PR head 完全相同；resulting-main CI run `32812215419` 双平台 `SUCCESS`。tag 未移动。
+- 本账本 PR 只允许修改这两个文档。它按 required CI/源码审核/locked-head 进入 main 时，
+  `RELEASE-0.5.0` 总计划即为 `COMPLETE_WITH_EXPLICIT_UNSIGNED_BOUNDARY`；不得再创建递归
+  “记录账本 merge SHA”的 PR。
+
+```text
+LAST_COMPLETED=RELEASE-0.5.0 BUILD_CLEAN_MACHINE_SAME_BYTE_PUBLICATION_AND_AUTOMATION_CLOSURE
+IN_PROGRESS=FINAL_LEDGER_PR_ONLY
+CURRENT_NEXT_ACTION=VALIDATE_DOCS_CREATE_PR_WAIT_REQUIRED_CI_SOURCE_REVIEW_AND_LOCKED_HEAD_MERGE
+RELEASE_SOURCE_AND_TAG=6c8c044b7b10f0266874f128d9d0a791ed537a8b
+RELEASE_WORKFLOW_HEAD=627b75f0fa75aaa19b7a14c737c9d5dfa024f2ef
+POST_RELEASE_MAIN=c7f4109bf809c6ebe50339b3508605c9a142a535
+RELEASE_RUN=32811488683 SUCCESS
+PUBLIC_RELEASE=https://github.com/dongxuelian11/lord-of-mysteries-mist-chronicle/releases/tag/v0.5.0
+AUTHENTICODE_SIGNING=NOT_RUN
+INSTALLER_SIGNATURE=NotSigned
+CLEAN_MACHINE=PASS
+SAME_BYTE_PUBLICATION=PASS
+PRODUCTION_EVIDENCE=NOT_AVAILABLE
+HUMAN_LONG_PLAY_EVIDENCE=NOT_AVAILABLE
+PROTECTED_UNTRACKED=.qa-prodserver3.err.log,.qa-prodserver3.out.log
+```
